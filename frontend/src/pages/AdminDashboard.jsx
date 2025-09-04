@@ -133,24 +133,32 @@ useEffect(() => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleSaveEmployee = () => {
+const handleSaveEmployee = async () => {
+  try {
     if (editingEmployee) {
-      setEmployees(prev => prev.map(emp => 
-        emp.id === editingEmployee.id 
-          ? { ...emp, ...employeeForm }
-          : emp
-      ));
-      showToast('Mitarbeiter aktualisiert', 'success');
+      showToast('Update kommt noch', 'info');
     } else {
-      const newEmployee = {
-        id: employees.length + 1,
-        ...employeeForm,
-        hourly_rate: parseFloat(employeeForm.hourly_rate),
-        daily_hours: parseFloat(employeeForm.daily_hours),
-        is_active: true
-      };
-      setEmployees(prev => [...prev, newEmployee]);
-      showToast('Mitarbeiter hinzugefügt', 'success');
+      // Neuer Mitarbeiter speichern
+      await api.post('/admin/employees', employeeForm);
+      
+      // Liste neu laden
+      const response = await api.get('/admin/employees-with-categories');
+      const employeeData = response.data
+        .filter(emp => !emp.personal_nr.startsWith('A'))
+        .map(emp => ({
+          id: emp.id,
+          personal_nr: emp.personal_nr,
+          first_name: emp.name.split(' ')[0],
+          last_name: emp.name.split(' ')[1] || '',
+          email: `${emp.personal_nr.toLowerCase()}@seda24.de`,
+          tracking_mode: emp.tracking_mode || emp.category || 'C',
+          hourly_rate: 15.50,
+          is_active: true,
+          daily_hours: 8
+        }))
+        .sort((a, b) => a.personal_nr.localeCompare(b.personal_nr));
+      setEmployees(employeeData);
+      showToast('Mitarbeiter angelegt!', 'success');
     }
     
     setShowNewEmployeeModal(false);
@@ -166,7 +174,11 @@ useEffect(() => {
       daily_hours: '8',
       gps_required: false
     });
-  };
+  } catch (error) {
+    console.error('Fehler:', error);
+    showToast('Fehler beim Speichern', 'error');
+  }
+};
 
  const handleInlineCategoryChange = async (employeeId, newCategory) => {
   try {

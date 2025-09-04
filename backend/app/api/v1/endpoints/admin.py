@@ -102,26 +102,35 @@ def update_category(data: dict, db: Session = Depends(get_db), admin = Depends(v
 
 @router.post("/employees")
 def create_employee(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    # Neuen User erstellen
+    from app.api.v1.endpoints.auth import get_password_hash
+    
+    # Check ob Personal-Nr existiert
+    existing = db.query(Employee).filter(Employee.personal_nr == data["personal_nr"]).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Personal-Nr existiert bereits")
+    
+    # User erstellen
     user = User(
         email=data["email"],
         hashed_password=get_password_hash(data["password"]),
-        role="employee"
+        role="employee",
+        category=data.get("tracking_mode", "C")
     )
     db.add(user)
     db.flush()
     
-    # Employee dazu
+    # Employee erstellen
     employee = Employee(
         user_id=user.id,
         personal_nr=data["personal_nr"],
         first_name=data["first_name"],
         last_name=data["last_name"],
-        tracking_mode=data["tracking_mode"],
+        tracking_mode=data.get("tracking_mode", "C"),
         gps_required=data.get("gps_required", False)
     )
     db.add(employee)
     db.commit()
+    
     return {"status": "ok", "id": employee.id}
 
 @router.get("/schedules")
