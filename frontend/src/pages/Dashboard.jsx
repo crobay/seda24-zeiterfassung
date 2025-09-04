@@ -209,29 +209,37 @@ const Dashboard = () => {
   };
 
   const handleWarAnwesend = async () => {
-    try {
-      const response = await axios.post(
-        `${API_URL}/time-entries/war-anwesend`,
-        { object_id: parseInt(selectedObject), service_type: serviceType },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-      
-      setButtonText(`✅ ${response.data.scheduled_hours}h gebucht!`);
+  try {
+    console.log('Sende Leistungsart:', serviceType); // DEBUG-ZEILE
+    
+    const response = await axios.post(
+      `${API_URL}/time-entries/war-anwesend`,
+      { 
+        object_id: parseInt(selectedObject), 
+        service_type: serviceType 
+      },
+      { headers: { Authorization: `Bearer ${token}` }}
+    );
+    
+    console.log('Antwort vom Server:', response.data); // DEBUG-ZEILE
+    
+    setButtonText(`✅ ${response.data.scheduled_hours}h gebucht!`);
+    setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
+    
+    fetchTodayHours();
+    fetchWeekHours();
+    fetchMonthHours();
+  } catch (error) {
+    if (error.response?.status === 400 && error.response?.data?.detail?.includes('bereits Stunden')) {
+      setButtonText('❌ Bereits gebucht!');
       setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
-      
-      fetchTodayHours();
-      fetchWeekHours();
-      fetchMonthHours();
-    } catch (error) {
-      if (error.response?.status === 400 && error.response?.data?.detail?.includes('bereits Stunden')) {
-        setButtonText('❌ Bereits gebucht!');
-        setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
-      } else {
-        setButtonText('❌ Fehler!');
-        setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
-      }
+    } else {
+      console.error('Fehler:', error); // DEBUG-ZEILE
+      setButtonText('❌ Fehler!');
+      setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
     }
-  };
+  }
+};
 
   const handleCheckIn = async () => {
     try {

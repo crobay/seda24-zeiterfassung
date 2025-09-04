@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import List
 import math
 
@@ -225,6 +225,9 @@ def war_anwesend_booking(
     object_id = data.get('object_id')
     if not object_id:
         raise HTTPException(status_code=400, detail="Objekt fehlt")
+        
+    ervice_type = data.get('service_type', 'Unterhaltsreinigung')
+    print(f"DEBUG: Service Type erhalten: {service_type}") 
     
     if employee.tracking_mode != 'B':
         raise HTTPException(
@@ -265,13 +268,14 @@ def war_anwesend_booking(
     check_out = check_in + timedelta(hours=scheduled_hours)
     
     time_entry = TimeEntry(
-        employee_id=employee.id,
-        object_id=object_id,
-        check_in=check_in,
-        check_out=check_out,
-        is_manual_entry=True,
-        notes="War anwesend (Kategorie B)"
-    )
+    employee_id=employee.id,
+    object_id=object_id,
+    check_in=check_in,
+    check_out=check_out,
+    service_type=service_type,  # <-- NEUE ZEILE!
+    is_manual_entry=True,
+    notes=f"War anwesend (Kategorie B) - {service_type}"  # <-- AUCH GEÄNDERT!
+)
     
     db.add(time_entry)
     db.commit()
