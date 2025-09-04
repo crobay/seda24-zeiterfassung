@@ -466,7 +466,15 @@ const Dashboard = () => {
                         <span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span>
                       </div>
                       <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-					  {employeeTachoData ? `${Math.round(employeeTachoData.total_hours_since_start)} Std` : '2906 Std'}
+					  {(() => {
+					  if (employeeTachoData && employeeTachoData.total_hours_since_start) {
+						const total = employeeTachoData.total_hours_since_start;
+						const h = Math.floor(total);
+						const m = Math.round((total % 1) * 60);
+						return `${h} Std ${m} Min`;
+					  }
+					  return '0 Std 0 Min';
+					})()}
 					</div>
                     </div>
                   </div>
@@ -685,7 +693,15 @@ const Dashboard = () => {
                         <span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span>
                       </div>
                       <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-					 {employeeTachoData ? `${Math.round(employeeTachoData.total_hours_since_start)} Std` : '2906 Std'}
+					 {(() => {
+					  if (employeeTachoData && employeeTachoData.total_hours_since_start) {
+						const total = employeeTachoData.total_hours_since_start;
+						const h = Math.floor(total);
+						const m = Math.round((total % 1) * 60);
+						return `${h} Std ${m} Min`;
+					  }
+					  return '0 Std 0 Min';
+					})()}
 					</div>
                     </div>
                   </div>
@@ -857,7 +873,15 @@ const Dashboard = () => {
                   <div style={{ background: 'linear-gradient(135deg, #f5a623 0%, #f7b733 100%)', padding: '16px', borderRadius: '12px', color: 'white', textAlign: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' }}><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(255, 255, 255, 0.2)' }}><Gauge size={18} color="white" /></span><span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span></div>
                     <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-				{employeeTachoData ? `${Math.round(employeeTachoData.total_hours_since_start)} Std` : '2906 Std'}
+				{(() => {
+				  if (employeeTachoData && employeeTachoData.total_hours_since_start) {
+					const total = employeeTachoData.total_hours_since_start;
+					const h = Math.floor(total);
+					const m = Math.round((total % 1) * 60);
+					return `${h} Std ${m} Min`;
+				  }
+				  return '0 Std 0 Min';
+				})()}
 					</div>
                   </div>
                 </div>

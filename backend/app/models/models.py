@@ -36,6 +36,8 @@ class Employee(Base):
     hourly_rate_standard = Column(Float, default=15.00)  # Unterhaltsreinigung
     hourly_rate_window = Column(Float, default=20.00)    # Fensterreinigung  
     hourly_rate_basic = Column(Float, default=20.00)     # Grundreinigung    monthly_amount = Column(Float, default=556.00)
+    total_hours_since_start = Column(Float, default=0.0)
+    start_hours = Column(Float, default=0.0)
 # Compatibility für alte API
     hourly_rate = Column(Float, default=15.00)  # Fallback für API
     address = Column(Text)
