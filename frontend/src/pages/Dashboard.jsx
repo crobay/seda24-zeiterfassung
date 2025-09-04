@@ -28,6 +28,7 @@ const Dashboard = () => {
   const [employeeCategory, setEmployeeCategory] = useState('C');
   const [employeeData, setEmployeeData] = useState(null);
   const [loadingCategory, setLoadingCategory] = useState(true);
+  const [employeeTachoData, setEmployeeTachoData] = useState(null);
   
   // States für die Pause
   const [isPaused, setIsPaused] = useState(false);
@@ -207,6 +208,17 @@ const Dashboard = () => {
       console.error('Fehler:', error); 
     }
   };
+
+	  const fetchEmployeeTachoData = async () => {
+	  try {
+		const response = await axios.get(`${API_URL}/employees/me`, { 
+		  headers: { Authorization: `Bearer ${token}` } 
+		});
+		setEmployeeTachoData(response.data);
+	  } catch (error) { 
+		console.error('Tacho-Fehler:', error); 
+	  }
+	};
 
   const handleWarAnwesend = async () => {
   try {
