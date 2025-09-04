@@ -226,8 +226,8 @@ def war_anwesend_booking(
     if not object_id:
         raise HTTPException(status_code=400, detail="Objekt fehlt")
         
-    ervice_type = data.get('service_type', 'Unterhaltsreinigung')
-    print(f"DEBUG: Service Type erhalten: {service_type}") 
+    service_type = data.get('service_type', 'Unterhaltsreinigung')
+    print(f"DEBUG: data={data}, service_type={service_type}")
     
     if employee.tracking_mode != 'B':
         raise HTTPException(
@@ -261,23 +261,23 @@ def war_anwesend_booking(
         # Matej und Ruzica arbeiten meist 4 Stunden
         scheduled_hours = 4.0
     else:
-        scheduled_hours = schedule.scheduled_hours
+        scheduled_hours = schedule.planned_hours
     
     # Erstelle Zeiteintrag
     check_in = datetime.now().replace(hour=6, minute=0, second=0, microsecond=0)
     check_out = check_in + timedelta(hours=scheduled_hours)
     
     time_entry = TimeEntry(
-    employee_id=employee.id,
-    object_id=object_id,
-    check_in=check_in,
-    check_out=check_out,
-    service_type=service_type,  # <-- NEUE ZEILE!
-    is_manual_entry=True,
-    notes=f"War anwesend (Kategorie B) - {service_type}"  # <-- AUCH GEÄNDERT!
-)
-    
-    db.add(time_entry)
+        employee_id=employee.id,
+        object_id=object_id,
+        check_in=check_in,
+        check_out=check_out,
+        service_type=service_type,
+        is_manual_entry=True,
+        notes=f"War anwesend (Kategorie B) - {service_type}"
+        )
+  
+    db.add(time_entry)  # <-- MUSS GLEICHE EINRÜCKUNG HABEN WIE time_entry = 
     db.commit()
     
     return {
@@ -343,7 +343,7 @@ def get_my_scheduled_objects(
             "address": obj.address,
             "gps_lat": obj.gps_lat,
             "gps_lng": obj.gps_lng,
-            "radius": obj.radius,
+#            "radius": obj.radius,
             "planned_hours": obj_schedule.planned_hours if obj_schedule else 8,
             "start_time": obj_schedule.start_time.strftime("%H:%M") if obj_schedule and obj_schedule.start_time else "06:00",
             "end_time": obj_schedule.end_time.strftime("%H:%M") if obj_schedule and obj_schedule.end_time else "14:00",
