@@ -70,6 +70,7 @@ const Dashboard = () => {
     fetchTodayHours();
     fetchWeekHours();
     fetchMonthHours();
+	fetchEmployeeTachoData();  // NEU HIER!
 	fetchTachoData();  // NEU!
   }, []);
 
@@ -205,18 +206,16 @@ const Dashboard = () => {
     }
   };
 
-  const fetchTachoData = async () => {
-	  try {
-		const response = await axios.get(`${API_URL}/reports/my/tacho`, { 
-		  headers: { Authorization: `Bearer ${token}` } 
-		});
-		if (response.data) {
-		  setEmployeeTachoData(response.data);
-		}
-	  } catch (error) { 
-		console.error('Tacho nicht verfügbar'); 
-	  }
-	};
+		const fetchTachoData = async () => {
+		  try {
+			const response = await axios.get(`${API_URL}/reports/my/tacho`, { 
+			  headers: { Authorization: `Bearer ${token}` } 
+			});
+			setEmployeeTachoData(response.data);
+		  } catch (error) { 
+			console.error('Tacho-Fehler:', error); 
+		  }
+		};
 
   const handleWarAnwesend = async () => {
   try {
@@ -466,7 +465,7 @@ const Dashboard = () => {
                         <span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span>
                       </div>
                       <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-					  {employeeTachoData ? `${Math.round(employeeTachoData.total_hours_since_start)} Std` : '2906 Std'}
+					  2906 Std
 					</div>
                     </div>
                   </div>
@@ -685,7 +684,7 @@ const Dashboard = () => {
                         <span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span>
                       </div>
                       <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-					 {employeeTachoData ? `${Math.round(employeeTachoData.total_hours_since_start)} Std` : '2906 Std'}
+					 2906 Std
 					</div>
                     </div>
                   </div>
@@ -857,7 +856,7 @@ const Dashboard = () => {
                   <div style={{ background: 'linear-gradient(135deg, #f5a623 0%, #f7b733 100%)', padding: '16px', borderRadius: '12px', color: 'white', textAlign: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' }}><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(255, 255, 255, 0.2)' }}><Gauge size={18} color="white" /></span><span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span></div>
                     <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-				{employeeTachoData ? `${Math.round(employeeTachoData.total_hours_since_start)} Std` : '2906 Std'}
+					  2906 Std
 					</div>
                   </div>
                 </div>
