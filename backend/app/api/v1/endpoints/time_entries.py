@@ -268,12 +268,20 @@ def war_anwesend_booking(
     check_in = datetime.now().replace(hour=6, minute=0, second=0, microsecond=0)
     check_out = check_in + timedelta(hours=scheduled_hours)
     
+    if service_type == 'Fensterreinigung':
+        hourly_rate = 20.0
+    elif service_type == 'Grundreinigung':
+        hourly_rate = 20.0
+    else:  # Unterhaltsreinigung und alles andere
+        hourly_rate = 15.0
+    
     time_entry = TimeEntry(
         employee_id=employee.id,
         object_id=object_id,
         check_in=check_in,
         check_out=check_out,
         service_type=service_type,
+        hourly_rate=hourly_rate,  # <-- UND DIESE ZEILE DAZU
         is_manual_entry=True,
         notes=f"War anwesend (Kategorie B) - {service_type}"
     )
