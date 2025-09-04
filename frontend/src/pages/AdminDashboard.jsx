@@ -6,22 +6,18 @@ import {
 } from 'lucide-react';
 import ScheduleTab from "../components/ScheduleTab";
 import api from '../services/api';
+import { getEmployeesWithCategories, updateCategory, getDashboardStats } from '../services/adminApi';
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
-  const [employees, setEmployees] = useState([
-    { id: 1, personal_nr: '001', first_name: 'Max', last_name: 'Mustermann', email: 'max@seda24.de', tracking_mode: 'C', hourly_rate: 15.50, is_active: true, daily_hours: 8 },
-    { id: 2, personal_nr: '002', first_name: 'Anna', last_name: 'Schmidt', email: 'anna@seda24.de', tracking_mode: 'B', hourly_rate: 16.00, is_active: true, daily_hours: 6 },
-    { id: 3, personal_nr: '003', first_name: 'Peter', last_name: 'Weber', email: 'peter@seda24.de', tracking_mode: 'A', hourly_rate: 22.00, is_active: true, daily_hours: 8 }
-  ]);
-  
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [customers, setCustomers] = useState([]);
   
   const [liveStatus, setLiveStatus] = useState([
     { employee_name: 'Max Mustermann', object_name: 'Sparkasse Rastatt', check_in_time: '08:15', work_hours: '2.5', is_paused: false },
     { employee_name: 'Anna Schmidt', object_name: 'Rathaus Gaggenau', check_in_time: '07:30', work_hours: '3.2', is_paused: false }
   ]);
-  
   const [stats, setStats] = useState({
     active_employees: 2,
     paused_employees: 0,
@@ -55,6 +51,32 @@ const AdminDashboard = () => {
   })
       .catch(error => console.error('Fehler:', error));
   }, []);
+
+// Echte Mitarbeiter aus DB laden
+useEffect(() => {
+  api.get('/admin/employees-with-categories')
+    .then(response => {
+      if (response.data) {
+        const employeeData = response.data
+          .filter(emp => !emp.personal_nr.startsWith('A')) // Admin raus!
+          .map(emp => ({
+            id: emp.id,
+            personal_nr: emp.personal_nr,
+            first_name: emp.name.split(' ')[0],
+            last_name: emp.name.split(' ')[1] || '',
+            email: `${emp.personal_nr.toLowerCase()}@seda24.de`,
+            tracking_mode: emp.tracking_mode || emp.category || 'C',
+            hourly_rate: 15.50,
+            is_active: true,
+            daily_hours: 8
+          }))
+          .sort((a, b) => a.personal_nr.localeCompare(b.personal_nr)); // Sortiert!
+        setEmployees(employeeData);
+        console.log('Mitarbeiter geladen:', employeeData);
+      }
+    })
+    .catch(error => console.error('Fehler Mitarbeiter:', error));
+}, []);
   
   // Form States for Employee Modal
   const [employeeForm, setEmployeeForm] = useState({
@@ -146,14 +168,36 @@ const AdminDashboard = () => {
     });
   };
 
-  const handleInlineCategoryChange = (employeeId, newCategory) => {
-    setEmployees(prev => prev.map(emp => 
-      emp.id === employeeId 
-        ? { ...emp, tracking_mode: newCategory }
-        : emp
-    ));
+ const handleInlineCategoryChange = async (employeeId, newCategory) => {
+  try {
+    await api.put('/admin/update-category', {
+      employee_id: employeeId,
+      tracking_mode: newCategory,
+      gps_required: newCategory === 'C'
+    });
+    // Daten NEU laden damit Änderung bleibt!
+    const response = await api.get('/admin/employees-with-categories');
+    const employeeData = response.data
+      .filter(emp => !emp.personal_nr.startsWith('A'))  // Admin RAUS!
+      .map(emp => ({
+        id: emp.id,
+        personal_nr: emp.personal_nr,
+        first_name: emp.name.split(' ')[0],
+        last_name: emp.name.split(' ')[1] || '',
+        email: `${emp.personal_nr.toLowerCase()}@seda24.de`,
+        tracking_mode: emp.tracking_mode || emp.category || 'C',
+        hourly_rate: 15.50,
+        is_active: true,
+        daily_hours: 8
+      }))
+      .sort((a, b) => a.personal_nr.localeCompare(b.personal_nr));
+    setEmployees(employeeData);
     showToast('Kategorie geändert', 'success');
-  };
+  } catch (error) {
+    console.error('Fehler:', error);
+    showToast('Fehler beim Ändern', 'error');
+  }
+};
 
   const handleSaveCustomer = () => {
     if (editingCustomer) {

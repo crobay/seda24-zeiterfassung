@@ -10,6 +10,7 @@ import os
 from dotenv import load_dotenv
 from app.api.v1.endpoints.auth import get_current_user
 from collections import defaultdict
+from app.api.v1.endpoints.auth import get_password_hash
 
 load_dotenv()
 router = APIRouter()
@@ -98,6 +99,30 @@ def update_category(data: dict, db: Session = Depends(get_db), admin = Depends(v
     
     db.commit()
     return {"status": "ok", "message": f"Kategorie auf {new_category} gesetzt"}
+
+@router.post("/employees")
+def create_employee(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    # Neuen User erstellen
+    user = User(
+        email=data["email"],
+        hashed_password=get_password_hash(data["password"]),
+        role="employee"
+    )
+    db.add(user)
+    db.flush()
+    
+    # Employee dazu
+    employee = Employee(
+        user_id=user.id,
+        personal_nr=data["personal_nr"],
+        first_name=data["first_name"],
+        last_name=data["last_name"],
+        tracking_mode=data["tracking_mode"],
+        gps_required=data.get("gps_required", False)
+    )
+    db.add(employee)
+    db.commit()
+    return {"status": "ok", "id": employee.id}
 
 @router.get("/schedules")
 def get_all_schedules(db: Session = Depends(get_db), admin = Depends(verify_admin)):
