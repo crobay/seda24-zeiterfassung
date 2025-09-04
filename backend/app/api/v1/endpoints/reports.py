@@ -293,3 +293,17 @@ def export_excel(
         media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+    
+@router.get("/my/tacho")
+def get_my_tacho(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    if not employee:
+        return {"total_hours_since_start": 0, "start_hours": 0}
+    
+    return {
+    "total_hours_since_start": employee.total_hours_since_start or 0,
+    "start_hours": employee.start_hours or 0
+    }

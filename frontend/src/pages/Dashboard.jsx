@@ -70,12 +70,8 @@ const Dashboard = () => {
     fetchTodayHours();
     fetchWeekHours();
     fetchMonthHours();
+	fetchEmployeeTachoData();  // NEU HIER!
   }, []);
-
-  useEffect(() => {
-    const baseHours = 2856;
-    setTotalHours(baseHours + monthHours);
-  }, [monthHours]);
 
   const fetchEmployeeCategory = async () => {
     try {
@@ -467,7 +463,11 @@ const Dashboard = () => {
                         <Gauge size={18} color="white" />
                         <span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span>
                       </div>
-                      <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{formatTotalHours(totalHours)}</div>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+					  {employeeData?.total_hours_since_start ? 
+						`${Math.round(employeeData.total_hours_since_start)} Std` : 
+						'0 Std'}
+					</div>
                     </div>
                   </div>
                 </div>
@@ -684,7 +684,11 @@ const Dashboard = () => {
                         <Gauge size={18} color="white" />
                         <span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span>
                       </div>
-                      <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{formatTotalHours(totalHours)}</div>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+					  {employeeData?.total_hours_since_start ? 
+						`${Math.round(employeeData.total_hours_since_start)} Std` : 
+						'0 Std'}
+					</div>
                     </div>
                   </div>
                 </div>
@@ -854,7 +858,11 @@ const Dashboard = () => {
                   </div>
                   <div style={{ background: 'linear-gradient(135deg, #f5a623 0%, #f7b733 100%)', padding: '16px', borderRadius: '12px', color: 'white', textAlign: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' }}><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(255, 255, 255, 0.2)' }}><Gauge size={18} color="white" /></span><span style={{ fontSize: '14px', fontWeight: '500' }}>Seit Beginn</span></div>
-                    <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{formatTotalHours(totalHours)}</div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+					  {employeeTachoData?.total_hours_since_start ? 
+						`${employeeTachoData.total_hours_since_start.toFixed(1)} Std` : 
+						'0 Std'}
+					</div>
                   </div>
                 </div>
               </div>
