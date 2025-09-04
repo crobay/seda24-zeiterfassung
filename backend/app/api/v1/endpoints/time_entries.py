@@ -249,7 +249,8 @@ def war_anwesend_booking(
             detail="Du hast heute bereits Stunden für dieses Objekt gebucht"
         )
     
-    # Hole Sollstunden aus Dienstplan
+
+# Hole Sollstunden aus Dienstplan
     schedule = db.query(Schedule).filter(
         Schedule.employee_id == employee.id,
         Schedule.object_id == object_id,
@@ -275,9 +276,9 @@ def war_anwesend_booking(
         service_type=service_type,
         is_manual_entry=True,
         notes=f"War anwesend (Kategorie B) - {service_type}"
-        )
-  
-    db.add(time_entry)  # <-- MUSS GLEICHE EINRÜCKUNG HABEN WIE time_entry = 
+    )
+    
+    db.add(time_entry)
     db.commit()
     
     return {
