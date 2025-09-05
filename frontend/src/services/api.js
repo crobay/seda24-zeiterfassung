@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// Backend läuft auf Port 8001!
 const API_URL = 'https://192.168.178.87:8001/api/v1';
 
 // Axios-Instanz mit Basis-Config

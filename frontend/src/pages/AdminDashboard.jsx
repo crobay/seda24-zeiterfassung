@@ -136,7 +136,27 @@ useEffect(() => {
 const handleSaveEmployee = async () => {
   try {
     if (editingEmployee) {
-      showToast('Update kommt noch', 'info');
+      // UPDATE eines bestehenden Mitarbeiters
+      await api.put(`/admin/employees/${editingEmployee.id}`, employeeForm);
+      
+      // Liste neu laden
+      const response = await api.get('/admin/employees-with-categories');
+      const employeeData = response.data
+        .filter(emp => !emp.personal_nr.startsWith('A'))
+        .map(emp => ({
+          id: emp.id,
+          personal_nr: emp.personal_nr,
+          first_name: emp.name.split(' ')[0],
+          last_name: emp.name.split(' ')[1] || '',
+          email: `${emp.personal_nr.toLowerCase()}@seda24.de`,
+          tracking_mode: emp.tracking_mode || emp.category || 'C',
+          hourly_rate: 15.50,
+          is_active: true,
+          daily_hours: 8
+        }))
+        .sort((a, b) => a.personal_nr.localeCompare(b.personal_nr));
+      setEmployees(employeeData);
+      showToast('Mitarbeiter aktualisiert!', 'success');
     } else {
       // Neuer Mitarbeiter speichern
       await api.post('/admin/employees', employeeForm);

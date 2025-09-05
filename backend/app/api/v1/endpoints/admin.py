@@ -133,6 +133,38 @@ def create_employee(data: dict, db: Session = Depends(get_db), admin = Depends(v
     
     return {"status": "ok", "id": employee.id}
 
+@router.put("/employees/{employee_id}")
+def update_employee(employee_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    """Mitarbeiter komplett updaten"""
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
+    
+    # Employee Felder updaten
+    if "first_name" in data:
+        employee.first_name = data["first_name"]
+    if "last_name" in data:
+        employee.last_name = data["last_name"]
+    if "personal_nr" in data:
+        employee.personal_nr = data["personal_nr"]
+    if "tracking_mode" in data:
+        employee.tracking_mode = data["tracking_mode"]
+        # User Category auch updaten
+        user = db.query(User).filter(User.id == employee.user_id).first()
+        if user:
+            user.category = data["tracking_mode"]
+    if "gps_required" in data:
+        employee.gps_required = data["gps_required"]
+    
+    # Email updaten wenn vorhanden
+    if "email" in data:
+        user = db.query(User).filter(User.id == employee.user_id).first()
+        if user:
+            user.email = data["email"]
+    
+    db.commit()
+    return {"status": "ok", "message": "Mitarbeiter aktualisiert"}
+
 @router.get("/schedules")
 def get_all_schedules(db: Session = Depends(get_db), admin = Depends(verify_admin)):
     schedules = db.query(Schedule).all()
@@ -320,7 +352,7 @@ def bulk_update_schedules(
             schedule.start_time = time(int(parts[0]), int(parts[1]))
         if 'end_time' in update:
             parts = update['end_time'].split(':')
-            schedule.end_time = time(int(parts[0]), int(parts[1]))
+            schedule.end_time = time(int(end_parts[0]), int(end_parts[1]))
         if 'planned_hours' in update:
             schedule.planned_hours = update['planned_hours']
         if 'status' in update:
