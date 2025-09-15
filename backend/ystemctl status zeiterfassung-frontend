@@ -1,0 +1,23 @@
+[0;1;31m●[0m zeiterfassung-backend.service - Zeiterfassung Backend
+     Loaded: loaded (/etc/systemd/system/zeiterfassung-backend.service; enabled; vendor preset: enabled)
+     Active: [0;1;31mfailed[0m (Result: exit-code) since Sat 2025-09-13 10:14:45 CEST; 5s ago
+    Process: 3687647 ExecStart=/var/www/vhosts/seda.de/app.seda.de/zeiterfassung/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001 [0;1;31m(code=exited, status=1/FAILURE)[0m
+   Main PID: 3687647 (code=exited, status=1/FAILURE)
+
+Sep 13 10:14:45 h2966830.stratoserver.net systemd[1]: zeiterfassung-backend.service: Scheduled restart job, restart counter is at 5.
+Sep 13 10:14:45 h2966830.stratoserver.net systemd[1]: Stopped Zeiterfassung Backend.
+Sep 13 10:14:45 h2966830.stratoserver.net systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mzeiterfassung-backend.service: Start request repeated too quickly.[0m
+Sep 13 10:14:45 h2966830.stratoserver.net systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mzeiterfassung-backend.service: Failed with result 'exit-code'.[0m
+Sep 13 10:14:45 h2966830.stratoserver.net systemd[1]: [0;1;31m[0;1;39m[0;1;31mFailed to start Zeiterfassung Backend.[0m
+[0;1;32m●[0m zeiterfassung-backend.service - Zeiterfassung Backend
+     Loaded: loaded (/etc/systemd/system/zeiterfassung-backend.service; enabled; vendor preset: enabled)
+     Active: [0;1;32mactive (running)[0m since Sat 2025-09-13 10:28:55 CEST; 6s ago
+   Main PID: 3688441 (uvicorn)
+     CGroup: /system.slice/zeiterfassung-backend.service
+             └─3688441 /var/www/vhosts/seda.de/app.seda.de/zeiterfassung/backend/venv/bin/python3 /var/www/vhosts/seda.de/app.seda.de/zeiterfassung/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001
+
+Sep 13 10:28:55 h2966830.stratoserver.net systemd[1]: Started Zeiterfassung Backend.
+Sep 13 10:28:56 h2966830.stratoserver.net uvicorn[3688441]: INFO:     Started server process [3688441]
+Sep 13 10:28:56 h2966830.stratoserver.net uvicorn[3688441]: INFO:     Waiting for application startup.
+Sep 13 10:28:56 h2966830.stratoserver.net uvicorn[3688441]: INFO:     Application startup complete.
+Sep 13 10:28:56 h2966830.stratoserver.net uvicorn[3688441]: INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)

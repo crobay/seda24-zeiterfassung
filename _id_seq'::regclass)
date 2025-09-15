@@ -1,0 +1,45 @@
+                                               Table "public.employees"
+         Column          |            Type             | Collation | Nullable |                Default                
+-------------------------+-----------------------------+-----------+----------+---------------------------------------
+ id                      | integer                     |           | not null | nextval('employees_id_seq'::regclass)
+ user_id                 | integer                     |           |          | 
+ personal_nr             | character varying           |           |          | 
+ first_name              | character varying           |           |          | 
+ last_name               | character varying           |           |          | 
+ hourly_rate             | double precision            |           |          | 
+ kuerzel                 | character varying           |           |          | 
+ monthly_amount          | double precision            |           |          | 556.00
+ address                 | text                        |           |          | 
+ gps_required            | boolean                     |           |          | true
+ auto_stamp              | boolean                     |           |          | false
+ is_active               | boolean                     |           |          | true
+ created_at              | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ hourly_rate_standard    | double precision            |           |          | 15.00
+ hourly_rate_window      | double precision            |           |          | 20.00
+ hourly_rate_basic       | double precision            |           |          | 20.00
+ tracking_mode           | character varying(1)        |           |          | 'C'::character varying
+ start_hours             | numeric(10,2)               |           |          | 0
+ employment_type         | character varying(20)       |           |          | 'minijob'::character varying
+ max_monthly_amount      | numeric(7,2)                |           |          | 556.00
+ total_hours_since_start | double precision            |           |          | 0.0
+Indexes:
+    "employees_pkey" PRIMARY KEY, btree (id)
+    "employees_user_id_key" UNIQUE CONSTRAINT, btree (user_id)
+    "ix_employees_id" btree (id)
+    "ix_employees_personal_nr" UNIQUE, btree (personal_nr)
+Foreign-key constraints:
+    "employees_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id)
+Referenced by:
+    TABLE "correction_requests" CONSTRAINT "correction_requests_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    TABLE "employee_object_hours" CONSTRAINT "employee_object_hours_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    TABLE "hourly_rates" CONSTRAINT "hourly_rates_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    TABLE "quick_bookings" CONSTRAINT "quick_bookings_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    TABLE "replacement_rules" CONSTRAINT "replacement_rules_primary_employee_id_fkey" FOREIGN KEY (primary_employee_id) REFERENCES employees(id)
+    TABLE "replacement_rules" CONSTRAINT "replacement_rules_replacement_employee_id_fkey" FOREIGN KEY (replacement_employee_id) REFERENCES employees(id)
+    TABLE "schedule_template_items" CONSTRAINT "schedule_template_items_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    TABLE "schedules" CONSTRAINT "schedules_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    TABLE "schedules" CONSTRAINT "schedules_replacement_for_fkey" FOREIGN KEY (replacement_for) REFERENCES employees(id)
+    TABLE "special_rules" CONSTRAINT "special_rules_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    TABLE "time_entries" CONSTRAINT "time_entries_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+    TABLE "warnings" CONSTRAINT "warnings_employee_id_fkey" FOREIGN KEY (employee_id) REFERENCES employees(id)
+

@@ -1,0 +1,14 @@
+ id | first_name |   last_name   | hourly_rate | hourly_rate_standard | hourly_rate_window | hourly_rate_basic 
+----+------------+---------------+-------------+----------------------+--------------------+-------------------
+  1 | Admin      | SEDA24        |          25 |                   15 |                 20 |                20
+ 10 | Andreas    | Frosch        |          15 |                   15 |                 20 |                20
+ 16 | Drazen     | Sertic        |          26 |                   26 |                 30 |                30
+  7 | Eldina     | Mustafic      |          15 |                   15 |                 20 |                20
+  9 | Eliane     | DaSilvaTodaro |          15 |                   15 |                 20 |                20
+  8 | Jana       | Bojko         |          15 |                   15 |                 20 |                20
+  5 | Ljubica    | Stjepic       |          15 |                   15 |                 20 |                20
+  6 | Matej      | Stjepic       |          15 |                   15 |                 20 |                20
+  4 | Ruzica     | Sertic        |          17 |                   17 |                 20 |                20
+ 17 | Sonja      | Mutlak        |          15 |                   15 |                 20 |                20
+(10 rows)
+

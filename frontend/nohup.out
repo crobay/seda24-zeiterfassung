@@ -1,0 +1,20 @@
+
+> seda24-frontend@0.0.0 dev
+> vite --host 0.0.0.0
+
+
+  VITE v5.4.19  ready in 282 ms
+
+  ➜  Local:   https://localhost:5173/
+  ➜  Network: https://192.168.178.87:5173/
+
+> seda24-frontend@0.0.0 dev
+> vite --host 0.0.0.0
+
+
+  VITE v5.4.19  ready in 284 ms
+
+  ➜  Local:   https://localhost:5173/
+  ➜  Network: https://192.168.178.87:5173/
+12:09:25 PM [vite] hmr update /src/pages/Dashboard.jsx, /src/index.css
+12:12:58 PM [vite] hmr update /src/pages/Dashboard.jsx, /src/index.css
