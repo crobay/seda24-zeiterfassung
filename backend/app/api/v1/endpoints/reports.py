@@ -68,6 +68,9 @@ def get_my_today_report(
     total_hours = 0
     for entry in entries:
         if entry.check_out:
+            # Skip Urlaub (object_id = 999)
+            if entry.object_id == 999:
+                continue
             diff = entry.check_out - entry.check_in
             total_hours += diff.total_seconds() / 3600
             print(f"+ {diff.total_seconds()/3600:.2f}h")  # DEBUG
@@ -141,6 +144,9 @@ def get_my_month_hours(
             diff = entry.check_out - entry.check_in
             total_hours += diff.total_seconds() / 3600
     
+            # Skip Urlaub (object_id = 999)
+            if entry.object_id == 999:
+                continue
     return {
         "total_hours": round(total_hours, 2),
         "month": today.month,
@@ -202,6 +208,9 @@ def get_my_history(
         else:
             # Laufende Zeit bis jetzt
             delta = datetime.now() - entry.check_in
+            # Skip Urlaub (object_id = 999)
+            if entry.object_id == 999:
+                continue
             hours = delta.total_seconds() / 3600
         
         # Betrag berechnen (hourly_rate aus TimeEntry oder Employee)
