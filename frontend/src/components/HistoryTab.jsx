@@ -111,12 +111,12 @@ const HistoryTab = () => {
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div>
           <span className="text-gray-500">Check-in:</span>
-          <span className="ml-1 font-medium">{formatTime(entry.check_in)}</span>
+          <span className="ml-1 font-medium">{entry.service_type === "Urlaub" ? "00:00" : formatTime(entry.check_in)}</span>
         </div>
         <div>
           <span className="text-gray-500">Check-out:</span>
           <span className="ml-1 font-medium">
-            {entry.check_out ? formatTime(entry.check_out) : 
+            {entry.service_type === "Urlaub" ? "00:00" : (entry.check_out ? formatTime(entry.check_out) : <span className="text-green-600">Läuft...</span>)}
              <span className="text-green-600">Läuft...</span>}
           </span>
         </div>
@@ -304,11 +304,11 @@ const HistoryTab = () => {
                     {entry.object_name}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {formatTime(entry.check_in)}
+                    {entry.service_type === "Urlaub" ? "00:00" : formatTime(entry.check_in)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     {entry.check_out ? (
-                      formatTime(entry.check_out)
+                        entry.service_type === "Urlaub" ? "00:00" : formatTime(entry.check_out)
                     ) : (
                       <span className="text-green-600 font-medium">Läuft...</span>
                     )}

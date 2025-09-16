@@ -209,11 +209,18 @@ def get_my_history(
             # Laufende Zeit bis jetzt
             delta = datetime.now() - entry.check_in
             # Skip Urlaub (object_id = 999)
-            if entry.object_id == 999:
-                continue
-            hours = delta.total_seconds() / 3600
-        
-        # Betrag berechnen (hourly_rate aus TimeEntry oder Employee)
+            if (entry.object_id == 999 or (entry.object_id == 1 and entry.check_in.hour == 0)):
+                # Urlaubsbetrag berechnen
+                # Hole vacation_rate direkt aus DB mit SQL
+                result = db.execute("SELECT vacation_rate FROM vacation_entitlements WHERE employee_id = :emp_id AND year = :year", {"emp_id": employee_id, "year": entry.check_in.year})
+                vac = result.fetchone()
+                amount = vac[0] if vac else 67.50
+                hourly_rate = employee.hourly_rate if employee.hourly_rate else 15.0
+                hours = amount / hourly_rate
+            else:
+                hours = delta.total_seconds() / 3600
+                # Normale Berechnung
+                hourly_rate = entry.hourly_rate if entry.hourly_rate else (employee.hourly_rate or 0)
         hourly_rate = entry.hourly_rate if entry.hourly_rate else (employee.hourly_rate or 0)
         amount = hours * hourly_rate
         
