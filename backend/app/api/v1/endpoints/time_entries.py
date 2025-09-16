@@ -32,18 +32,18 @@ def update_total_hours(employee_id: int, db: Session):
     """Aktualisiert total_hours_since_start nach jedem Stempeln"""
     from sqlalchemy import func
     
-    # Alle gebuchten Stunden berechnen
     total_booked = db.query(func.sum(
         func.extract('epoch', TimeEntry.check_out - TimeEntry.check_in) / 3600
     )).filter(
         TimeEntry.employee_id == employee_id,
         TimeEntry.check_out.isnot(None)
-    ).scalar() or 0
+    ).scalar()
     
-    # Employee updaten
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
     if employee:
-        employee.total_hours_since_start = (employee.start_hours or 0) + total_booked
+        start = float(employee.start_hours or 0)
+        booked = float(total_booked or 0)
+        employee.total_hours_since_start = float(start + booked)
         db.commit()
 
 def get_hourly_rate_for_object(employee, object_name):
@@ -139,6 +139,8 @@ def check_out(
     # GPS beim Ausstempeln ist optional - lassen wir weg
     
     db.commit()
+    # Tachometer aktualisieren
+    update_total_hours(employee.id, db)
     db.refresh(active_entry)
     
     return active_entry
