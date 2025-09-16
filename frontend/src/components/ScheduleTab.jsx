@@ -86,6 +86,7 @@ const ScheduleTab = () => {
       end_time: '14:00'
     });
     setShowAddModal(true);
+    setEditingSchedule({ status: "normal", employee_id: "", object_id: "", start_time: "06:00", end_time: "14:00" });
   };
 
   // Neue Schicht speichern - MIT STATUS FIX
@@ -121,7 +122,7 @@ const ScheduleTab = () => {
       object_id: schedule.object_id,
       start_time: schedule.start_time,
       end_time: schedule.end_time,
-      status: schedule.status || 'normal'  // Status wird korrekt geladen
+      status: schedule?.status || "normal" || 'normal'  // Status wird korrekt geladen
     });
     setShowEditModal(true);
   };
@@ -135,7 +136,7 @@ const ScheduleTab = () => {
         object_id: parseInt(editingSchedule.object_id),
         start_time: editingSchedule.start_time,
         end_time: editingSchedule.end_time,
-        status: editingSchedule.status  // Status wird mitgesendet
+        status: editingSchedule?.status || "normal"  // Status wird mitgesendet
       }]);
       
       setShowEditModal(false);
@@ -287,13 +288,13 @@ const ScheduleTab = () => {
                       {day.schedules.map((schedule) => (
                         <div
                           key={schedule.id}
-                          className={`p-2 rounded border-2 ${statusColors[schedule.status || 'normal']} relative cursor-pointer hover:shadow-lg transition-shadow`}
+                          className={`p-2 rounded border-2 ${statusColors[schedule?.status || "normal" || 'normal']} relative cursor-pointer hover:shadow-lg transition-shadow`}
                           onClick={() => openEditModal(schedule, dayIndex)}
                         >
                           {/* Status Icon */}
-                          {statusIcons[schedule.status] && (
+                          {statusIcons[schedule?.status || "normal"] && (
                             <span className="absolute top-1 right-1 text-lg">
-                              {statusIcons[schedule.status]}
+                              {statusIcons[schedule?.status || "normal"]}
                             </span>
                           )}
                           
@@ -487,7 +488,7 @@ const ScheduleTab = () => {
                   Status
                 </label>
                 <select
-                  value={editingSchedule.status || "normal"}
+                  value={editingSchedule?.status || "normal" || "normal"}
                   onChange={(e) => setEditingSchedule({...editingSchedule, status: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
@@ -580,7 +581,7 @@ const ScheduleTab = () => {
                   Status
                 </label>
                 <select
-                  value={editingSchedule.status}
+                  value={editingSchedule?.status || "normal"}
                   onChange={(e) => setEditingSchedule({...editingSchedule, status: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
@@ -625,7 +626,7 @@ const ScheduleTab = () => {
                   Status
                 </label>
                 <select
-                  value={editingSchedule.status || "normal"}
+                  value={editingSchedule?.status || "normal" || "normal"}
                   onChange={(e) => setEditingSchedule({...editingSchedule, status: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
@@ -663,7 +664,7 @@ const ScheduleTab = () => {
               </button>
               
               {/* Vertretung Button - nur bei Krank/Urlaub */}
-              {(editingSchedule.status === "krank" || editingSchedule.status === "urlaub") && (
+              {(editingSchedule?.status || "normal" === "krank" || editingSchedule?.status || "normal" === "urlaub") && (
                 <div className="mt-3">
                   <button
                     onClick={() => {
@@ -684,7 +685,7 @@ const ScheduleTab = () => {
                         api.post("/admin/schedules/replacement", {
                           original_schedule_id: editingSchedule.id,
                           replacement_employee_id: parseInt(vertreter),
-                          reason: editingSchedule.status
+                          reason: editingSchedule?.status || "normal"
                         }).then(() => {
                           loadWeekData();
                           setShowEditModal(false);

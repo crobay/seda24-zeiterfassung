@@ -132,23 +132,23 @@ const Dashboard = () => {
   const token = localStorage.getItem('token');
 
   // Fallback Objekte falls Dienstplan nicht lädt
-  const fallbackObjects = {
-    1: { name: 'SEDA24 Zentrale' },
-    3: { name: 'Lidl Muggensturmer Str' },
-    4: { name: 'Lidl Wochenende' },
-    5: { name: 'Enfido Sonnenschein' },
-    6: { name: 'Metalicone Muggensturm' },
-    7: { name: 'JU_RA Baden-Baden' },
-    8: { name: 'Huber Iffezheim' },
-    9: { name: 'BAD-Treppen' },
-    11: { name: 'Leible Rheinmünster' },
-    12: { name: 'Zinsfabrik Baden-Baden' },
-    13: { name: 'Polytec Rastatt' },
-    14: { name: 'Steuerberater Baden-Baden' },
-    15: { name: 'Geiger Malsch' },
-    16: { name: 'Rytec Baden-Baden' }
-  };
-
+  const fallbackObjects = {}; // ALTE LISTE: {
+//     1: { name: 'SEDA24 Zentrale' },
+//     3: { name: 'Lidl Muggensturmer Str' },
+//     4: { name: 'Lidl Wochenende' },
+//     5: { name: 'Enfido Sonnenschein' },
+// // //     6: { name: 'Metalicone Muggensturm' },
+// // //     7: { name: 'JU_RA Baden-Baden' },
+// // //     8: { name: 'Huber Iffezheim' },
+// // //     9: { name: 'BAD-Treppen' },
+// // //     11: { name: 'Leible Rheinmünster' },
+// // //     12: { name: 'Zinsfabrik Baden-Baden' },
+// // //     13: { name: 'Polytec Rastatt' },
+// // //     14: { name: 'Steuerberater Baden-Baden' },
+// // //     15: { name: 'Geiger Malsch' },
+// // //     16: { name: 'Rytec Baden-Baden' }
+// //   };
+  const objectMap = {};
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -462,7 +462,7 @@ const Dashboard = () => {
                 </div>
               </div>
               <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={handleLogout} className="px-6 py-2 rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#f5a623' }}>
+                <button onClick={handleLogout} className="px-4 py-1 text-sm rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#dc2626' }}>
                   <LogOut size={20} className="inline mr-2" />
                   Logout
                 </button>
@@ -502,7 +502,7 @@ const Dashboard = () => {
                   <div style={{ fontSize: '60px', fontWeight: 'bold', color: '#1e3a5f' }}>
                     {currentTime.toLocaleTimeString('de-DE')}
                   </div>
-                  <div style={{ fontSize: '18px', color: '#666' }}>
+                  <div style={{ fontSize: '16px', color: '#666' }}>
                     {currentTime.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                   </div>
                 </div>
@@ -538,7 +538,7 @@ const Dashboard = () => {
 
                 {/* STUNDEN-ÜBERSICHT */}
                 <div style={{marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e0e0e0'}}>
-                  <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px'}}>
+                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px'}}>
                     <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' }}>
                         <Clock size={18} color="#0ea5e9" />
@@ -609,7 +609,7 @@ const Dashboard = () => {
                 </div>
               </div>
               <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={handleLogout} className="px-6 py-2 rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#f5a623' }}>
+                <button onClick={handleLogout} className="px-4 py-1 text-sm rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#dc2626' }}>
                   <LogOut size={20} className="inline mr-2" />
                   Logout
                 </button>
@@ -649,7 +649,7 @@ const Dashboard = () => {
                   <div style={{ fontSize: '60px', fontWeight: 'bold', color: '#1e3a5f' }}>
                     {currentTime.toLocaleTimeString('de-DE')}
                   </div>
-                  <div style={{ fontSize: '18px', color: '#666' }}>
+                  <div style={{ fontSize: '16px', color: '#666' }}>
                     {currentTime.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                   </div>
                 </div>
@@ -771,7 +771,7 @@ const Dashboard = () => {
 
                 {/* STUNDEN-ÜBERSICHT */}
                 <div style={{marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e0e0e0'}}>
-                  <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px'}}>
+                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px'}}>
                     <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' }}>
                         <Clock size={18} color="#0ea5e9" />
@@ -880,7 +880,7 @@ const Dashboard = () => {
               <h2 style={{ textAlign: 'center', color: '#6c757d', fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Zeiterfassung</h2>
               <div className="text-center mb-6">
                 <div style={{ fontSize: '60px', fontWeight: 'bold', color: '#1e3a5f' }}>{currentTime.toLocaleTimeString('de-DE')}</div>
-                <div style={{ fontSize: '18px', color: '#666' }}>{currentTime.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                <div style={{ fontSize: '16px', color: '#666' }}>{currentTime.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
               </div>
 
               {/* Info-Nachricht wenn keine Arbeit heute */}
@@ -905,7 +905,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
-                    <button onClick={handleCheckOut} style={{ flex: '2', padding: '20px', background: '#f5a623', color: 'white', fontSize: '18px', fontWeight: 'bold', borderRadius: '12px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Square size={24} /> ARBEIT BEENDEN</button>
+                    <button onClick={handleCheckOut} style={{ flex: '2', padding: '14px', background: '#dc2626', color: 'white', fontSize: '16px', fontWeight: 'bold', borderRadius: '12px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Square size={24} /> ARBEIT BEENDEN</button>
                     {!isPaused ? (
                       <button onClick={handlePauseStart} style={{ flex: '1', background: '#6c757d', color: 'white', borderRadius: '12px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Pause size={24} /> PAUSE</button>
                     ) : (
@@ -963,13 +963,13 @@ const Dashboard = () => {
                       </select>
                     )}
                   </div>
-                  <button onClick={handleCheckIn} style={{ width: '100%', padding: '32px', background: '#1e3a5f', color: 'white', fontSize: '24px', fontWeight: 'bold', borderRadius: '16px', border: 'none' }}>
-                    <Play size={32} className="inline mr-3" /> ARBEIT BEGINNEN
+                  <button onClick={handleCheckIn} style={{ width: '100%', padding: '16px', background: '#1e3a5f', color: 'white', fontSize: '18px', fontWeight: 'bold', borderRadius: '16px', border: 'none' }}>
+                    <Play size={24} className="inline mr-3" /> ARBEIT BEGINNEN
                   </button>
                 </>
               )}
               <div style={{marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e0e0e0'}}>
-                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px'}}>
+                <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px'}}>
                   <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' }}><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#e0f2fe' }}><Clock size={18} color="#0ea5e9" /></span><span style={{ fontSize: '14px', color: '#666', fontWeight: '500' }}>Heute</span></div>
                     <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1e3a5f' }}>{formatHours(todayHours)}</div>

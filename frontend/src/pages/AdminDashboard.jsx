@@ -16,6 +16,14 @@ const AdminDashboard = () => {
   ]);
   
   const [customers, setCustomers] = useState([]);
+
+  const [showManualEntryModal, setShowManualEntryModal] = useState(false);
+  useEffect(() => {
+    fetch("/api/v1/admin/test-objects")
+      .then(res => res.json())
+      .then(data => setCustomers(data))
+      .catch(err => console.error("Fehler beim Laden der Objekte:", err));
+  }, []);
   
   const [liveStatus, setLiveStatus] = useState([
     { employee_name: 'Max Mustermann', object_name: 'Sparkasse Rastatt', check_in_time: '08:15', work_hours: '2.5', is_paused: false },
@@ -679,6 +687,7 @@ useEffect(() => {
         <h2 className="text-xl font-bold">Berichte & Auswertungen</h2>
         <button className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
           Bericht generieren
+        <button onClick={() => setShowManualEntryModal(true)} className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 ml-3">Schicht nachtragen</button>
         </button>
       </div>
       
@@ -788,7 +797,7 @@ useEffect(() => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'overview' && <OverviewTab />}
         {activeTab === 'employees' && <EmployeesTab />}
-        {activeTab === 'customers' && <CustomersTab />}
+        {activeTab === "customers" && <CustomersTab />}
 		{activeTab === 'hours' && (
 		  <div className="bg-white rounded-lg shadow p-6">
 			<h2 className="text-xl font-bold mb-4">Sollstunden-Verwaltung</h2>
@@ -1022,4 +1031,30 @@ export default AdminDashboard;
         setShowNewEmployeeModal(false);
         }
       });
+
+      {/* Manual Entry Modal */}
+      {showManualEntryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-4">Schicht nachtragen</h3>
+            <div className="space-y-4">
+              <select className="w-full p-2 border rounded">
+                <option>Mitarbeiter wählen...</option>
+              </select>
+              <input type="date" className="w-full p-2 border rounded" />
+              <select className="w-full p-2 border rounded">
+                <option>Objekt wählen...</option>
+              </select>
+              <div className="grid grid-cols-2 gap-4">
+                <input type="time" className="p-2 border rounded" />
+                <input type="time" className="p-2 border rounded" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setShowManualEntryModal(false)} className="px-4 py-2 border rounded">Abbrechen</button>
+              <button className="px-4 py-2 bg-green-500 text-white rounded">Speichern</button>
+            </div>
+          </div>
+        </div>
+      )}
   };

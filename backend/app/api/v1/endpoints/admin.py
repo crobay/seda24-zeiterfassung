@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, time
 from typing import List, Optional
 from jose import jwt
 from app.db.database import get_db
-from app.models.models import User, Employee, TimeEntry, Schedule, Object, Customer, EmployeeObjectHours
+from app.models.models import User, Employee, TimeEntry, Schedule, Object, Customer
 import os
 from dotenv import load_dotenv
 from app.api.v1.endpoints.auth import get_current_user
@@ -121,10 +121,20 @@ def get_all_schedules(db: Session = Depends(get_db), admin = Depends(verify_admi
 
 @router.post("/schedules")
 def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    from datetime import time
-    
+    from datetime import time, datetime, timedelta
     start_parts = data["start_time"].split(":")
     end_parts = data["end_time"].split(":")
+    
+    # Berechne die Stunden automatisch
+    start = datetime.strptime(data["start_time"], "%H:%M")
+    end = datetime.strptime(data["end_time"], "%H:%M")
+    
+    # Falls Ende vor Start ist (über Mitternacht), addiere einen Tag
+    if end < start:
+        end += timedelta(days=1)
+    
+    # Berechne Stunden als Dezimalzahl
+    hours_diff = (end - start).total_seconds() / 3600
     
     schedule = Schedule(
         employee_id=data["employee_id"],
@@ -132,13 +142,48 @@ def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(v
         weekday=data["weekday"],
         start_time=time(int(start_parts[0]), int(start_parts[1])),
         end_time=time(int(end_parts[0]), int(end_parts[1])),
-        planned_hours=data["planned_hours"]
+        planned_hours=hours_diff  # Automatisch berechnet!
     )
     db.add(schedule)
     db.commit()
     return {"status": "ok", "id": schedule.id}
 
 @router.put("/schedules/{schedule_id}")
+def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    from datetime import time, datetime, timedelta
+    schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404)
+    
+    if "start_time" in data:
+        start_parts = data["start_time"].split(":")
+        schedule.start_time = time(int(start_parts[0]), int(start_parts[1]))
+    
+    if "end_time" in data:
+        end_parts = data["end_time"].split(":")
+        schedule.end_time = time(int(end_parts[0]), int(end_parts[1]))
+    
+    # Wenn Start- oder Endzeit geändert wurde, berechne planned_hours neu
+    if "start_time" in data or "end_time" in data:
+        # Hole aktuelle Zeiten (entweder neue oder bestehende)
+        start_str = data.get("start_time", schedule.start_time.strftime("%H:%M"))
+        end_str = data.get("end_time", schedule.end_time.strftime("%H:%M"))
+        
+        # Berechne die Stunden automatisch
+        start = datetime.strptime(start_str, "%H:%M")
+        end = datetime.strptime(end_str, "%H:%M")
+        
+        # Falls Ende vor Start ist (über Mitternacht), addiere einen Tag
+        if end < start:
+            end += timedelta(days=1)
+        
+        # Berechne und setze Stunden
+        schedule.planned_hours = (end - start).total_seconds() / 3600
+    
+    if "object_id" in data:
+        schedule.object_id = data["object_id"]
+    if "weekday" in data:
+        schedule.weekday = data["weekday"]
 def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
     from datetime import time
     
@@ -177,15 +222,6 @@ def delete_schedule(schedule_id: int, db: Session = Depends(get_db), admin = Dep
     return {"status": "ok"}
 
 # ===== NEUE ENDPOINTS FÜR EDITIERBAREN DIENSTPLAN =====
-
-# Hilfsfunktion für korrekte Stundenberechnung
-def calc_hours_from_time(start_time, end_time):
-    """Berechnet Stunden aus time-Objekten"""
-    if start_time and end_time:
-        start_min = start_time.hour * 60 + start_time.minute
-        end_min = end_time.hour * 60 + end_time.minute
-        return round((end_min - start_min) / 60, 2)
-    return 0
 
 @router.get("/schedules/week")
 def get_week_schedule(
@@ -250,7 +286,7 @@ def get_week_schedule(
                 'object_name': obj.name if obj else f"Objekt {schedule.object_id}",
                 'start_time': schedule.start_time.strftime("%H:%M") if schedule.start_time else "06:00",
                 'end_time': schedule.end_time.strftime("%H:%M") if schedule.end_time else "14:00",
-                'planned_hours': calc_hours_from_time(schedule.start_time, schedule.end_time),
+                'planned_hours': schedule.planned_hours,
                 'status': getattr(schedule, 'status', 'normal'),
                 'replacement_for': getattr(schedule, 'replacement_for', None)
             })
@@ -344,6 +380,7 @@ def copy_week_schedule(
                 start_time=schedule.start_time,
                 end_time=schedule.end_time,
                 planned_hours=schedule.planned_hours,
+                status='normal'
             )
             db.add(new_schedule)
             copied_count += 1
@@ -373,25 +410,13 @@ def create_replacement(
     
     original.status = reason
     
-    # Prüfe Sonderregeln für Vertreter
-    special_hours = db.query(EmployeeObjectHours).filter(
-        EmployeeObjectHours.employee_id == replacement_employee_id,
-        EmployeeObjectHours.object_id == original.object_id
-    ).first()
-    
-    if special_hours:
-        # Sonderregel gefunden (z.B. Eldina bei Lidl = 4h)
-        replacement_hours = special_hours.hours_per_day
-    else:
-        # Standard-Stunden vom Original
-        replacement_hours = original.planned_hours
     replacement = Schedule(
         employee_id=replacement_employee_id,
         object_id=original.object_id,
         weekday=original.weekday,
         start_time=original.start_time,
         end_time=original.end_time,
-        planned_hours=replacement_hours,
+        planned_hours=original.planned_hours,
         status='vertretung',
         replacement_for=original.employee_id
     )
@@ -452,6 +477,7 @@ def quick_assign_schedule(
             start_time=time(start_h, start_m),
             end_time=time(end_h, end_m),
             planned_hours=planned_hours,
+            status='normal'
         )
         db.add(schedule)
         message = "Schicht erstellt"
@@ -618,10 +644,10 @@ def update_object(object_id: int, data: dict, db: Session = Depends(get_db), adm
     return {"status": "ok"}
 
 @router.get("/customers")
-def get_all_customers(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_all_objects(db: Session = Depends(get_db), ):
     """Alle Kunden abrufen"""
-    customers = db.query(Customer).all()
-    return [{"id": c.id, "name": c.name} for c in customers]
+    objects = db.query(Object).all()
+    return [{"id": o.id, "name": o.name} for o in objects]
 
 @router.get("/objects-list")
 def get_objects_for_display(db: Session = Depends(get_db), admin = Depends(verify_admin)):
@@ -632,7 +658,6 @@ def get_objects_for_display(db: Session = Depends(get_db), admin = Depends(verif
             "id": obj.id,
             "name": obj.name,
             "address": obj.address,
-            "contact_person": obj.contact_person,
             "phone": obj.phone,
             "email": obj.email,
             "monthly_amount_netto": obj.monthly_amount_netto,
@@ -640,3 +665,15 @@ def get_objects_for_display(db: Session = Depends(get_db), admin = Depends(verif
         }
         for obj in objects
     ]
+
+@router.get("/test-objects")
+def get_test_objects(db: Session = Depends(get_db)):
+    """Test-Endpoint ohne Auth"""
+    objects = db.query(Object).all()
+    return [{"id": o.id, "name": o.name, "address": o.address} for o in objects]
+
+@router.get("/test-objects")
+def get_test_objects(db: Session = Depends(get_db)):
+    """Test-Endpoint ohne Auth"""
+    objects = db.query(Object).all()
+    return [{"id": o.id, "name": o.name, "address": o.address} for o in objects]
