@@ -38,27 +38,29 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=schemas.Token)
 def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == user_credentials.email).first()
-
     if not user or not verify_password(user_credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
     employee = db.query(Employee).filter(Employee.user_id == user.id).first()
     access_token = create_access_token(data={"sub": user.email})
-    
     user_name = f"{employee.first_name} {employee.last_name}" if employee else user.email.split('@')[0]
     personal_nr = employee.personal_nr if employee else "N/A"
-
+    
+    # Debug ausgabe
+    print(f"LOGIN DEBUG: email={user.email}, must_change={user.must_change_password}")
+    
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user_name": user_name,
         "personal_nr": personal_nr,
+        "must_change_password": user.must_change_password,
         "role": user.role
     }
+
 
 # get_current_user Funktion bleibt wie sie war
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
@@ -85,20 +87,39 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 @router.get("/time-entries/my-objects-this-week")
 async def get_my_scheduled_objects_this_week(
     db: Session = Depends(get_db),
-# current_employee: Employee = Depends(get_current_active_employee)
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Gibt alle geplanten Objekte für den aktuellen Mitarbeiter für den aktuellen Wochentag zurück.
+    Gibt alle geplanten Objekte für den aktuellen Mitarbeiter für heute zurück.
     """
-    # Aktueller Wochentag (Montag=0, ... Sonntag=6)
-    today_weekday = datetime.now().weekday()
-
-    schedules = db.query(Schedule).filter(
-        Schedule.employee_id == current_employee.id,
-        Schedule.weekday == today_weekday
-    ).all()
-
-    if not schedules:
+    # Hole Employee über User
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    if not employee:
         return []
+    
+    # Aktueller Wochentag
+    today = datetime.now().date()
+    
+    schedules = db.query(Schedule).filter(
+        Schedule.employee_id == employee.id,
+        Schedule.date == today
+    ).all()
+    
+    return schedules if schedules else []
 
-    return schedules
+@router.post("/change-password")
+def change_password(
+    new_password_data: schemas.NewPassword,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Hashe das neue Passwort
+    hashed_password = get_password_hash(new_password_data.new_password)
+
+    # Aktualisiere das Passwort und setze das Flag zurück
+    current_user.password_hash = hashed_password
+    current_user.must_change_password = False
+
+    db.add(current_user)
+    db.commit()
+

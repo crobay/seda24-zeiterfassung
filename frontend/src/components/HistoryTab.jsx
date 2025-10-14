@@ -117,7 +117,6 @@ const HistoryTab = () => {
           <span className="text-gray-500">Check-out:</span>
           <span className="ml-1 font-medium">
             {entry.service_type === "Urlaub" ? "00:00" : (entry.check_out ? formatTime(entry.check_out) : <span className="text-green-600">Läuft...</span>)}
-             <span className="text-green-600">Läuft...</span>}
           </span>
         </div>
       </div>

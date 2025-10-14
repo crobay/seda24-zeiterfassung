@@ -17,6 +17,9 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     role: str = "mitarbeiter"
+    user_name: str = ""
+    personal_nr: str = ""
+    must_change_password: bool = False
 
 class UserResponse(UserBase):
     id: int
@@ -26,3 +29,6 @@ class UserResponse(UserBase):
     
     class Config:
         from_attributes = True
+
+class NewPassword(BaseModel):
+    new_password: str

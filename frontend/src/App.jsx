@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import Dashboard from './pages/Dashboard';
 import { authService } from './services/api';
 import AdminDashboard from './pages/AdminDashboard';
@@ -17,14 +18,28 @@ function App() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route 
-          path="/dashboard" 
+        <Route
+          path="/dashboard"
           element={
             <ProtectedRoute>
               <Dashboard />
             </ProtectedRoute>
-          } 
+          }
         />
+
+        {/* ================================================ */}
+        {/* FÜGE DIESEN NEUEN BLOCK GENAU HIER EIN           */}
+        {/* ================================================ */}
+        <Route
+          path="/change-password"
+          element={
+            <ProtectedRoute>
+              <ChangePassword />
+            </ProtectedRoute>
+          }
+        />
+        {/* ================================================ */}
+
         <Route path="/" element={<Navigate to="/dashboard" />} />
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/employees" element={<EmployeeManagement />} />

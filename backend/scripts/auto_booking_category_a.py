@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-sys.path.append('/root/zeiterfassung/backend')
+sys.path.append('/var/www/vhosts/seda.de/app.seda.de/zeiterfassung/backend')
 
 from datetime import datetime, timedelta
 import random
@@ -13,8 +13,7 @@ def auto_book_category_a():
     now = datetime.now()
     
     current_weekday = now.weekday()
-    if current_weekday != 6:
-        current_weekday = current_weekday + 1
+    # Bug entfernt - war if current_weekday != 6: current_weekday + 1
     
     print(f"\n[{now.strftime('%Y-%m-%d %H:%M:%S')}] Auto-Booking Check...")
     print(f"Wochentag: {current_weekday}, Uhrzeit: {now.strftime('%H:%M')}")

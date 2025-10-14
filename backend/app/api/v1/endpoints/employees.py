@@ -36,3 +36,40 @@ def get_my_category(
         "tracking_mode": "C",
         "gps_required": False
     }
+
+@router.get("/my-colleagues-today")
+@router.get("/my-colleagues-today")
+def get_my_colleagues_today(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Kollegen-Feature deaktiviert für v1.0"""
+    return []
+    
+    # Finde Kollegen für HEUTE
+    query = text("""
+        SELECT DISTINCT e.id, e.first_name, e.last_name, e.personal_nr
+        FROM schedules s1
+        JOIN schedules s2 ON 
+            s1.object_id = s2.object_id 
+            AND s1.weekday = s2.weekday
+            AND s1.employee_id != s2.employee_id
+        JOIN employees e ON s2.employee_id = e.id
+        WHERE s1.employee_id = :my_id
+            AND s1.weekday = :weekday
+        ORDER BY e.first_name
+    """)
+    
+    colleagues = db.execute(query, {
+        "my_id": my_employee[0],
+        "weekday": today_weekday
+    }).fetchall()
+    
+    return [
+        {
+            "id": c[0],
+            "name": f"{c[1]} {c[2]}",
+            "personal_nr": c[3]
+        }
+        for c in colleagues
+    ]

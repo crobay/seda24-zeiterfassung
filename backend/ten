@@ -1,0 +1,8 @@
+[0;1;32m●[0m zeiterfassung-backend.service - Zeiterfassung Backend
+     Loaded: loaded (/etc/systemd/system/zeiterfassung-backend.service; enabled; vendor preset: enabled)
+     Active: [0;1;32mactive (running)[0m since Wed 2025-09-17 20:38:56 CEST; 11ms ago
+   Main PID: 4115050 (uvicorn)
+     CGroup: /system.slice/zeiterfassung-backend.service
+             └─4115050 /var/www/vhosts/seda.de/app.seda.de/zeiterfassung/backend/venv/bin/python3 /var/www/vhosts/seda.de/app.seda.de/zeiterfassung/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001
+
+Sep 17 20:38:56 h2966830.stratoserver.net systemd[1]: Started Zeiterfassung Backend.

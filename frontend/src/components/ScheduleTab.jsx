@@ -76,6 +76,20 @@ const ScheduleTab = () => {
   }, [weekOffset]);
 
   // Funktion zum Öffnen des Add-Modals
+  const handleObjectChange = (objectId) => {
+    setNewShiftData(prev => ({ ...prev, object_id: objectId }));
+    if (objectId) {
+      const obj = weekData?.objects?.find(o => o.id == objectId);
+      if (obj?.start_time && obj?.end_time) {
+        setNewShiftData(prev => ({
+          ...prev,
+          start_time: obj.start_time.substring(0,5),
+          end_time: obj.end_time.substring(0,5)
+        }));
+      }
+    }
+  };
+
   const openAddShiftModal = (dayIndex, weekday) => {
     setNewShiftData({
       dayIndex,
@@ -100,7 +114,7 @@ const ScheduleTab = () => {
       await api.post('/admin/schedules/quick-assign', {
         employee_id: parseInt(newShiftData.employee_id),
         object_id: parseInt(newShiftData.object_id),
-        weekday: newShiftData.dayIndex < 6 ? newShiftData.dayIndex + 1 : 7,
+        date: weekData?.days[newShiftData.dayIndex]?.date,
         start_time: newShiftData.start_time,
         end_time: newShiftData.end_time,
       });
@@ -122,7 +136,8 @@ const ScheduleTab = () => {
       object_id: schedule.object_id,
       start_time: schedule.start_time,
       end_time: schedule.end_time,
-      status: schedule?.status || "normal" || 'normal'  // Status wird korrekt geladen
+      status: schedule?.status || "normal" || 'normal',  // Status wird korrekt geladen
+      date: weekData?.days[dayIndex]?.date  // Datum wird geladen
     });
     setShowEditModal(true);
   };
@@ -136,7 +151,8 @@ const ScheduleTab = () => {
         object_id: parseInt(editingSchedule.object_id),
         start_time: editingSchedule.start_time,
         end_time: editingSchedule.end_time,
-        status: editingSchedule?.status || "normal"  // Status wird mitgesendet
+        status: editingSchedule?.status || "normal",  // Status wird mitgesendet
+        date: editingSchedule.date  // Datum wird mitgesendet
       }]);
       
       setShowEditModal(false);
@@ -285,8 +301,10 @@ const ScheduleTab = () => {
                   <td key={dayIndex} className="border p-2 align-top min-w-[150px]">
                     <div className="space-y-2">
                       {/* Klickbare Schichten */}
-                      {day.schedules.map((schedule) => (
-                        <div
+                      {day.schedules
+					  .sort((a, b) => a.start_time.localeCompare(b.start_time))
+					  .map((schedule) => (
+							<div
                           key={schedule.id}
                           className={`p-2 rounded border-2 ${statusColors[schedule?.status || "normal" || 'normal']} relative cursor-pointer hover:shadow-lg transition-shadow`}
                           onClick={() => openEditModal(schedule, dayIndex)}
@@ -442,7 +460,7 @@ const ScheduleTab = () => {
                 </label>
                 <select
                   value={newShiftData.object_id}
-                  onChange={(e) => setNewShiftData({...newShiftData, object_id: e.target.value})}
+                  onChange={(e) => handleObjectChange(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">-- Objekt wählen --</option>
@@ -482,22 +500,6 @@ const ScheduleTab = () => {
               
               {/* Stunden-Vorschau */}
               <div className="bg-gray-100 p-3 rounded">
-              {/* Status Dropdown */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Status
-                </label>
-                <select
-                  value={editingSchedule?.status || "normal" || "normal"}
-                  onChange={(e) => setEditingSchedule({...editingSchedule, status: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="normal">Normal</option>
-                  <option value="krank">Krank 🤒</option>
-                  <option value="urlaub">Urlaub 🏖️</option>
-                  <option value="vertretung">Vertretung ↔️</option>
-                </select>
-              </div>
                 <span className="text-sm text-gray-600">Geplante Stunden: </span>
                 <span className="font-semibold">
                   {(() => {
@@ -537,7 +539,8 @@ const ScheduleTab = () => {
             <h3 className="text-lg font-semibold mb-4">
               Schicht bearbeiten - {WEEKDAY_NAMES[editingSchedule.dayIndex]}
             </h3>
-            
+         
+      
             <div className="space-y-4">
               {/* Mitarbeiter Dropdown */}
               <div>
@@ -620,22 +623,6 @@ const ScheduleTab = () => {
               
               {/* Stunden-Vorschau */}
               <div className="bg-gray-100 p-3 rounded">
-              {/* Status Dropdown */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Status
-                </label>
-                <select
-                  value={editingSchedule?.status || "normal" || "normal"}
-                  onChange={(e) => setEditingSchedule({...editingSchedule, status: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="normal">Normal</option>
-                  <option value="krank">Krank 🤒</option>
-                  <option value="urlaub">Urlaub 🏖️</option>
-                  <option value="vertretung">Vertretung ↔️</option>
-                </select>
-              </div>
                 <span className="text-sm text-gray-600">Geplante Stunden: </span>
                 <span className="font-semibold">
                   {(() => {
@@ -648,7 +635,20 @@ const ScheduleTab = () => {
                 </span>
               </div>
             </div>
-            
+ 
+            {/* Datum-Feld */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Datum verschieben auf:
+              </label>
+              <input
+                type="date"
+                value={editingSchedule.date || weekData?.days[editingSchedule.dayIndex]?.date || ""}
+                onChange={(e) => setEditingSchedule({...editingSchedule, date: e.target.value})}
+                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+ 
             {/* Buttons */}
             <div className="flex justify-between mt-6">
               <button
@@ -664,7 +664,7 @@ const ScheduleTab = () => {
               </button>
               
               {/* Vertretung Button - nur bei Krank/Urlaub */}
-              {(editingSchedule?.status || "normal" === "krank" || editingSchedule?.status || "normal" === "urlaub") && (
+              {(editingSchedule?.status === "krank" || editingSchedule?.status === "urlaub") && (
                 <div className="mt-3">
                   <button
                     onClick={() => {

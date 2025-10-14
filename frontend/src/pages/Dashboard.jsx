@@ -11,6 +11,7 @@ const Dashboard = () => {
   const [isWorking, setIsWorking] = useState(false);
   const [workStartTime, setWorkStartTime] = useState(null);
   const [todayHours, setTodayHours] = useState(0);
+  const [colleagues, setColleagues] = useState([]);
   const [weekHours, setWeekHours] = useState(0);
   const [monthHours, setMonthHours] = useState(0);
   const [totalHours, setTotalHours] = useState(0);
@@ -73,12 +74,7 @@ const Dashboard = () => {
     console.log("GPS-VALIDIERUNG STARTET FÜR OBJEKT:", objectId);
     
     const currentUserEmail = localStorage.getItem('userEmail') || '';
-    if (currentUserEmail !== 'eldina.mustafic@seda24.de') {
-      console.log('GPS übersprungen für:', currentUserEmail);
-      return true;
-    }
 
-    // Objekte mit GPS aus DB (deine Daten von vorhin)
     const objectCoords = {
       1: { name: 'SEDA24 Zentrale', lat: 48.794968, lng: 8.310615 },
       3: { name: 'Lidl Muggensturmer Str', lat: 48.8888214774413, lng: 8.26481250682591 },
@@ -89,11 +85,13 @@ const Dashboard = () => {
 
     try {
       const location = await getCurrentLocation();
+      // TEST: Feste Koordinaten für Debug
+      // TEST: Simuliere Position in SEDA Zentrale
+      // location = {lat: 48.794968, lng: 8.310615};
       const target = objectCoords[objectId];
       
       if (!target) return true;
 
-      // Distanz berechnen
       const R = 6371000;
       const dLat = (location.lat - target.lat) * Math.PI / 180;
       const dLng = (location.lng - target.lng) * Math.PI / 180;
@@ -121,7 +119,6 @@ const Dashboard = () => {
   const [loadingCategory, setLoadingCategory] = useState(true);
   const [employeeTachoData, setEmployeeTachoData] = useState(null);
     
-  // States für die Pause
   const [isPaused, setIsPaused] = useState(false);
   const [pauseId, setPauseId] = useState(null);
   const [pauseStartTime, setPauseStartTime] = useState(null);
@@ -131,23 +128,7 @@ const Dashboard = () => {
   const API_URL = 'https://app.seda.de/api/v1';
   const token = localStorage.getItem('token');
 
-  // Fallback Objekte falls Dienstplan nicht lädt
-  const fallbackObjects = {}; // ALTE LISTE: {
-//     1: { name: 'SEDA24 Zentrale' },
-//     3: { name: 'Lidl Muggensturmer Str' },
-//     4: { name: 'Lidl Wochenende' },
-//     5: { name: 'Enfido Sonnenschein' },
-// // //     6: { name: 'Metalicone Muggensturm' },
-// // //     7: { name: 'JU_RA Baden-Baden' },
-// // //     8: { name: 'Huber Iffezheim' },
-// // //     9: { name: 'BAD-Treppen' },
-// // //     11: { name: 'Leible Rheinmünster' },
-// // //     12: { name: 'Zinsfabrik Baden-Baden' },
-// // //     13: { name: 'Polytec Rastatt' },
-// // //     14: { name: 'Steuerberater Baden-Baden' },
-// // //     15: { name: 'Geiger Malsch' },
-// // //     16: { name: 'Rytec Baden-Baden' }
-// //   };
+  const fallbackObjects = {};
   const objectMap = {};
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -156,15 +137,29 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchEmployeeCategory();
+    //fetchColleagues();
     loadScheduledObjects();
     checkStatus();
     fetchTodayHours();
     fetchWeekHours();
     fetchMonthHours();
-	fetchTachoData();  // NEU!
+	fetchTachoData();
   }, []);
 
   const fetchEmployeeCategory = async () => {
+
+  const fetchColleagues = async () => {
+    try {
+      const response = await api.get("/employees/my-colleagues-today", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      console.log("Kollegen geladen:", response.data);
+      setColleagues(response.data || []);
+    } catch (error) {
+      console.error("Fehler beim Laden der Kollegen:", error);
+      setColleagues([]);
+    }
+  };
     try {
       setLoadingCategory(true);
       const response = await axios.get(`${API_URL}/employees/my-category`, {
@@ -183,23 +178,19 @@ const Dashboard = () => {
     }
   };
 
-  // NEU: Lade nur geplante Objekte aus Dienstplan
   const loadScheduledObjects = async () => {
     try {
-      // Versuche Dienstplan-Objekte zu laden
       const response = await axios.get(`${API_URL}/time-entries/my-objects-today`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
       if (response.data && response.data.length > 0) {
         setScheduledObjects(response.data);
-        // Setze erstes Objekt als Standard
         if (!selectedObject && response.data.length > 0) {
           setSelectedObject(response.data[0].id);
         }
         setInfoMessage('');
       } else {
-        // Prüfe ob heute überhaupt Arbeitstag ist
         const workCheck = await axios.get(`${API_URL}/time-entries/has-work-today`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -210,7 +201,6 @@ const Dashboard = () => {
           setInfoMessage('Keine Objekte für heute geplant');
         }
         
-        // Fallback zu allen Objekten
         const fallbackList = Object.entries(fallbackObjects).map(([id, obj]) => ({
           id: parseInt(id),
           name: obj.name,
@@ -224,7 +214,6 @@ const Dashboard = () => {
       }
     } catch (error) {
       console.error('Fehler beim Laden der geplanten Objekte:', error);
-      // Fallback wenn Endpoint nicht existiert
       const fallbackList = Object.entries(fallbackObjects).map(([id, obj]) => ({
         id: parseInt(id),
         name: obj.name,
@@ -312,7 +301,7 @@ const Dashboard = () => {
 
   const handleWarAnwesend = async () => {
   try {
-    console.log('Sende Leistungsart:', serviceType); // DEBUG-ZEILE
+    console.log('Sende Leistungsart:', serviceType);
     
     const response = await axios.post(
       `${API_URL}/time-entries/war-anwesend`,
@@ -323,7 +312,9 @@ const Dashboard = () => {
       { headers: { Authorization: `Bearer ${token}` }}
     );
     
-    console.log('Antwort vom Server:', response.data); // DEBUG-ZEILE
+    console.log('Antwort vom Server:', response.data);
+    // Entferne das gebuchte Objekt aus der Liste
+    setScheduledObjects(prevObjects => prevObjects.filter(obj => obj.id !== parseInt(selectedObject)));
     
     setButtonText(`✅ ${response.data.scheduled_hours}h gebucht!`);
     setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
@@ -336,7 +327,7 @@ const Dashboard = () => {
       setButtonText('❌ Bereits gebucht!');
       setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
     } else {
-      console.error('Fehler:', error); // DEBUG-ZEILE
+      console.error('Fehler:', error);
       setButtonText('❌ Fehler!');
       setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
     }
@@ -345,9 +336,9 @@ const Dashboard = () => {
 
   const handleCheckIn = async () => {
     try {
-      const isValid = await validateLocation(parseInt(selectedObject));
+      const isValid = (employeeCategory === "C") ? await validateLocation(parseInt(selectedObject)) : true;
       if (!isValid) return;
-      const notes = workingWithColleague ? `Arbeitsbeginn (zu zweit mit ${selectedColleague})` : "Arbeitsbeginn";
+      const notes = "Arbeitsbeginn";
       await axios.post(`${API_URL}/time-entries/check-in`, { 
         object_id: parseInt(selectedObject), 
         notes: notes 
@@ -362,12 +353,19 @@ const Dashboard = () => {
 
   const handleCheckOut = async () => {
     try {
+      const isValid = employeeCategory === "C" ? await validateLocation(parseInt(selectedObject), true) : true;
+      if (!isValid) return;
       await axios.post(`${API_URL}/time-entries/check-out`, {}, { 
         headers: { Authorization: `Bearer ${token}` }
       });
       checkStatus();
       fetchTodayHours();
       fetchWeekHours();
+      if (employeeCategory === "C") {
+        const currentObj = scheduledObjects.find(obj => obj.id === parseInt(selectedObject));
+        const isValid = await validateLocation(parseInt(selectedObject), true);
+        if (!isValid) return;
+      }
       fetchMonthHours();
     } catch (error) { 
       alert('Fehler beim Ausstempeln: ' + (error.response?.data?.message || error.message)); 
@@ -430,10 +428,8 @@ const Dashboard = () => {
     navigate('/login');
   };
 
-  // Finde aktuell gewähltes Objekt
   const currentObject = scheduledObjects.find(obj => obj.id === selectedObject);
 
-  // Lade-Zustand
   if (loadingCategory) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#1e3a5f' }}>
@@ -442,7 +438,6 @@ const Dashboard = () => {
     );
   }
 
-  // KATEGORIE A: Vollautomatisch
   if (employeeCategory === 'A') {
     return (
       <div className="min-h-screen" style={{ backgroundColor: '#1e3a5f' }}>
@@ -507,7 +502,6 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* INFO BOX */}
                 <div style={{ 
                   background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
                   borderRadius: '16px', 
@@ -536,7 +530,6 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* STUNDEN-ÜBERSICHT */}
                 <div style={{marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e0e0e0'}}>
                   <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px'}}>
                     <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
@@ -590,7 +583,7 @@ const Dashboard = () => {
   }
 
   // KATEGORIE B: War-Anwesend Button
-  if (employeeCategory === 'B') {
+	if (employeeCategory === 'B') {
     return (
       <div className="min-h-screen" style={{ backgroundColor: '#1e3a5f' }}>
         <div className="max-w-4xl mx-auto p-4">
@@ -654,7 +647,6 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* Info-Nachricht wenn keine Arbeit heute */}
                 {infoMessage && (
                   <div style={{ background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '8px', padding: '12px', marginBottom: '16px', textAlign: 'center' }}>
                     <Info size={20} className="inline mr-2" style={{ color: '#f59e0b' }} />
@@ -662,7 +654,6 @@ const Dashboard = () => {
                   </div>
                 )}
 
-                {/* OBJEKT-AUSWAHL - Nur geplante Objekte */}
                 <div className="mb-6">
                   <label style={{fontSize: '14px', color: '#666', display: 'block', marginBottom: '8px'}}>
                     Objekt wählen:
@@ -693,10 +684,10 @@ const Dashboard = () => {
                   )}
                 </div>
 
-                {/* Zu zweit arbeiten */}
+                {/*
                 <div style={{ background: '#f8f9fa', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={workingWithColleague} onChange={(e) => setWorkingWithColleague(e.target.checked)} 
+                    <input type="checkbox" checked={workingWithColleague} onChange={() => {}} 
                       style={{ marginRight: '12px', width: '20px', height: '20px' }} />
                     <span style={{ fontSize: '16px', color: '#333' }}>
                       <Users size={20} className="inline mr-2" /> Zu zweit arbeiten
@@ -706,14 +697,14 @@ const Dashboard = () => {
                     <select value={selectedColleague} onChange={(e) => setSelectedColleague(e.target.value)} 
                       style={{ width: '100%', marginTop: '12px', padding: '10px', fontSize: '16px', border: '1px solid #e0e0e0', borderRadius: '6px' }}>
                       <option value="">Kollegen wählen...</option>
-                      <option value="Ruza (D0002)">Ruza Sertic</option>
-                      <option value="Ljubica (D0004)">Ljubica Stjepic</option>
-                      <option value="Matej (D0021)">Matej Stjepic</option>
+                      <option value="Mitarbeiter 1">Mitarbeiter 1</option>
+                      <option value="Mitarbeiter 2">Mitarbeiter 2</option>
+                      <option value="Mitarbeiter 3">Mitarbeiter 3</option>
                     </select>
                   )}
                 </div>
+                */}
 
-                {/* WAR ANWESEND BUTTON */}
                 <button 
                   onClick={handleWarAnwesend}
                   style={{ 
@@ -736,7 +727,6 @@ const Dashboard = () => {
                   {buttonText}
                 </button>
 
-                {/* Leistungsart dezent mit Dropdown */}
                 <div style={{ marginTop: '8px', textAlign: 'center', fontSize: '12px', color: '#666' }}>
                   <span>Leistung: </span>
                   <select 
@@ -769,7 +759,6 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* STUNDEN-ÜBERSICHT */}
                 <div style={{marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e0e0e0'}}>
                   <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px'}}>
                     <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
@@ -822,7 +811,7 @@ const Dashboard = () => {
     );
   }
 
-  // KATEGORIE C: Normale Stempeluhr - MIT DIENSTPLAN-FILTER
+ // KATEGORIE C: Normale Stempeluhr - MIT DIENSTPLAN-FILTER
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#1e3a5f' }}>
       <div className="max-w-4xl mx-auto p-4">
@@ -858,14 +847,14 @@ const Dashboard = () => {
                   color: activeTab === 'urlaub' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
                 Urlaub
               </button>
-            <button onClick={() => setActiveTab('stempeluhr')} 
+            <button onClick={() => setActiveTab('stempeluhr')}
               style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
                 backgroundColor: activeTab === 'stempeluhr' ? '#1e3a5f' : '#f8f9fa',
                 color: activeTab === 'stempeluhr' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
               Stempeluhr
             </button>
             <button onClick={() => setActiveTab('historie')}
-              style={{padding: '10px 20px', borderRadius: '8px', border: 'none', 
+              style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
                 backgroundColor: activeTab === 'historie' ? '#1e3a5f' : '#f8f9fa',
                 color: activeTab === 'historie' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
               Historie
@@ -883,7 +872,6 @@ const Dashboard = () => {
                 <div style={{ fontSize: '16px', color: '#666' }}>{currentTime.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
               </div>
 
-              {/* Info-Nachricht wenn keine Arbeit heute */}
               {infoMessage && (
                 <div style={{ background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '8px', padding: '12px', marginBottom: '16px', textAlign: 'center' }}>
                   <Info size={20} className="inline mr-2" style={{ color: '#f59e0b' }} />
@@ -898,10 +886,9 @@ const Dashboard = () => {
                     <div style={{ fontSize: '48px', fontWeight: 'bold', fontFamily: 'monospace' }}>{calculateWorkTime()}</div>
                     <div style={{marginTop: '16px', padding: '16px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '8px'}}>
                       <div style={{fontWeight: 'bold'}}>
-                        <Building size={16} className="inline mr-2" /> 
+                        <Building size={16} className="inline mr-2" />
                         Objekt: {scheduledObjects.find(o => o.id === selectedObject)?.name || 'Unbekannt'}
                       </div>
-                      {workingWithColleague && selectedColleague && (<div style={{ fontSize: '14px', marginTop: '8px' }}><Users size={16} className="inline mr-2" /> Mit: {selectedColleague}</div>)}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
@@ -915,20 +902,19 @@ const Dashboard = () => {
                 </>
               ) : (
                 <>
-                  {/* OBJEKT-AUSWAHL - Nur geplante Objekte */}
                   <div className="mb-4">
                     <label style={{fontSize: '14px', color: '#666', display: 'block', marginBottom: '8px'}}>
                       Objekt wählen:
                     </label>
-                    <select 
-                      value={selectedObject || ''} 
-                      onChange={(e) => setSelectedObject(parseInt(e.target.value))} 
-                      style={{ 
-                        width: '100%', 
-                        padding: '12px', 
-                        fontSize: '16px', 
-                        border: '2px solid #e0e0e0', 
-                        borderRadius: '8px' 
+                    <select
+                      value={selectedObject || ''}
+                      onChange={(e) => setSelectedObject(parseInt(e.target.value))}
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        fontSize: '16px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '8px'
                       }}
                     >
                       {scheduledObjects.map((obj) => (
@@ -944,25 +930,6 @@ const Dashboard = () => {
                     )}
                   </div>
 
-                  <div style={{ background: '#f8f9fa', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={workingWithColleague} onChange={(e) => setWorkingWithColleague(e.target.checked)} style={{ marginRight: '12px', width: '20px', height: '20px' }} />
-                      <span style={{ fontSize: '16px', color: '#333' }}><Users size={20} className="inline mr-2" /> Zu zweit arbeiten</span>
-                    </label>
-                    {workingWithColleague && (
-                      <select value={selectedColleague} onChange={(e) => setSelectedColleague(e.target.value)} style={{ width: '100%', marginTop: '12px', padding: '10px', fontSize: '16px', border: '1px solid #e0e0e0', borderRadius: '6px' }}>
-                        <option value="">Kollegen wählen...</option>
-                        <option value="Ruza (D0002)">Ruza Sertic</option>
-                        <option value="Ljubica (D0004)">Ljubica Stjepic</option>
-                        <option value="Matej (D0021)">Matej Stjepic</option>
-                        <option value="Eldina (D0005)">Eldina Mustafic</option>
-                        <option value="Jana (D0022)">Jana Bojko</option>
-                        <option value="Eliane (D0031)">Eliane DaSilvaTodaro</option>
-                        <option value="Andy (D0032)">Andreas Frosch</option>
-                        <option value="Sonja (D0034)">Sonja Mullak</option>
-                      </select>
-                    )}
-                  </div>
                   <button onClick={handleCheckIn} style={{ width: '100%', padding: '16px', background: '#1e3a5f', color: 'white', fontSize: '18px', fontWeight: 'bold', borderRadius: '16px', border: 'none' }}>
                     <Play size={24} className="inline mr-3" /> ARBEIT BEGINNEN
                   </button>
@@ -1000,7 +967,7 @@ const Dashboard = () => {
               </div>
             </>
           ) : (
-            activeTab === "historie" ? <HistoryTab /> : activeTab === "urlaub" ? <VacationTab token={token} /> : null
+            activeTab === "historie" ? <HistoryTab /> : <VacationTab token={token} />
           )}
         </div>
       </div>

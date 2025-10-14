@@ -1,0 +1,22 @@
+[0;1;31m●[0m zeiterfassung-backend.service - Zeiterfassung Backend
+     Loaded: loaded (/etc/systemd/system/zeiterfassung-backend.service; enabled; vendor preset: enabled)
+     Active: [0;1;31mfailed[0m (Result: exit-code) since Sun 2025-09-21 13:55:15 CEST; 1 weeks 6 days ago
+   Main PID: 378969 (code=exited, status=1/FAILURE)
+
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mzeiterfassung-backend.service: Failed with result 'exit-code'.[0m
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: zeiterfassung-backend.service: Scheduled restart job, restart counter is at 9.
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: Stopped Zeiterfassung Backend.
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mzeiterfassung-backend.service: Start request repeated too quickly.[0m
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mzeiterfassung-backend.service: Failed with result 'exit-code'.[0m
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: [0;1;31m[0;1;39m[0;1;31mFailed to start Zeiterfassung Backend.[0m
+[0;1;31m●[0m zeiterfassung-backend.service - Zeiterfassung Backend
+     Loaded: loaded (/etc/systemd/system/zeiterfassung-backend.service; enabled; vendor preset: enabled)
+     Active: [0;1;31mfailed[0m (Result: exit-code) since Sun 2025-09-21 13:55:15 CEST; 1 weeks 6 days ago
+   Main PID: 378969 (code=exited, status=1/FAILURE)
+
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mzeiterfassung-backend.service: Failed with result 'exit-code'.[0m
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: zeiterfassung-backend.service: Scheduled restart job, restart counter is at 9.
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: Stopped Zeiterfassung Backend.
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mzeiterfassung-backend.service: Start request repeated too quickly.[0m
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mzeiterfassung-backend.service: Failed with result 'exit-code'.[0m
+Sep 21 13:55:15 h2966830.stratoserver.net systemd[1]: [0;1;31m[0;1;39m[0;1;31mFailed to start Zeiterfassung Backend.[0m

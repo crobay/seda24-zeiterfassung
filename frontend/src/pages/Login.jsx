@@ -6,85 +6,161 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const navigate = useNavigate();
 
 const API_URL = 'https://app.seda.de/api/v1';
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setError('');
-
-    try {
-      const response = await axios.post(`${API_URL}/auth/login`, {
-        email,
-        password,
-      });
-
-      // Das ist unser "Mikrofon", um zu sehen, was der Server wirklich schickt
-      console.log('ANTWORT VOM SERVER:', response.data);
-
-      if (response.data.access_token) {
-        // Alle Daten im Browser speichern
-        localStorage.setItem('token', response.data.access_token);
-        localStorage.setItem('userEmail', email);
-        localStorage.setItem('userEmail', email);
-        localStorage.setItem('userRole', response.data.role);
-        localStorage.setItem('userName', response.data.user_name);
-        localStorage.setItem('personalNr', response.data.personal_nr);
-
-        // Weiterleiten basierend auf der Rolle
+const handleLogin = async (e) => {
+  e.preventDefault();
+  setError('');
+  
+  try {
+    const response = await axios.post(`${API_URL}/auth/login`, {
+      email,
+      password,
+    });
+    
+    console.log('ANTWORT VOM SERVER:', response.data);
+    
+    if (response.data.access_token) {
+      localStorage.setItem('token', response.data.access_token);
+      localStorage.setItem('userEmail', email);
+      localStorage.setItem('userRole', response.data.role);
+      localStorage.setItem('userName', response.data.user_name);
+      localStorage.setItem('personalNr', response.data.personal_nr);
+      
+      console.log("Login Response:", response.data);
+      console.log("Checking must_change_password:", response.data.must_change_password === true, typeof response.data.must_change_password);
+      console.log("About to setShowChangePassword:", response.data.must_change_password);
+      if (response.data.must_change_password) {
+        setShowChangePassword(true);
+      } else {
         if (response.data.role === 'admin') {
           navigate('/admin');
         } else {
           navigate('/dashboard');
         }
-      } else {
-         setError("Login fehlgeschlagen. Ungültige Antwort vom Server.");
       }
-    } catch (err) {
-      setError("Login fehlgeschlagen. Bitte überprüfe deine Eingaben.");
-      console.error("Login-Fehler:", err);
+    } else {
+      setError("Login fehlgeschlagen. Ungültige Antwort vom Server.");
     }
-  };
+  } catch (err) {
+    setError("Login fehlgeschlagen. Bitte überprüfe deine Eingaben.");
+    console.error("Login-Fehler:", err);
+  }
+};
+
+const handlePasswordChange = async (e) => {
+  e.preventDefault();
+  
+  if (newPassword !== confirmPassword) {
+    setError('Passwörter stimmen nicht überein!');
+    return;
+  }
+  
+  if (newPassword.length < 6) {
+    setError('Passwort muss mindestens 6 Zeichen lang sein!');
+    return;
+  }
+  
+  try {
+    const token = localStorage.getItem('token');
+    await axios.post(`${API_URL}/auth/change-password`, 
+      { new_password: newPassword },
+      { headers: { 'Authorization': `Bearer ${token}` }}
+    );
+    
+    alert('Passwort erfolgreich geändert!');
+    const role = localStorage.getItem('userRole');
+    if (role === 'admin') {
+      navigate('/admin');
+    } else {
+      navigate('/dashboard');
+    }
+  } catch (err) {
+    setError('Fehler beim Ändern des Passworts');
+  }
+};
+
+  if (showChangePassword) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-100">
+        <div className="bg-white rounded-lg shadow-md p-8 w-full max-w-md">
+          <h1 className="text-2xl font-bold mb-6 text-center">Passwort ändern erforderlich</h1>
+          <p className="text-gray-600 mb-4">Bitte ändern Sie Ihr Passwort.</p>
+          
+          {error && <p className="text-red-500 mb-4">{error}</p>}
+          
+          <form onSubmit={handlePasswordChange}>
+            <input
+              type="password"
+              placeholder="Neues Passwort"
+              className="w-full px-4 py-2 mb-4 border rounded-lg"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+            />
+            <input
+              type="password"
+              placeholder="Passwort bestätigen"
+              className="w-full px-4 py-2 mb-4 border rounded-lg"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
+            <button
+              type="submit"
+              className="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600"
+            >
+              Passwort ändern
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-200 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
-        <h1 className="text-3xl font-bold text-gray-800 text-center mb-2">SEDA24</h1>
-        <p className="text-center text-gray-600 mb-8">Zeiterfassung</p>
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="bg-white rounded-lg shadow-md p-8 w-full max-w-md">
+        <h1 className="text-2xl font-bold mb-6 text-center">Login</h1>
         
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
+        {error && (
+          <p className="text-red-500 text-center mb-4">{error}</p>
+        )}
+        
+        <form onSubmit={handleLogin}>
+          <div className="mb-4">
+            <label className="block text-gray-700 mb-2">E-Mail:</label>
             <input
               type="email"
+              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Passwort</label>
+          
+          <div className="mb-6">
+            <label className="block text-gray-700 mb-2">Passwort:</label>
             <input
               type="password"
+              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-          
-          <div>
-            <button
-              type="submit"
-              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Anmelden
-            </button>
-          </div>
+          <button
+            type="submit"
+            className="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            Einloggen
+          </button>
         </form>
       </div>
     </div>

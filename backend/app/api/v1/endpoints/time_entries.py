@@ -67,7 +67,15 @@ def get_hourly_rate_for_object(employee, object_name):
         return employee.hourly_rate_standard if hasattr(employee, 'hourly_rate_standard') else 15.00
 
 @router.post("/check-in")
-def check_in(
+async def awr_anwesend(
+    object_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Kategorie B - War anwesend Button"""
+    # Rufe einfach check_in auf
+    return await check_in(object_data, db, current_user)
+async def check_in(
     data: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -269,7 +277,7 @@ def war_anwesend_booking(
     schedule = db.query(Schedule).filter(
         Schedule.employee_id == employee.id,
         Schedule.object_id == object_id,
-        Schedule.weekday == datetime.now().weekday() + 1
+        Schedule.date == datetime.now().date()
     ).first()
     
     if not schedule:
@@ -278,7 +286,7 @@ def war_anwesend_booking(
         # Hole Sollstunden aus Dienstplan
         schedule = db.query(Schedule).filter(
             Schedule.employee_id == employee.id,
-            Schedule.weekday == datetime.now().weekday() + 1,
+            Schedule.date == datetime.now().date(),
             Schedule.object_id == data.object_id
         ).first()
         scheduled_hours = schedule.planned_hours if schedule else 4.0
@@ -339,7 +347,7 @@ def get_my_scheduled_objects(
     # Basis: Heutiger Dienstplan
     schedules = db.query(Schedule).filter(
         Schedule.employee_id == employee.id,
-        Schedule.weekday == weekday
+        Schedule.date == today
     ).all()
     
     # Kategorie B und C: 2 Tage Puffer (gestern und morgen auch erlaubt)
@@ -349,7 +357,7 @@ def get_my_scheduled_objects(
         
         extra_schedules = db.query(Schedule).filter(
             Schedule.employee_id == employee.id,
-            Schedule.weekday.in_([yesterday, tomorrow])
+            # Schedule.weekday.in_([yesterday, tomorrow])
         ).all()
         schedules.extend(extra_schedules)
     
@@ -399,7 +407,7 @@ def check_if_working_today(
     # Prüfe Dienstplan
     schedule_today = db.query(Schedule).filter(
         Schedule.employee_id == employee.id,
-        Schedule.weekday == weekday
+        Schedule.date == today
     ).first()
     
     return {

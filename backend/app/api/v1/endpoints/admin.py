@@ -99,10 +99,26 @@ def update_category(data: dict, db: Session = Depends(get_db), admin = Depends(v
     db.commit()
     return {"status": "ok", "message": f"Kategorie auf {new_category} gesetzt"}
 
+# ========== NEUE DATUMSBASIERTE SCHEDULE FUNKTIONEN ==========
+
 @router.get("/schedules")
-def get_all_schedules(db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    schedules = db.query(Schedule).all()
+def get_all_schedules(
+    start_date: str = None,
+    end_date: str = None,
+    db: Session = Depends(get_db), 
+    admin = Depends(verify_admin)
+):
+    """Hole alle Schedules, optional gefiltert nach Datum"""
+    query = db.query(Schedule)
+    
+    if start_date:
+        query = query.filter(Schedule.date >= datetime.strptime(start_date, "%Y-%m-%d").date())
+    if end_date:
+        query = query.filter(Schedule.date <= datetime.strptime(end_date, "%Y-%m-%d").date())
+    
+    schedules = query.all()
     result = []
+    
     for s in schedules:
         emp = s.employee
         obj = db.query(Object).filter(Object.id == s.object_id).first()
@@ -112,18 +128,29 @@ def get_all_schedules(db: Session = Depends(get_db), admin = Depends(verify_admi
             "employee_name": f"{emp.first_name} {emp.last_name}",
             "object_id": s.object_id,
             "object_name": obj.name if obj else f"Objekt {s.object_id}",
-            "weekday": s.weekday,
+            "date": s.date.isoformat() if s.date else None,
+            "weekday": s.weekday,  # Behalten für Kompatibilität
             "start_time": s.start_time.strftime("%H:%M") if s.start_time else "",
             "end_time": s.end_time.strftime("%H:%M") if s.end_time else "",
-            "planned_hours": s.planned_hours
+            "planned_hours": s.planned_hours,
+            "status": s.status
         })
     return result
 
 @router.post("/schedules")
 def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    from datetime import time, datetime, timedelta
+    """Erstelle neue Schedule mit Datum"""
+    from datetime import time
+    
+    # Parse date
+    schedule_date = datetime.strptime(data["date"], "%Y-%m-%d").date() if "date" in data else None
+    
+    # Parse times
     start_parts = data["start_time"].split(":")
     end_parts = data["end_time"].split(":")
+    
+    # Calculate weekday from date (für Kompatibilität)
+    weekday = schedule_date.weekday() if schedule_date else data.get("weekday", 0)
     
     # Berechne die Stunden automatisch
     start = datetime.strptime(data["start_time"], "%H:%M")
@@ -139,21 +166,34 @@ def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(v
     schedule = Schedule(
         employee_id=data["employee_id"],
         object_id=data["object_id"],
-        weekday=data["weekday"],
+        date=schedule_date,
+        weekday=weekday,
         start_time=time(int(start_parts[0]), int(start_parts[1])),
         end_time=time(int(end_parts[0]), int(end_parts[1])),
-        planned_hours=hours_diff  # Automatisch berechnet!
+        planned_hours=hours_diff,  # Automatisch berechnet!
+        status=data.get("status", "normal")
     )
+    
     db.add(schedule)
     db.commit()
+    db.refresh(schedule)
+    
     return {"status": "ok", "id": schedule.id}
 
 @router.put("/schedules/{schedule_id}")
 def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    from datetime import time, datetime, timedelta
+    """Update Schedule mit Datum"""
+    from datetime import time
+    
     schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
     if not schedule:
         raise HTTPException(status_code=404)
+    
+    # Update date if provided
+    if "date" in data:
+        schedule.date = datetime.strptime(data["date"], "%Y-%m-%d").date()
+        # Update weekday based on date
+        schedule.weekday = schedule.date.weekday()
     
     if "start_time" in data:
         start_parts = data["start_time"].split(":")
@@ -182,31 +222,10 @@ def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db),
     
     if "object_id" in data:
         schedule.object_id = data["object_id"]
-    if "weekday" in data:
-        schedule.weekday = data["weekday"]
-def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    from datetime import time
-    
-    schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
-    if not schedule:
-        raise HTTPException(status_code=404)
-    
-    if "start_time" in data:
-        start_parts = data["start_time"].split(":")
-        schedule.start_time = time(int(start_parts[0]), int(start_parts[1]))
-    
-    if "end_time" in data:
-        end_parts = data["end_time"].split(":")
-        schedule.end_time = time(int(end_parts[0]), int(end_parts[1]))
-    
-    if "planned_hours" in data:
-        schedule.planned_hours = data["planned_hours"]
-    
-    if "object_id" in data:
-        schedule.object_id = data["object_id"]
-    
-    if "weekday" in data:
-        schedule.weekday = data["weekday"]
+    if "employee_id" in data:
+        schedule.employee_id = data["employee_id"]
+    if "status" in data:
+        schedule.status = data["status"]
     
     db.commit()
     return {"status": "ok"}
@@ -225,24 +244,73 @@ def delete_schedule(schedule_id: int, db: Session = Depends(get_db), admin = Dep
 
 @router.get("/schedules/week")
 def get_week_schedule(
+    week_start: str = None,
     week_offset: int = Query(0, description="Wochen-Offset (0=aktuelle Woche)"),
     db: Session = Depends(get_db),
     admin = Depends(verify_admin)
 ):
-    """Hole Dienstplan für eine komplette Woche"""
-    today = date.today()
-    start_of_week = today - timedelta(days=today.weekday())
-    start_of_week += timedelta(weeks=week_offset)
+    """Hole Wochenplan für ein bestimmtes Datum"""
     
-    schedules = db.query(Schedule).all()
+    # Parse start date or use current week
+    if week_start:
+        start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
+    else:
+        today = date.today()
+        # Get Monday of current week
+        start_date = today - timedelta(days=today.weekday())
+        start_date += timedelta(weeks=week_offset)
+    
+    # Calculate end of week (Sunday)
+    end_date = start_date + timedelta(days=6)
+    
+    # Get all schedules for this week
+    schedules = db.query(Schedule).filter(
+        and_(
+            Schedule.date >= start_date,
+            Schedule.date <= end_date
+        )
+    ).all()
+    
+    # Get all employees and objects for the UI
     employees = db.query(Employee).filter(Employee.personal_nr != 'A0001').all()
     objects = db.query(Object).all()
     
-    week_data = {
-        'week_start': start_of_week.isoformat(),
-        'week_number': start_of_week.isocalendar()[1],
-        'year': start_of_week.year,
-        'days': [],
+    # Organize by day
+    days_data = []
+    for i in range(7):
+        current_date = start_date + timedelta(days=i)
+        day_schedules = [s for s in schedules if s.date == current_date]
+        
+        day_name = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'][i]
+        
+        schedules_data = []
+        for s in day_schedules:
+            schedules_data.append({
+                'id': s.id,
+                'employee_id': s.employee_id,
+                'employee_name': f"{s.employee.first_name} {s.employee.last_name}",
+                'object_id': s.object_id,
+                'object_name': s.object.name if s.object else f"Objekt {s.object_id}",
+                'start_time': s.start_time.strftime("%H:%M") if s.start_time else "",
+                'end_time': s.end_time.strftime("%H:%M") if s.end_time else "",
+                'planned_hours': s.planned_hours,
+                'status': s.status or 'normal',
+                'replacement_for': s.replacement_for
+            })
+        
+        days_data.append({
+            'date': current_date.isoformat(),
+            'weekday': day_name,
+            'weekday_index': i,
+            'schedules': schedules_data
+        })
+    
+    return {
+        'week_start': start_date.isoformat(),
+        'week_end': end_date.isoformat(),
+        'week_number': start_date.isocalendar()[1],
+        'year': start_date.year,
+        'days': days_data,
         'employees': [
             {
                 'id': emp.id,
@@ -257,43 +325,71 @@ def get_week_schedule(
                 'name': obj.name,
                 'customer_name': obj.customer.name if obj.customer else '',
                 'gps_lat': obj.gps_lat,
+                'start_time': '06:00',
+                'end_time': '14:00',
                 'gps_lng': obj.gps_lng
             } for obj in objects
         ]
     }
+
+@router.post("/schedules/copy-week")
+def copy_week_schedule(
+    data: dict,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Kopiere eine komplette Woche in eine neue Woche"""
+    source_week = datetime.fromisoformat(data["source_week"].split('T')[0]).date()
+    target_week = datetime.fromisoformat(data["target_week"].split('T')[0]).date()
     
-    for i in range(7):
-        current_date = start_of_week + timedelta(days=i)
-        day_name = WEEKDAY_NAMES[i]
-        day_schedules = [s for s in schedules if s.weekday == i + 1]
-        
-        day_data = {
-            'date': current_date.isoformat(),
-            'weekday': day_name,
-            'weekday_index': i,
-            'schedules': []
-        }
-        
-        for schedule in day_schedules:
-            emp = schedule.employee
-            obj = db.query(Object).filter(Object.id == schedule.object_id).first()
-            
-            day_data['schedules'].append({
-                'id': schedule.id,
-                'employee_id': schedule.employee_id,
-                'employee_name': f"{emp.first_name} {emp.last_name}",
-                'object_id': schedule.object_id,
-                'object_name': obj.name if obj else f"Objekt {schedule.object_id}",
-                'start_time': schedule.start_time.strftime("%H:%M") if schedule.start_time else "06:00",
-                'end_time': schedule.end_time.strftime("%H:%M") if schedule.end_time else "14:00",
-                'planned_hours': schedule.planned_hours,
-                'status': getattr(schedule, 'status', 'normal'),
-                'replacement_for': getattr(schedule, 'replacement_for', None)
-            })
-        
-        week_data['days'].append(day_data)
+    # Get source week schedules
+    source_end = source_week + timedelta(days=6)
+    source_schedules = db.query(Schedule).filter(
+        and_(
+            Schedule.date >= source_week,
+            Schedule.date <= source_end
+        )
+    ).all()
     
-    return week_data
+    # Calculate day difference
+    day_diff = (target_week - source_week).days
+    
+    # Copy each schedule
+    copied = 0
+    for source in source_schedules:
+        
+        # Check if schedule already exists
+        new_date = source.date + timedelta(days=day_diff)
+        
+        existing = db.query(Schedule).filter(
+            and_(
+                Schedule.date == new_date,
+                Schedule.employee_id == source.employee_id,
+                Schedule.start_time == source.start_time
+            )
+        ).first()
+        
+        if not existing:
+            new_schedule = Schedule(
+                employee_id=source.employee_id,
+                object_id=source.object_id,
+                date=new_date,
+                weekday=new_date.weekday(),
+                start_time=source.start_time,
+                end_time=source.end_time,
+                planned_hours=source.planned_hours,
+                status=source.status or "normal"
+            )
+            db.add(new_schedule)
+            copied += 1
+    
+    db.commit()
+    
+    return {
+        "status": "ok",
+        "copied": copied,
+        "message": f"{copied} Schichten wurden kopiert"
+    }
 
 @router.post("/schedules/bulk-update")
 def bulk_update_schedules(
@@ -316,16 +412,14 @@ def bulk_update_schedules(
             schedule = Schedule()
             db.add(schedule)
         
+        # Update all provided fields
+        if 'date' in update:
+            schedule.date = datetime.strptime(update['date'], "%Y-%m-%d").date()
+            schedule.weekday = schedule.date.weekday()
         if 'employee_id' in update:
             schedule.employee_id = update['employee_id']
         if 'object_id' in update:
             schedule.object_id = update['object_id']
-        if 'weekday' in update:
-            weekday = update['weekday']
-            if isinstance(weekday, str):
-                schedule.weekday = WEEKDAY_MAP.get(weekday, 0)
-            else:
-                schedule.weekday = weekday
         if 'start_time' in update:
             parts = update['start_time'].split(':')
             schedule.start_time = time(int(parts[0]), int(parts[1]))
@@ -343,55 +437,6 @@ def bulk_update_schedules(
     
     db.commit()
     return {'status': 'ok', 'results': results}
-
-@router.post("/schedules/copy-week")
-def copy_week_schedule(
-    data: dict,
-    db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
-):
-    """Kopiere Dienstplan von einer Woche in eine andere"""
-    source_week = data.get('source_week')
-    target_week = data.get('target_week')
-    
-    if not source_week or not target_week:
-        raise HTTPException(status_code=400, detail="source_week und target_week erforderlich")
-    
-    source_date = datetime.fromisoformat(source_week).date()
-    target_date = datetime.fromisoformat(target_week).date()
-    
-    schedules = db.query(Schedule).all()
-    copied_count = 0
-    
-    for schedule in schedules:
-        existing = db.query(Schedule).filter(
-            and_(
-                Schedule.employee_id == schedule.employee_id,
-                Schedule.object_id == schedule.object_id,
-                Schedule.weekday == schedule.weekday
-            )
-        ).first()
-        
-        if not existing:
-            new_schedule = Schedule(
-                employee_id=schedule.employee_id,
-                object_id=schedule.object_id,
-                weekday=schedule.weekday,
-                start_time=schedule.start_time,
-                end_time=schedule.end_time,
-                planned_hours=schedule.planned_hours,
-                status='normal'
-            )
-            db.add(new_schedule)
-            copied_count += 1
-    
-    db.commit()
-    
-    return {
-        'status': 'ok',
-        'copied_count': copied_count,
-        'message': f'{copied_count} Schichten kopiert'
-    }
 
 @router.post("/schedules/replacement")
 def create_replacement(
@@ -413,6 +458,7 @@ def create_replacement(
     replacement = Schedule(
         employee_id=replacement_employee_id,
         object_id=original.object_id,
+        date=original.date,  # NEU: Verwende Datum statt weekday
         weekday=original.weekday,
         start_time=original.start_time,
         end_time=original.end_time,
@@ -437,15 +483,13 @@ def quick_assign_schedule(
     db: Session = Depends(get_db),
     admin = Depends(verify_admin)
 ):
-    """Schnellzuweisung: Mitarbeiter zu Objekt für bestimmten Tag"""
+    """Schnellzuweisung: Mitarbeiter zu Objekt für bestimmtes Datum"""
     employee_id = data.get('employee_id')
     object_id = data.get('object_id')
-    weekday = data.get('weekday')
+    assign_date = datetime.strptime(data.get('date'), "%Y-%m-%d").date() if 'date' in data else None
+    weekday = assign_date.weekday() if assign_date else data.get('weekday', 0)
     start_time_str = data.get('start_time', '06:00')
     end_time_str = data.get('end_time', '14:00')
-    
-    if isinstance(weekday, str):
-        weekday = WEEKDAY_MAP.get(weekday, 0)
     
     start_parts = start_time_str.split(':')
     end_parts = end_time_str.split(':')
@@ -460,7 +504,7 @@ def quick_assign_schedule(
         and_(
             Schedule.employee_id == employee_id,
             Schedule.object_id == object_id,
-            Schedule.weekday == weekday
+            Schedule.date == assign_date
         )
     ).first()
     
@@ -473,6 +517,7 @@ def quick_assign_schedule(
         schedule = Schedule(
             employee_id=employee_id,
             object_id=object_id,
+            date=assign_date,
             weekday=weekday,
             start_time=time(start_h, start_m),
             end_time=time(end_h, end_m),
@@ -488,18 +533,32 @@ def quick_assign_schedule(
 
 @router.get("/schedules/conflicts")
 def check_schedule_conflicts(
-    week_offset: int = Query(0),
+    week_start: str = None,
     db: Session = Depends(get_db),
     admin = Depends(verify_admin)
 ):
     """Prüfe auf Konflikte im Dienstplan"""
-    conflicts = []
-    schedules = db.query(Schedule).all()
     
+    if week_start:
+        start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
+    else:
+        today = date.today()
+        start_date = today - timedelta(days=today.weekday())
+    
+    end_date = start_date + timedelta(days=6)
+    
+    schedules = db.query(Schedule).filter(
+        and_(
+            Schedule.date >= start_date,
+            Schedule.date <= end_date
+        )
+    ).all()
+    
+    conflicts = []
     employee_schedules = defaultdict(list)
     
     for schedule in schedules:
-        key = f"{schedule.employee_id}_{schedule.weekday}"
+        key = f"{schedule.employee_id}_{schedule.date}"
         employee_schedules[key].append(schedule)
     
     for key, schichten in employee_schedules.items():
@@ -516,13 +575,13 @@ def check_schedule_conflicts(
                         conflicts.append({
                             'type': 'zeitüberschneidung',
                             'employee': f"{emp.first_name} {emp.last_name}",
-                            'weekday': WEEKDAY_NAMES.get(current.weekday, str(current.weekday)),
+                            'date': current.date.isoformat(),
                             'shift1': {
-                                'object': current.object_id,
+                                'object': current.object.name if current.object else f"Objekt {current.object_id}",
                                 'time': f"{current.start_time.strftime('%H:%M')}-{current.end_time.strftime('%H:%M')}"
                             },
                             'shift2': {
-                                'object': next_shift.object_id,
+                                'object': next_shift.object.name if next_shift.object else f"Objekt {next_shift.object_id}",
                                 'time': f"{next_shift.start_time.strftime('%H:%M')}-{next_shift.end_time.strftime('%H:%M')}"
                             }
                         })
@@ -532,6 +591,9 @@ def check_schedule_conflicts(
         'conflict_count': len(conflicts),
         'conflicts': conflicts
     }
+
+# ===== RESTLICHE ENDPOINTS BLEIBEN UNVERÄNDERT =====
+
 @router.post("/employees")
 def create_employee(employee_data: dict, db: Session = Depends(get_db)):
     # Neuen User erstellen
@@ -665,12 +727,6 @@ def get_objects_for_display(db: Session = Depends(get_db), admin = Depends(verif
         }
         for obj in objects
     ]
-
-@router.get("/test-objects")
-def get_test_objects(db: Session = Depends(get_db)):
-    """Test-Endpoint ohne Auth"""
-    objects = db.query(Object).all()
-    return [{"id": o.id, "name": o.name, "address": o.address} for o in objects]
 
 @router.get("/test-objects")
 def get_test_objects(db: Session = Depends(get_db)):

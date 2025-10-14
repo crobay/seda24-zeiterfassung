@@ -18,6 +18,7 @@ class User(Base):
     role = Column(Enum(UserRole), default=UserRole.MITARBEITER)
     category = Column(String, default='C')  # NEU: A, B oder C
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     employee = relationship("Employee", back_populates="user", uselist=False)
@@ -82,6 +83,8 @@ class Object(Base):
     radius_m = Column(Integer, default=100)
     cleaning_type = Column(String)
     is_active = Column(Boolean, default=True)
+    start_time = Column(Time)
+    end_time = Column(Time)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     customer = relationship("Customer", back_populates="objects")
@@ -116,6 +119,7 @@ class Schedule(Base):
     employee_id = Column(Integer, ForeignKey("employees.id"))
     object_id = Column(Integer, ForeignKey("objects.id"))
     weekday = Column(Integer)
+    date = Column(Date, index=True)
     start_time = Column(Time)
     end_time = Column(Time)
     planned_hours = Column(Float)
