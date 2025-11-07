@@ -9,7 +9,7 @@ const HistoryTab = () => {
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateFilter, setDateFilter] = useState('30days'); // 30days, 7days, thisMonth, lastMonth, all
+  const [dateFilter, setDateFilter] = useState('thisMonth'); // 30days, 7days, thisMonth, lastMonth, all
 
   const fetchHistory = async () => {
     setLoading(true);

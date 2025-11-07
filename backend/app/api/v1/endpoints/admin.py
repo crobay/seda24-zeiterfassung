@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
+# KmDistance is in models
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
 from datetime import date, datetime, timedelta, time
 from typing import List, Optional
 from jose import jwt
 from app.db.database import get_db
-from app.models.models import User, Employee, TimeEntry, Schedule, Object, Customer
+from app.models.models import User, Employee, TimeEntry, Schedule, Object, Customer, KmDistance
 import os
 from dotenv import load_dotenv
 from app.api.v1.endpoints.auth import get_current_user
@@ -37,12 +38,20 @@ WEEKDAY_NAMES = {
 
 def verify_admin(authorization: str = Header(None), db: Session = Depends(get_db)):
     if not authorization:
-        raise HTTPException(status_code=401)
-    token = authorization.split(" ")[1]
-    payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=["HS256"])
+        raise HTTPException(status_code=401, detail="No authorization header")
+    parts = authorization.split(" ")
+    if len(parts) != 2 or parts[0] != "Bearer":
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    token = parts[1]
+    try:
+        payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
     user = db.query(User).filter(User.email == payload.get("sub")).first()
-    if user.role != "admin":
-        raise HTTPException(status_code=403)
+    if not user or user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not an admin")
     return user
 
 @router.get("/dashboard/stats")
@@ -271,6 +280,12 @@ def get_week_schedule(
         )
     ).all()
     
+    
+    # Hole Standard-Zeiten für Objekte
+    from sqlalchemy import text
+    standard_times_query = text("SELECT object_id, start_time, end_time, standard_hours FROM object_standard_times")
+    standard_times_result = db.execute(standard_times_query).fetchall()
+    standard_times_dict = {row[0]: {"start": str(row[1])[:5] if row[1] else "06:00", "end": str(row[2])[:5] if row[2] else "14:00", "hours": float(row[3]) if row[3] else 8.0} for row in standard_times_result}
     # Get all employees and objects for the UI
     employees = db.query(Employee).filter(Employee.personal_nr != 'A0001').all()
     objects = db.query(Object).all()
@@ -325,8 +340,8 @@ def get_week_schedule(
                 'name': obj.name,
                 'customer_name': obj.customer.name if obj.customer else '',
                 'gps_lat': obj.gps_lat,
-                'start_time': '06:00',
-                'end_time': '14:00',
+                'start_time': standard_times_dict.get(obj.id, {}).get('start', '06:00'),
+                'end_time': standard_times_dict.get(obj.id, {}).get('end', '14:00'),
                 'gps_lng': obj.gps_lng
             } for obj in objects
         ]
@@ -619,6 +634,24 @@ def create_employee(employee_data: dict, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "success", "message": "Mitarbeiter erstellt"}
 
+
+@router.put("/employees/{employee_id:int}")
+def update_employee_by_id(employee_id: int, employee_data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
+    if 'first_name' in employee_data:
+        employee.first_name = employee_data['first_name']
+    if 'last_name' in employee_data:
+        employee.last_name = employee_data['last_name']
+    if 'hourly_rate' in employee_data:
+        employee.hourly_rate = float(employee_data['hourly_rate'])
+    if 'tracking_mode' in employee_data:
+        employee.tracking_mode = employee_data['tracking_mode']
+    if 'email' in employee_data and employee.user:
+        employee.user.email = employee_data['email']
+    db.commit()
+    return {"status": "success", "message": "Mitarbeiter aktualisiert"}
 @router.put("/employees/{personal_nr}")
 def update_employee(personal_nr: str, employee_data: dict, db: Session = Depends(get_db)):
     employee = db.query(Employee).filter(Employee.personal_nr == personal_nr).first()
@@ -650,7 +683,7 @@ def update_employee(personal_nr: str, employee_data: dict, db: Session = Depends
     # Update User E-Mail (ACHTUNG: Das ist der Login!)
     if 'email' in employee_data and employee.user:
         employee.user.email = employee_data['email']
-    
+
     db.commit()
     return {"status": "success", "message": "Mitarbeiter aktualisiert - Bei E-Mail-Änderung neuer Login nötig!"}
 
@@ -733,3 +766,540 @@ def get_test_objects(db: Session = Depends(get_db)):
     """Test-Endpoint ohne Auth"""
     objects = db.query(Object).all()
     return [{"id": o.id, "name": o.name, "address": o.address} for o in objects]
+@router.get("/bookings/all")
+def get_all_bookings(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    from app.models.models import TimeEntry, Employee, Object
+    entries = db.query(TimeEntry).order_by(TimeEntry.check_in.desc()).limit(1000).all()
+    return [{
+        "id": e.id,
+        "employee_id": e.employee_id,
+        "employee_name": f"{emp.first_name} {emp.last_name}" if (emp := db.query(Employee).filter(Employee.id == e.employee_id).first()) else "Unbekannt",
+        "object_id": e.object_id,
+        "object_name": obj.name if (obj := db.query(Object).filter(Object.id == e.object_id).first()) else "Unbekannt",
+        "check_in": e.check_in.isoformat() if e.check_in else None,
+        "check_out": e.check_out.isoformat() if e.check_out else None,
+        "billed_hours": float((e.check_out - e.check_in).total_seconds() / 3600) if (e.check_in and e.check_out) else (float(e.billed_hours) if hasattr(e, 'billed_hours') and e.billed_hours else 0),
+        "hourly_rate": float(e.hourly_rate) if e.hourly_rate else 0,
+        "service_type": e.service_type,
+        "notes": e.notes,
+        "is_manual_entry": e.is_manual_entry
+    } for e in entries]
+
+@router.put("/bookings/{booking_id}")
+def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    from app.models.models import TimeEntry
+    from datetime import datetime
+    
+    entry = db.query(TimeEntry).filter(TimeEntry.id == booking_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Buchung nicht gefunden")
+    
+    # Update Felder
+    if 'check_in' in data:
+        entry.check_in = datetime.fromisoformat(data['check_in'].replace('Z', '+00:00'))
+    if 'check_out' in data:
+        entry.check_out = datetime.fromisoformat(data['check_out'].replace('Z', '+00:00'))
+    if 'object_id' in data:
+        entry.object_id = data['object_id']
+    if 'service_type' in data:
+        entry.service_type = data['service_type']
+    if 'notes' in data:
+        entry.notes = data['notes']
+    if 'employee_id' in data:
+        entry.employee_id = data['employee_id']
+    if 'hourly_rate' in data:
+        entry.hourly_rate = data['hourly_rate']
+    if 'billed_hours' in data:
+        entry.billed_hours = data['billed_hours']
+    
+    db.commit()
+    return {"status": "ok", "message": "Buchung aktualisiert"}
+
+@router.delete("/bookings/{booking_id}")
+def delete_booking(booking_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    from app.models.models import TimeEntry
+    
+    entry = db.query(TimeEntry).filter(TimeEntry.id == booking_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Buchung nicht gefunden")
+    
+    db.delete(entry)
+    db.commit()
+
+@router.post("/bookings/manual")
+def create_manual_booking(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    from app.models.models import TimeEntry, Employee, Object
+    from datetime import datetime
+    
+    # Validierung
+    employee = db.query(Employee).filter(Employee.id == data['employee_id']).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
+    
+    # Prüfe ob Kunde oder einmalig
+    if data.get('object_id'):
+        obj = db.query(Object).filter(Object.id == data['object_id']).first()
+        if not obj:
+            raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
+        object_id = data['object_id']
+        custom_object_name = None
+    else:
+        object_id = None
+        custom_object_name = data.get('custom_object_name', 'Einmaliger Kunde')
+    
+    # Erstelle TimeEntry
+    entry = TimeEntry(
+        employee_id=data['employee_id'],
+        object_id=object_id,
+        custom_object_name=custom_object_name,
+        check_in=datetime.fromisoformat(data['check_in']),
+        check_out=datetime.fromisoformat(data['check_out']),
+        hourly_rate=data['hourly_rate'],
+        service_type=data.get('service_type', 'Unterhaltsreinigung'),
+        notes=data.get('notes', ''),
+        is_manual_entry=True
+    )
+    
+    # Berechne Stunden
+    duration = (entry.check_out - entry.check_in).total_seconds() / 3600
+    entry.billed_hours = duration
+    
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    
+    return {"status": "ok", "message": "Buchung erstellt", "id": entry.id}
+    return {"status": "ok", "message": "Buchung gelöscht"}
+"""
+SEDA24 - Neue Admin-Endpoints für PDF-Abrechnungen
+Diese Endpoints MÜSSEN zu deiner bestehenden admin.py HINZUGEFÜGT werden!
+"""
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
+from sqlalchemy.orm import Session
+from app.db.database import get_db
+from app.core.pdf_generator import PDFGenerator
+import os
+import zipfile
+from io import BytesIO
+from typing import List
+from pydantic import BaseModel
+
+# Deine bestehende verify_admin Funktion wird verwendet!
+
+# ========== SCHEMAS ==========
+
+class PDFRequest(BaseModel):
+    """Request für einzelne PDF-Generation"""
+    employee_id: int
+    year: int
+    month: int
+
+class BulkPDFRequest(BaseModel):
+    """Request für Bulk-PDF-Generation"""
+    employee_ids: List[int]
+    year: int
+    month: int
+    include_zeitnachweis: bool = True
+    include_kilometer: bool = True
+
+
+# ========== ENDPOINTS ==========
+
+@router.post("/generate-pdf-zeitnachweis")
+def generate_zeitnachweis_pdf(
+    request: PDFRequest,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Generiert Zeitnachweis-PDF für einen Mitarbeiter"""
+    try:
+        generator = PDFGenerator(db)
+        pdf_path = generator.generate_zeitnachweis(
+            request.employee_id,
+            request.year,
+            request.month
+        )
+        
+        # PDF zurückgeben
+        return FileResponse(
+            pdf_path,
+            media_type='application/pdf',
+            filename=os.path.basename(pdf_path)
+        )
+        
+    except Exception as e:
+        print(f"PDF FEHLER: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-pdf-kilometer")
+def generate_kilometer_pdf(
+    request: PDFRequest,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Generiert Kilometer-PDF für einen Mitarbeiter"""
+    try:
+        generator = PDFGenerator(db)
+        pdf_path = generator.generate_kilometer(
+            request.employee_id,
+            request.year,
+            request.month
+        )
+        
+        return FileResponse(
+            pdf_path,
+            media_type='application/pdf',
+            filename=os.path.basename(pdf_path)
+        )
+        
+    except Exception as e:
+        print(f"PDF FEHLER: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-pdf-komplett")
+def generate_komplett_pdf(
+    request: PDFRequest,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Generiert Zeitnachweis + Kilometer als ZIP"""
+    try:
+        generator = PDFGenerator(db)
+        
+        # Beide PDFs generieren
+        zeit_pdf = generator.generate_zeitnachweis(
+            request.employee_id,
+            request.year,
+            request.month
+        )
+        km_pdf = generator.generate_kilometer(
+            request.employee_id,
+            request.year,
+            request.month
+        )
+        
+        # ZIP erstellen
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.write(zeit_pdf, os.path.basename(zeit_pdf))
+            zip_file.write(km_pdf, os.path.basename(km_pdf))
+        
+        zip_buffer.seek(0)
+        
+        # Mitarbeiter-Name für Dateiname
+        from app.models.models import Employee
+        emp = db.query(Employee).filter(Employee.id == request.employee_id).first()
+        filename = f"SEDA24_Komplett_{emp.first_name}_{emp.last_name}_{request.month:02d}_{request.year}.zip"
+        
+        return StreamingResponse(
+            zip_buffer,
+            media_type='application/zip',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
+        
+    except Exception as e:
+        print(f"PDF FEHLER: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-pdf-bulk")
+def generate_bulk_pdfs(
+    request: BulkPDFRequest,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Generiert PDFs für mehrere Mitarbeiter als ZIP"""
+    try:
+        generator = PDFGenerator(db)
+        zip_buffer = BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for emp_id in request.employee_ids:
+                try:
+                    # Zeitnachweis
+                    if request.include_zeitnachweis:
+                        zeit_pdf = generator.generate_zeitnachweis(emp_id, request.year, request.month)
+                        zip_file.write(zeit_pdf, os.path.basename(zeit_pdf))
+                    
+                    # Kilometer
+                    if request.include_kilometer:
+                        km_pdf = generator.generate_kilometer(emp_id, request.year, request.month)
+                        zip_file.write(km_pdf, os.path.basename(km_pdf))
+                        
+                except Exception as e:
+                    print(f"PDF FEHLER: {e}")
+                    # Fehler bei einzelnem MA nicht abbrechen lassen
+                    print(f"Fehler bei MA {emp_id}: {e}")
+                    continue
+        
+        zip_buffer.seek(0)
+        
+        # Dateiname
+        ma_count = len(request.employee_ids)
+        filename = f"SEDA24_Bulk_{ma_count}_MA_{request.month:02d}_{request.year}.zip"
+        
+        return StreamingResponse(
+            zip_buffer,
+            media_type='application/zip',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
+        
+    except Exception as e:
+        print(f"PDF FEHLER: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/employees-for-pdf")
+def get_employees_for_pdf(
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Gibt Liste aller Mitarbeiter für PDF-Dropdown zurück"""
+    from app.models.models import Employee
+    
+    employees = db.query(Employee).filter(Employee.is_active == True).all()
+    
+    return [
+        {
+            "id": emp.id,
+            "name": f"{emp.first_name} {emp.last_name}",
+            "personal_nr": emp.personal_nr
+        }
+        for emp in employees
+    ]
+# KM-Journal Endpoints - IN admin.py EINFÜGEN
+
+@router.get("/km-journal/all")
+def get_all_km_entries(
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Holt alle KM-Einträge für Journal"""
+    from sqlalchemy import text
+    
+    result = db.execute(text("""
+        SELECT 
+            k.id,
+            k.employee_id,
+            e.first_name || ' ' || e.last_name as employee_name,
+            k.object_id,
+            o.name as object_name,
+            k.date as date,
+            k.distance_km,
+            k.amount,
+            k.is_billable,
+            k.is_longest_trip,
+            k.time_entry_id
+        FROM km_daily_entries k
+        JOIN employees e ON k.employee_id = e.id
+        LEFT JOIN objects o ON k.object_id = o.id
+        ORDER BY k.date DESC, k.employee_id
+    """)).fetchall()
+    
+    return [dict(row._mapping) for row in result]
+
+@router.post("/km-journal/add")
+def add_km_entry(
+    data: dict,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Fügt manuellen KM-Eintrag hinzu"""
+    from sqlalchemy import text
+    
+    db.execute(text("""
+        INSERT INTO km_daily_entries 
+        (employee_id, object_id, booking_date, distance_km, amount, is_billable)
+        VALUES (:emp, :obj, :date, :km, :amt, :bill)
+    """), {
+        "emp": data["employee_id"],
+        "obj": data.get("object_id"),
+        "date": data["booking_date"],
+        "km": data["distance_km"],
+        "emp_id": data.get("employee_id"),
+        "obj_id": data.get("object_id"),
+        "amt": float(data["distance_km"]) * 0.30,
+        "bill": data.get("is_billable", True),
+    })
+    db.commit()
+    return {"status": "ok"}
+
+@router.delete("/km-journal/{entry_id}")
+def delete_km_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Löscht KM-Eintrag"""
+    from sqlalchemy import text
+    
+    db.execute(text("DELETE FROM km_daily_entries WHERE id = :id"), {"id": entry_id})
+    db.commit()
+    return {"status": "ok"}
+
+
+# ==================== KM-VERWALTUNG ====================
+
+@router.get("/km-distances/all")
+def get_all_km_distances(
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Lädt ALLE Standard-Entfernungen"""
+    from sqlalchemy import text
+    
+    result = db.execute(text("""
+        SELECT 
+            kd.id,
+            kd.employee_id,
+            kd.object_id,
+            kd.distance_km,
+            e.personal_nr,
+            e.first_name || ' ' || e.last_name as employee_name,
+            o.name as object_name,
+            o.address as object_address
+        FROM km_distances kd
+        JOIN employees e ON e.id = kd.employee_id
+        JOIN objects o ON o.id = kd.object_id
+        ORDER BY e.last_name, o.name
+    """))
+    
+    distances = []
+    for row in result:
+        distances.append({
+            "id": row.id,
+            "employee_id": row.employee_id,
+            "object_id": row.object_id,
+            "distance_km": float(row.distance_km),
+            "personal_nr": row.personal_nr,
+            "employee_name": row.employee_name,
+            "object_name": row.object_name,
+            "object_address": row.object_address or ""
+        })
+    
+    return distances
+@router.get("/km-distances/{employee_id}")
+def get_km_distances(
+    employee_id: int,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Lädt alle Standard-Entfernungen für einen Mitarbeiter"""
+    from sqlalchemy import text
+    
+    result = db.execute(text("""
+        SELECT 
+            kd.id,
+            kd.employee_id,
+            kd.object_id,
+            kd.distance_km,
+            o.name as object_name,
+            o.address as object_address
+        FROM km_distances kd
+        JOIN objects o ON o.id = kd.object_id
+        WHERE kd.employee_id = :emp_id
+        ORDER BY o.name
+    """), {"emp_id": employee_id})
+    
+    distances = []
+    for row in result:
+        distances.append({
+            "id": row.id,
+            "employee_id": row.employee_id,
+            "object_id": row.object_id,
+            "distance_km": float(row.distance_km),
+            "object_name": row.object_name,
+            "object_address": row.object_address or ""
+        })
+    
+    return distances
+
+@router.put("/km-distances/{distance_id}")
+def update_km_distance(
+    distance_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Aktualisiert Standard-Entfernung"""
+    from sqlalchemy import text
+    
+    db.execute(text("""
+        UPDATE km_distances
+        SET distance_km = :km,
+            employee_id = :emp_id,
+            object_id = :obj_id
+        WHERE id = :id
+    """), {
+        "id": distance_id,
+        "km": data["distance_km"],
+        "emp_id": data.get("employee_id"),
+        "obj_id": data.get("object_id")
+    })
+    db.commit()
+    
+    return {"status": "ok", "message": "Entfernung aktualisiert"}
+
+
+@router.delete("/km-distances/{distance_id}")
+def delete_km_distance(
+    distance_id: int,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Löscht eine Standard-Entfernung"""
+    distance = db.query(KmDistance).filter(KmDistance.id == distance_id).first()
+    if not distance:
+        raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+    
+    db.delete(distance)
+    db.commit()
+    return {"message": "Gelöscht"}
+
+@router.post("/km-distances")
+def create_km_distance(
+    distance: dict,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Erstellt eine neue Standard-Entfernung"""
+    # KmDistance is in models
+    
+    new_distance = KmDistance(
+        employee_id=distance['employee_id'],
+        object_id=distance['object_id'],
+        distance_km=distance['distance_km'],
+        rate_per_km=0.30
+    )
+    db.add(new_distance)
+    db.commit()
+    return {"message": "Erstellt", "id": new_distance.id}
+
+
+@router.put("/km-journal/{entry_id}")
+def update_km_entry(
+    entry_id: int,
+    distance_km: float = Query(...),
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """KM-Eintrag bearbeiten"""
+    from sqlalchemy import text
+    
+    # Update mit SQL
+    db.execute(text("""
+        UPDATE km_daily_entries
+        SET distance_km = :km,
+            amount = :amount
+        WHERE id = :id
+    """), {
+        "id": entry_id,
+        "km": distance_km,
+        "amount": distance_km * 0.30
+    })
+    db.commit()
+    
+    return {"message": "KM aktualisiert", "new_km": distance_km, "new_amount": distance_km * 0.30}

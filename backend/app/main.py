@@ -7,6 +7,7 @@ from app.api.v1.endpoints import schedule
 from app.api.v1.endpoints import vacation
 from app.api.v1.endpoints import employees, time_entries
 from app.api.v1.endpoints import auth, admin, employees, customers, time_entries, corrections, hours_management
+from app.api.v1.endpoints import auth, employees, time_entries, breaks, reports, corrections, warnings, quick_booking, hours_management, admin, schedule, vacation, km
 
 # from app.api.v1.endpoints import employees
 
@@ -35,7 +36,7 @@ app.include_router(corrections.router, prefix="/api/v1/corrections", tags=["corr
 app.include_router(warnings.router, prefix="/api/v1/warnings", tags=["warnings"])
 app.include_router(quick_booking.router, prefix="/api/v1/quick-booking", tags=["quick-booking"])
 app.include_router(hours_management.router, prefix="/api/v1/hours-management", tags=["hours"])
-
+app.include_router(km.router, prefix="/api/v1/km", tags=["km"])
 @app.get("/")
 def read_root():
     return {"message": "SEDA24 Zeiterfassung API läuft!"}

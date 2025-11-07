@@ -77,15 +77,17 @@ const ScheduleTab = () => {
 
   // Funktion zum Öffnen des Add-Modals
   const handleObjectChange = (objectId) => {
-    setNewShiftData(prev => ({ ...prev, object_id: objectId }));
     if (objectId) {
       const obj = weekData?.objects?.find(o => o.id == objectId);
       if (obj?.start_time && obj?.end_time) {
         setNewShiftData(prev => ({
           ...prev,
+          object_id: objectId,
           start_time: obj.start_time.substring(0,5),
           end_time: obj.end_time.substring(0,5)
         }));
+      } else {
+        setNewShiftData(prev => ({ ...prev, object_id: objectId }));
       }
     }
   };
@@ -192,6 +194,7 @@ const ScheduleTab = () => {
       });
       
       setWeekOffset(targetWeekOffset);
+      await loadWeekData();
       setShowCopyModal(false);
     } catch (error) {
       console.error('Fehler beim Kopieren:', error);
@@ -567,7 +570,20 @@ const ScheduleTab = () => {
                 </label>
                 <select
                   value={editingSchedule.object_id}
-                  onChange={(e) => setEditingSchedule({...editingSchedule, object_id: e.target.value})}
+                  onChange={(e) => {
+                    const objectId = e.target.value;
+                    const obj = weekData?.objects?.find(o => o.id == objectId);
+                    if (obj?.start_time && obj?.end_time) {
+                      setEditingSchedule({
+                        ...editingSchedule,
+                        object_id: objectId,
+                        start_time: obj.start_time.substring(0,5),
+                        end_time: obj.end_time.substring(0,5)
+                      });
+                    } else {
+                      setEditingSchedule({...editingSchedule, object_id: objectId});
+                    }
+                  }}
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {weekData?.objects?.sort((a,b) => a.id - b.id)?.sort((a,b) => a.id - b.id).map(obj => (

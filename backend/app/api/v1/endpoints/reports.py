@@ -158,7 +158,9 @@ def get_my_month_hours(
 
 @router.get("/my/history", response_model=HistoryResponse)
 def get_my_history(
-    days: int = Query(default=30, ge=1, le=365),
+    days: int = Query(default=None, ge=1, le=365),
+    date_from: str = Query(default=None),
+    date_to: str = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -179,7 +181,13 @@ def get_my_history(
     
     # Zeitraum berechnen
     end_date = datetime.now().date()
-    start_date = end_date - timedelta(days=days)
+    if date_from and date_to:
+        start_date = datetime.strptime(date_from, "%Y-%m-%d").date()
+        end_date = datetime.strptime(date_to, "%Y-%m-%d").date()
+    elif days:
+        start_date = end_date - timedelta(days=days)
+    else:
+        start_date = end_date - timedelta(days=30)
     
     # TimeEntry-Einträge mit Object-Namen abrufen
     entries = db.query(

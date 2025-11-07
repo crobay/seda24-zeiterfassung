@@ -14,6 +14,107 @@ from app.api.v1.endpoints.auth import get_current_user
 
 router = APIRouter()
 
+# KM-Berechnung für time_entries.py
+# DIESE FUNKTION NACH DEN IMPORTS EINFÜGEN
+
+def calculate_and_save_km(employee_id: int, object_id: int, date: date, time_entry_id: int, db: Session):
+    """
+    Berechnet KM für eine Fahrt und speichert in km_daily_entries.
+    Nur die weiteste Fahrt des Tages wird abgerechnet.
+    Spezialregel: Matej (6) und Ljubica (5) am selben Tag/Objekt -> nur Matej bekommt KM.
+    """
+    print(f"DEBUG KM: employee_id={employee_id}, object_id={object_id}, date={date}")
+    from sqlalchemy import text
+    
+    # SPEZIALREGEL: Matej (6) & Ljubica (5) zusammen
+    if employee_id == 5:  # Ljubica
+        # Prüfe ob Matej (6) heute am selben Objekt war
+        matej_check = db.execute(
+            text("SELECT id FROM km_daily_entries WHERE employee_id = 6 AND date = :dt AND object_id = :obj"),
+            {"dt": date, "obj": object_id}
+        ).fetchone()
+        
+        if matej_check:
+            # Matej war auch da -> Ljubica bekommt 0 km
+            distance_km = 0.0
+            rate = 0.30
+            amount = 0.0
+            print(f"DEBUG KM: Ljubica + Matej zusammen -> Ljubica = 0 km")
+        else:
+            # Matej war nicht da -> normale KM für Ljubica
+            result = db.execute(
+                text("SELECT distance_km, rate_per_km FROM km_distances WHERE employee_id = :emp AND object_id = :obj"),
+                {"emp": employee_id, "obj": object_id}
+            ).fetchone()
+            
+            if not result:
+                distance_km = 0.0
+                rate = 0.30
+            else:
+                distance_km = float(result[0])
+                rate = float(result[1] or 0.30)
+            amount = distance_km * rate
+    else:
+        # Normale KM-Berechnung für alle anderen
+        result = db.execute(
+            text("SELECT distance_km, rate_per_km FROM km_distances WHERE employee_id = :emp AND object_id = :obj"),
+            {"emp": employee_id, "obj": object_id}
+        ).fetchone()
+        
+        if not result:
+            distance_km = 0.0
+            rate = 0.30
+        else:
+            distance_km = float(result[0])
+            rate = float(result[1] or 0.30)
+        amount = distance_km * rate
+    
+    # Prüfe ob Eintrag schon existiert
+    existing = db.execute(
+        text("SELECT id FROM km_daily_entries WHERE employee_id = :emp AND date = :dt AND object_id = :obj"),
+        {"emp": employee_id, "dt": date, "obj": object_id}
+    ).fetchone()
+    
+    if existing:
+        # Update (is_billable wird später gesetzt)
+        db.execute(
+            text("""UPDATE km_daily_entries 
+                   SET distance_km = :dist, amount = :amt, time_entry_id = :te_id
+                   WHERE id = :id"""),
+            {"dist": distance_km, "amt": amount, "te_id": time_entry_id, "id": existing[0]}
+        )
+    else:
+        # Insert (is_billable = false erstmal)
+        db.execute(
+            text("""INSERT INTO km_daily_entries 
+                   (employee_id, date, object_id, distance_km, amount, is_billable, is_longest_trip, time_entry_id)
+                   VALUES (:emp, :dt, :obj, :dist, :amt, false, false, :te_id)"""),
+            {"emp": employee_id, "dt": date, "obj": object_id, "dist": distance_km, "amt": amount, "te_id": time_entry_id}
+        )
+    
+    # WICHTIG: Erst alle auf FALSE setzen
+    db.execute(
+        text("UPDATE km_daily_entries SET is_longest_trip = false, is_billable = false WHERE employee_id = :emp AND date = :dt"),
+        {"emp": employee_id, "dt": date}
+    )
+    
+    # Dann NUR die weiteste Fahrt auf TRUE setzen
+    db.execute(
+        text("""UPDATE km_daily_entries 
+               SET is_longest_trip = true, is_billable = true
+               WHERE id = (
+                   SELECT id FROM km_daily_entries 
+                   WHERE employee_id = :emp AND date = :dt 
+                   ORDER BY distance_km DESC LIMIT 1
+               )"""),
+        {"emp": employee_id, "dt": date}
+    )
+    
+    db.commit()
+
+
+
+
 def calculate_distance(lat1, lng1, lat2, lng2):
     """Berechnet Distanz zwischen zwei GPS-Punkten in Metern"""
     R = 6371000  # Erdradius in Metern
@@ -144,7 +245,50 @@ def check_out(
     
     # Setze check_out Zeit
     active_entry.check_out = datetime.utcnow()
+    
+    # Prüfe ob zu zweit gearbeitet wurde (aus notes)
+    colleague_id = None
+    if active_entry.notes and "colleague_id:" in active_entry.notes:
+        try:
+            colleague_id = int(active_entry.notes.split("colleague_id:")[1].split(")")[0])
+        except:
+            pass
+    
+    # Wenn zu zweit, halbiere die Zeit und erstelle Kollegen-Eintrag
+    if colleague_id:
+        from app.models.models import Schedule
+        schedule = db.query(Schedule).filter(
+            Schedule.employee_id == employee.id,
+            Schedule.object_id == active_entry.object_id,
+            Schedule.date == datetime.now().date()
+        ).first()
+        
+        if schedule:
+            work_duration = (active_entry.check_out - active_entry.check_in).total_seconds() / 3600
+            half_duration = timedelta(hours=work_duration / 2)
+            new_checkout = active_entry.check_in + half_duration
+            active_entry.check_out = new_checkout
+            
+            colleague_entry = TimeEntry(
+                employee_id=colleague_id,
+                object_id=active_entry.object_id,
+                check_in=active_entry.check_in,
+                check_out=new_checkout,
+                is_manual_entry=True,
+                notes=f"Zu zweit mit {employee.first_name} {employee.last_name}"
+            )
+            db.add(colleague_entry)
+            update_total_hours(colleague_id, db)
     # GPS beim Ausstempeln ist optional - lassen wir weg
+    
+    # KM berechnen und speichern
+    calculate_and_save_km(
+        employee_id=employee.id,
+        object_id=active_entry.object_id,
+        date=active_entry.check_in.date(),
+        time_entry_id=active_entry.id,
+        db=db
+    )
     
     db.commit()
     # Tachometer aktualisieren
@@ -179,6 +323,40 @@ def switch_object(
     
     # Beende alten Eintrag
     active_entry.check_out = datetime.utcnow()
+    
+    # Prüfe ob zu zweit gearbeitet wurde (aus notes)
+    colleague_id = None
+    if active_entry.notes and "colleague_id:" in active_entry.notes:
+        try:
+            colleague_id = int(active_entry.notes.split("colleague_id:")[1].split(")")[0])
+        except:
+            pass
+    
+    # Wenn zu zweit, halbiere die Zeit und erstelle Kollegen-Eintrag
+    if colleague_id:
+        from app.models.models import Schedule
+        schedule = db.query(Schedule).filter(
+            Schedule.employee_id == employee.id,
+            Schedule.object_id == active_entry.object_id,
+            Schedule.date == datetime.now().date()
+        ).first()
+        
+        if schedule:
+            work_duration = (active_entry.check_out - active_entry.check_in).total_seconds() / 3600
+            half_duration = timedelta(hours=work_duration / 2)
+            new_checkout = active_entry.check_in + half_duration
+            active_entry.check_out = new_checkout
+            
+            colleague_entry = TimeEntry(
+                employee_id=colleague_id,
+                object_id=active_entry.object_id,
+                check_in=active_entry.check_in,
+                check_out=new_checkout,
+                is_manual_entry=True,
+                notes=f"Zu zweit mit {employee.first_name} {employee.last_name}"
+            )
+            db.add(colleague_entry)
+            update_total_hours(colleague_id, db)
     active_entry.check_out_lat = data.gps_lat
     active_entry.check_out_lng = data.gps_lng
     active_entry.notes = (active_entry.notes or "") + f" | Wechsel zu Objekt {data.object_id}"
@@ -293,9 +471,20 @@ def war_anwesend_booking(
     else:
         scheduled_hours = schedule.planned_hours
     
+    # Prüfe ob zu zweit gearbeitet wurde
+    colleague_id = data.get("colleague_id")
+    if colleague_id:
+        scheduled_hours = scheduled_hours / 2
+    
     # Erstelle Zeiteintrag
     check_in = datetime.combine(datetime.today(), schedule.start_time if schedule else time(6,0))
-    check_out = datetime.combine(datetime.today(), schedule.end_time if schedule else time(6,0)) if schedule else check_in + timedelta(hours=scheduled_hours)
+    # Berechne check_out - wenn zu zweit, dann aus scheduled_hours
+    if colleague_id:
+        check_out = check_in + timedelta(hours=scheduled_hours)
+    elif schedule:
+        check_out = datetime.combine(datetime.today(), schedule.end_time)
+    else:
+        check_out = check_in + timedelta(hours=scheduled_hours)
     
     if service_type == 'Fensterreinigung':
         hourly_rate = 20.0
@@ -316,6 +505,39 @@ def war_anwesend_booking(
     )
     
     db.add(time_entry)
+    
+    # Wenn zu zweit, erstelle Eintrag für Kollegen
+    if colleague_id:
+        colleague_entry = TimeEntry(
+            employee_id=colleague_id,
+            object_id=object_id,
+            check_in=check_in,
+            check_out=check_out,
+            service_type=service_type,
+            hourly_rate=hourly_rate,
+            is_manual_entry=True,
+            notes=f"Zu zweit mit {employee.first_name} {employee.last_name} - {service_type}"
+        )
+        db.add(colleague_entry)
+        update_total_hours(colleague_id, db)
+    # KM berechnen und speichern (war-anwesend)
+    db.flush()  # Damit time_entry.id verfügbar ist
+    calculate_and_save_km(
+        employee_id=employee.id,
+        object_id=object_id,
+        date=check_in.date(),
+        time_entry_id=time_entry.id,
+        db=db
+    )
+    if colleague_id:
+        calculate_and_save_km(
+            employee_id=colleague_id,
+            object_id=object_id,
+            date=check_in.date(),
+            time_entry_id=colleague_entry.id,
+            db=db
+        )
+    
     db.commit()
     
     return {
@@ -463,3 +685,32 @@ def validate_gps(
         }
     
     return {"valid": True, "distance": distance}
+
+@router.get("/colleagues-at-object")
+def get_colleagues_at_object(
+    object_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from datetime import date
+    today = date.today()
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    if not employee:
+        return []
+    schedules = db.query(Schedule).filter(
+        Schedule.object_id == object_id,
+        Schedule.date == today
+    ).all()
+    colleagues = []
+    for schedule in schedules:
+        if schedule.employee_id != employee.id:
+            emp = db.query(Employee).filter(Employee.id == schedule.employee_id).first()
+            if emp:
+                colleagues.append({
+                    "employee_id": emp.id,
+                    "name": f"{emp.first_name} {emp.last_name}",
+                    "personal_nr": emp.personal_nr,
+                    "start_time": schedule.start_time.strftime("%H:%M") if schedule.start_time else None,
+                    "end_time": schedule.end_time.strftime("%H:%M") if schedule.end_time else None
+                })
+    return colleagues

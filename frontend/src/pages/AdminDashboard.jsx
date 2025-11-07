@@ -2,327 +2,157 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Building2, Calendar, Activity, FileText, Plus, Edit2, Trash2, 
   Save, X, Check, AlertCircle, LogOut, Search, Download, Upload,
-  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter
+  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp
 } from 'lucide-react';
 import ScheduleTab from "../components/ScheduleTab";
+import AbrechnungenTab from "./AbrechnungenTab";
+import KmJournalTab from "./KmJournalTab";
 import api from '../services/api';
+import KmVerwaltungTab from "../components/KmVerwaltungTab";
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
-  const [employees, setEmployees] = useState([
-    { id: 1, personal_nr: '001', first_name: 'Max', last_name: 'Mustermann', email: 'max@seda24.de', tracking_mode: 'C', hourly_rate: 15.50, is_active: true, daily_hours: 8 },
-    { id: 2, personal_nr: '002', first_name: 'Anna', last_name: 'Schmidt', email: 'anna@seda24.de', tracking_mode: 'B', hourly_rate: 16.00, is_active: true, daily_hours: 6 },
-    { id: 3, personal_nr: '003', first_name: 'Peter', last_name: 'Weber', email: 'peter@seda24.de', tracking_mode: 'A', hourly_rate: 22.00, is_active: true, daily_hours: 8 }
-  ]);
-  
+  const [employees, setEmployees] = useState([]);
   const [customers, setCustomers] = useState([]);
-
-  const [showManualEntryModal, setShowManualEntryModal] = useState(false);
-  useEffect(() => {
-    fetch("/api/v1/admin/test-objects")
-      .then(res => res.json())
-      .then(data => setCustomers(data))
-      .catch(err => console.error("Fehler beim Laden der Objekte:", err));
-  }, []);
-  
-  const [liveStatus, setLiveStatus] = useState([
-    { employee_name: 'Max Mustermann', object_name: 'Sparkasse Rastatt', check_in_time: '08:15', work_hours: '2.5', is_paused: false },
-    { employee_name: 'Anna Schmidt', object_name: 'Rathaus Gaggenau', check_in_time: '07:30', work_hours: '3.2', is_paused: false }
-  ]);
+  const [liveStatus, setLiveStatus] = useState([]);
   
   const [stats, setStats] = useState({
-    active_employees: 2,
+    active_employees: 0,
     paused_employees: 0,
-    offline_employees: 8,
-    total_employees: 10,
-    total_hours_today: 5.7
+    offline_employees: 0,
+    total_employees: 0,
+    total_hours_today: 0
   });
   
   // Modal States
   const [showNewEmployeeModal, setShowNewEmployeeModal] = useState(false);
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
-
-useEffect(() => {
-  api.get('/admin/employees-with-categories')
-    .then(response => {
-      if (response.data) {
-        const employeeData = response.data
-          .filter(emp => !emp.personal_nr.startsWith('A'))  // Punkt 3: Admin raus
-          .map(emp => ({
-            id: emp.id,
-            personal_nr: emp.personal_nr,
-            first_name: emp.name.split(' ')[0],
-            last_name: emp.name.split(' ')[1] || '',
-            email: emp.email || `${emp.personal_nr.toLowerCase()}@seda24.de`,
-            tracking_mode: emp.tracking_mode || emp.category || 'C',
-            hourly_rate: emp.hourly_rate || emp.hourly_rate_standard || 15.00,
-            is_active: true,
-            daily_hours: 8
-          }))
-          .sort((a, b) => a.personal_nr.localeCompare(b.personal_nr));  // Punkt 4: Sortierung
-        setEmployees(employeeData);
-        console.log('Mitarbeiter geladen:', employeeData);
-      }
-    })
-    .catch(error => console.error('Fehler Mitarbeiter:', error));
-}, []);
-
-  // Echte Kunden aus DB laden
-  useEffect(() => {
-    api.get("/admin/objects-list")
-      .then(response => {
-        if (response.data && response.data) {
-          const customerData = response.data.map(obj => ({
-            id: obj.id,
-            name: obj.name,
-            address: obj.name,
-              contact_person: obj.contact_person || "N/A",
-              phone: obj.phone || "N/A",
-              hourly_rate: obj.monthly_amount_netto || 0
-          }));
-          setCustomers(customerData);
-        }
-      })
-      .catch(error => console.error("Fehler:", error));
-  }, []);
+  const [editingCustomer, setEditingCustomer] = useState(null);
   
-  // Form States for Employee Modal
+  // Form States
   const [employeeForm, setEmployeeForm] = useState({
+    personal_nr: '',
     first_name: '',
     last_name: '',
-    personal_nr: '',
     email: '',
-    password: '',
-    tracking_mode: 'C',
     hourly_rate: '',
-    daily_hours: '8',
-    gps_required: false
+    tracking_mode: 'C'
   });
   
-  // Form States for Customer Modal
   const [customerForm, setCustomerForm] = useState({
     name: '',
     address: '',
-    contact_person: '',
-    phone: '',
     hourly_rate: ''
   });
   
-  // Filter & Search
+  // Filter States
   const [searchTerm, setSearchTerm] = useState('');
-  const [toast, setToast] = useState(null);
   const [filterCategory, setFilterCategory] = useState('all');
-// Echte Kunden aus DB laden
-// useEffect(() => {
+  
+  // Toast
+  const [toast, setToast] = useState(null);
 
-  const showToast = (message, type = 'success') => {
+  const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  useEffect(() => {
+    loadEmployees();
+    loadCustomers();
+    loadStats();
+    loadLiveStatus();
+    
+    const interval = setInterval(() => {
+      loadStats();
+      loadLiveStatus();
+    }, 600000); // 10 Minuten statt 30 Sekunden
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadEmployees = async () => {
+    try {
+      const response = await api.get('/admin/employees-with-categories');
+      if (response.data) {
+        setEmployees(response.data.filter(emp => !emp.personal_nr?.startsWith('A')));
+      }
+    } catch (error) {
+      console.error('Fehler beim Laden der Mitarbeiter:', error);
+    }
+  };
+
+  const loadCustomers = async () => {
+    try {
+      const response = await api.get('/admin/customers');
+      if (response.data) {
+        setCustomers(response.data);
+      }
+    } catch (error) {
+      console.error('Fehler beim Laden der Kunden:', error);
+    }
+  };
+
+  const loadStats = async () => {
+    try {
+      const response = await api.get('/admin/dashboard/stats');
+      if (response.data) {
+        setStats(response.data);
+      }
+    } catch (error) {
+      console.error('Fehler beim Laden der Stats:', error);
+    }
+  };
+
+  const loadLiveStatus = async () => {
+    try {
+      const response = await api.get('/admin/live-status');
+      if (response.data) {
+        setLiveStatus(response.data);
+      }
+    } catch (error) {
+      console.error('Fehler beim Laden des Live-Status:', error);
+    }
   };
 
   const handleSaveEmployee = async () => {
     try {
       if (editingEmployee) {
-        const response = await fetch(
-          `https://app.seda.de/api/v1/admin/employees/${editingEmployee.personal_nr}`,
-          {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify(employeeForm)
-          }
-        );
-        
-        if (response.ok) {
-          setShowNewEmployeeModal(false);
-          setEditingEmployee(null);
-          // Daten neu laden ohne Seite zu wechseln
-          api.get("/admin/employees-with-categories").then(res => {
-            if (res.data) {
-              const employeeData = res.data
-                .filter(emp => !emp.personal_nr.startsWith("A"))
-                .map(emp => ({
-                  id: emp.id,
-                  personal_nr: emp.personal_nr,
-                  first_name: emp.name.split(" ")[0],
-                  last_name: emp.name.split(" ")[1] || "",
-                  email: emp.email || `${emp.personal_nr.toLowerCase()}@seda24.de`,
-                  tracking_mode: emp.tracking_mode || emp.category || "C",
-                  hourly_rate: emp.hourly_rate || emp.hourly_rate_standard || 15.00,
-                  is_active: true,
-                  daily_hours: 8
-                }))
-                .sort((a, b) => a.personal_nr.localeCompare(b.personal_nr));
-              setEmployees(employeeData);
-            }
-          });
-          showToast("Mitarbeiter aktualisiert", "success");
-        }
+        await api.put(`/admin/employees/${editingEmployee.id}`, employeeForm);
+        showToast('Mitarbeiter aktualisiert', 'success');
       } else {
-        const response = await fetch(
-          'https://app.seda.de/api/v1/admin/employees',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify(employeeForm)
-          }
-        );
-        
-        if (response.ok) {
-          setShowNewEmployeeModal(false);
-          setEditingEmployee(null);
-          // Daten neu laden ohne Seite zu wechseln
-          api.get("/admin/employees-with-categories").then(res => {
-            if (res.data) {
-              const employeeData = res.data
-                .filter(emp => !emp.personal_nr.startsWith("A"))
-                .map(emp => ({
-                  id: emp.id,
-                  personal_nr: emp.personal_nr,
-                  first_name: emp.name.split(" ")[0],
-                  last_name: emp.name.split(" ")[1] || "",
-                  email: emp.email || `${emp.personal_nr.toLowerCase()}@seda24.de`,
-                  tracking_mode: emp.tracking_mode || emp.category || "C",
-                  hourly_rate: emp.hourly_rate || emp.hourly_rate_standard || 15.00,
-                  is_active: true,
-                  daily_hours: 8
-                }))
-                .sort((a, b) => a.personal_nr.localeCompare(b.personal_nr));
-              setEmployees(employeeData);
-            }
-          });
-          showToast("Mitarbeiter angelegt", "success");
-        }
+        await api.post('/admin/employees', employeeForm);
+        showToast('Mitarbeiter erstellt', 'success');
       }
-      
       setShowNewEmployeeModal(false);
-      setEditingEmployee(null);
-        setShowNewEmployeeModal(false);
-      setEmployeeForm({
-        first_name: '',
-        last_name: '',
-        personal_nr: '',
-        email: '',
-        password: '',
-        tracking_mode: 'C',
-        hourly_rate: '',
-        daily_hours: '8',
-        gps_required: false
-      });
+      loadEmployees();
     } catch (error) {
       showToast('Fehler beim Speichern', 'error');
-      console.error(error);
-    }
-  };
-  
-  const handleInlineCategoryChange = (employeeId, newCategory) => {
-    setEmployees(prev => prev.map(emp => 
-      emp.id === employeeId 
-        ? { ...emp, tracking_mode: newCategory }
-        : emp
-    ));
-    showToast('Kategorie geändert', 'success');
-  };
-
-  const handleSaveCustomer = () => {
-    if (editingCustomer) {
-      setCustomers(prev => prev.map(cust => 
-        cust.id === editingCustomer.id 
-          ? { ...cust, ...customerForm }
-          : cust
-      ));
-      showToast('Kunde aktualisiert', 'success');
-    } else {
-      const newCustomer = {
-        id: customers.length + 1,
-        ...customerForm,
-        hourly_rate: customerForm.hourly_rate ? parseFloat(customerForm.hourly_rate) : null
-      };
-      setCustomers(prev => [...prev, newCustomer]);
-      showToast('Kunde hinzugefügt', 'success');
-    }
-    
-    setShowNewCustomerModal(false);
-    setEditingCustomer(null);
-    setCustomerForm({
-      name: '',
-      address: '',
-      contact_person: '',
-      phone: '',
-      hourly_rate: ''
-    });
-  };
-
-  const handleDeleteEmployee = (id) => {
-    if (confirm('Mitarbeiter wirklich löschen?')) {
-      setEmployees(prev => prev.filter(emp => emp.id !== id));
-      showToast('Mitarbeiter gelöscht', 'success');
     }
   };
 
-  const handleDeleteCustomer = (id) => {
-    if (confirm('Kunde wirklich löschen?')) {
-      setCustomers(prev => prev.filter(cust => cust.id !== id));
-      showToast('Kunde gelöscht', 'success');
+  const handleSaveCustomer = async () => {
+    try {
+      if (editingCustomer) {
+        await api.put(`/admin/customers/${editingCustomer.id}`, customerForm);
+        showToast('Kunde aktualisiert', 'success');
+      } else {
+        await api.post('/admin/customers', customerForm);
+        showToast('Kunde erstellt', 'success');
+      }
+      setShowNewCustomerModal(false);
+      loadCustomers();
+    } catch (error) {
+      showToast('Fehler beim Speichern', 'error');
     }
-  };
-
-  const openEditEmployeeModal = (employee) => {
-    setEditingEmployee(employee);
-    setEmployeeForm({
-      first_name: employee.first_name,
-      last_name: employee.last_name,
-      personal_nr: employee.personal_nr,
-      email: employee.email,
-      password: '',
-      tracking_mode: employee.tracking_mode,
-      hourly_rate: employee.hourly_rate.toString(),
-      daily_hours: employee.daily_hours.toString(),
-      gps_required: employee.gps_required || false
-    });
-                setEditingEmployee(null);
-                setEmployeeForm({
-                  first_name: "",
-                  last_name: "",
-                  personal_nr: "",
-                  email: "",
-                  password: "",
-                  tracking_mode: "C",
-                  hourly_rate: "15",
-                  daily_hours: "8",
-                  gps_required: false
-                });
-    setShowNewEmployeeModal(true);
-  };
-
-  const openEditCustomerModal = (customer) => {
-    setEditingCustomer(customer);
-    setCustomerForm({
-      name: customer.name,
-      address: customer.address,
-      contact_person: customer.contact_person || '',
-      phone: customer.phone || '',
-      hourly_rate: customer.hourly_rate ? customer.hourly_rate.toString() : ''
-    });
-    setShowNewCustomerModal(true);
-  };
-
-  const handleExportExcel = () => {
-    showToast('Excel-Export wird vorbereitet...', 'info');
-    // Hier würde der echte Export-Code stehen
   };
 
   const getCategoryBadge = (category) => {
     const badges = {
-      'A': { color: 'bg-green-100 text-green-800', icon: '✅', label: 'Auto' },
-      'B': { color: 'bg-blue-100 text-blue-800', icon: '🔘', label: 'Button' },
-      'C': { color: 'bg-orange-100 text-orange-800', icon: '📍', label: 'Normal' }
+      'A': { color: 'bg-green-100 text-green-800', icon: '🔄', label: 'Auto' },
+      'B': { color: 'bg-blue-100 text-blue-800', icon: '👆', label: 'Button' },
+      'C': { color: 'bg-orange-100 text-orange-800', icon: '👤', label: 'Normal' }
     };
     return badges[category] || badges['C'];
   };
@@ -335,10 +165,10 @@ useEffect(() => {
     return matchesSearch && matchesFilter;
   });
 
-  // Tab Components
+  // ==================== TAB COMPONENTS ====================
+  
   const OverviewTab = () => (
     <div className="space-y-6">
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
@@ -371,65 +201,9 @@ useEffect(() => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Stunden heute</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.total_hours_today.toFixed(1)}h</p>
+              <p className="text-2xl font-bold text-blue-600">{stats.total_hours_today?.toFixed(1) || '0.0'}h</p>
             </div>
             <Clock className="text-blue-500" size={32} />
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">Schnellzugriff</h3>
-          <div className="space-y-3">
-            <button
-              onClick={() => setActiveTab('employees')}
-              className="w-full text-left p-3 rounded-lg hover:bg-gray-50 flex items-center justify-between border"
-            >
-              <span className="flex items-center gap-2">
-                <Users size={20} />
-                Mitarbeiter verwalten
-              </span>
-              <ChevronDown className="rotate-[-90deg]" size={16} />
-            </button>
-            <button
-              onClick={() => setActiveTab('schedule')}
-              className="w-full text-left p-3 rounded-lg hover:bg-gray-50 flex items-center justify-between border"
-            >
-              <span className="flex items-center gap-2">
-                <Calendar size={20} />
-                Dienstplan ansehen
-              </span>
-              <ChevronDown className="rotate-[-90deg]" size={16} />
-            </button>
-            <button
-              onClick={() => setActiveTab('reports')}
-              className="w-full text-left p-3 rounded-lg hover:bg-gray-50 flex items-center justify-between border"
-            >
-              <span className="flex items-center gap-2">
-                <FileText size={20} />
-                Berichte erstellen
-              </span>
-              <ChevronDown className="rotate-[-90deg]" size={16} />
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">Aktuelle Aktivitäten</h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {liveStatus.slice(0, 5).map((status, idx) => (
-              <div key={idx} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                <div>
-                  <p className="font-medium">{status.employee_name}</p>
-                  <p className="text-sm text-gray-600">📍 {status.object_name}</p>
-                </div>
-                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                  {status.work_hours}h
-                </span>
-              </div>
-            ))}
           </div>
         </div>
       </div>
@@ -437,133 +211,91 @@ useEffect(() => {
   );
 
   const EmployeesTab = () => (
-    <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold">Mitarbeiterverwaltung</h2>
-          <div className="flex gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
-              <input
-                type="text"
-                placeholder="Suchen..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">Alle Kategorien</option>
-              <option value="A">Kategorie A</option>
-              <option value="B">Kategorie B</option>
-              <option value="C">Kategorie C</option>
-            </select>
-            <button
-              onClick={() => {
-                setEditingEmployee(null);
-        setShowNewEmployeeModal(false);
-                setEmployeeForm({
-                  first_name: '',
-                  last_name: '',
-                  personal_nr: '',
-                  email: '',
-                  password: '',
-                  tracking_mode: 'C',
-                  hourly_rate: '',
-                  daily_hours: '8',
-                  gps_required: false
-                });
-                setEditingEmployee(null);
-                setEmployeeForm({
-                  first_name: "",
-                  last_name: "",
-                  personal_nr: "",
-                  email: "",
-                  password: "",
-                  tracking_mode: "C",
-                  hourly_rate: "15",
-                  daily_hours: "8",
-                  gps_required: false
-                });
-                setShowNewEmployeeModal(true);
-              }}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"
-            >
-              <Plus size={20} />
-              Neuer Mitarbeiter
-            </button>
-          </div>
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <div className="flex gap-4">
+          <input
+            type="text"
+            placeholder="Suche nach Name oder Pers.-Nr..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="px-4 py-2 border rounded-lg w-64"
+          />
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="px-4 py-2 border rounded-lg"
+          >
+            <option value="all">Alle Kategorien</option>
+            <option value="A">Kategorie A</option>
+            <option value="B">Kategorie B</option>
+            <option value="C">Kategorie C</option>
+          </select>
         </div>
+        <button
+          onClick={() => {
+            setEditingEmployee(null);
+            setEmployeeForm({ personal_nr: '', first_name: '', last_name: '', email: '', hourly_rate: '', tracking_mode: 'C' });
+            setShowNewEmployeeModal(true);
+          }}
+          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"
+        >
+          <Plus size={20} />
+          Neuer Mitarbeiter
+        </button>
       </div>
-      
-      <div className="overflow-x-auto">
+
+      <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Personal-Nr</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kategorie</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stundensatz</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aktionen</th>
+              <th className="px-4 py-3 text-left text-sm font-semibold">Pers.-Nr</th>
+              <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
+              <th className="px-4 py-3 text-left text-sm font-semibold">Email</th>
+              <th className="px-4 py-3 text-left text-sm font-semibold">Kategorie</th>
+              <th className="px-4 py-3 text-right text-sm font-semibold">Stundensatz</th>
+              <th className="px-4 py-3 text-center text-sm font-semibold">Status</th>
+              <th className="px-4 py-3 text-center text-sm font-semibold">Aktionen</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
-            {filteredEmployees.map((employee) => {
-              const badge = getCategoryBadge(employee.tracking_mode);
+          <tbody className="divide-y">
+            {filteredEmployees.map((emp) => {
+              const badge = getCategoryBadge(emp.tracking_mode);
               return (
-                <tr key={employee.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap font-mono text-sm">
-                    {employee.personal_nr}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {employee.first_name} {employee.last_name}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {employee.email}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <select
-                      value={employee.tracking_mode}
-                      onChange={(e) => handleInlineCategoryChange(employee.id, e.target.value)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium ${badge.color} cursor-pointer border-0`}
-                    >
-                      <option value="A">✅ Auto</option>
-                      <option value="B">🔘 Button</option>
-                      <option value="C">📍 Normal</option>
-                    </select>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {employee.hourly_rate}€/h
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs rounded-full ${
-                      employee.is_active 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {employee.is_active ? 'Aktiv' : 'Inaktiv'}
+                <tr key={emp.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm font-medium">{emp.personal_nr}</td>
+                  <td className="px-4 py-3 text-sm">{emp.name}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{emp.email}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${badge.color}`}>
+                      {badge.icon} {badge.label}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <td className="px-4 py-3 text-sm text-right">{emp.hourly_rate?.toFixed(2) || '0.00'}€</td>
+                  <td className="px-4 py-3 text-center">
+                    {emp.is_active ? (
+                      <span className="text-green-600">?</span>
+                    ) : (
+                      <span className="text-gray-400">?</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-center">
                     <button
-                      onClick={() => openEditEmployeeModal(employee)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
+                      onClick={() => {
+                        setEditingEmployee(emp);
+                        setEmployeeForm({
+                          personal_nr: emp.personal_nr,
+                          first_name: emp.first_name,
+                          last_name: emp.last_name,
+                          email: emp.email,
+                          hourly_rate: emp.hourly_rate?.toString() || '',
+                          tracking_mode: emp.tracking_mode
+                        });
+                        setShowNewEmployeeModal(true);
+                      }}
+                      className="p-1 text-blue-600 hover:bg-blue-50 rounded"
                     >
                       <Edit2 size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteEmployee(employee.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <Trash2 size={16} />
                     </button>
                   </td>
                 </tr>
@@ -576,108 +308,90 @@ useEffect(() => {
   );
 
   const CustomersTab = () => (
-    <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold">Kundenverwaltung</h2>
-          <button
-            onClick={() => {
-              setEditingCustomer(null);
-              setCustomerForm({
-                name: '',
-                address: '',
-                contact_person: '',
-                phone: '',
-                hourly_rate: ''
-              });
-              setShowNewCustomerModal(true);
-            }}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"
-          >
-            <Plus size={20} />
-            Neuer Kunde
-          </button>
-        </div>
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold">Kunden & Objekte</h2>
+        <button
+          onClick={() => {
+            setEditingCustomer(null);
+            setCustomerForm({ name: '', address: '', hourly_rate: '' });
+            setShowNewCustomerModal(true);
+          }}
+          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"
+        >
+          <Plus size={20} />
+          Neuer Kunde
+        </button>
       </div>
-      
-      <div className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {customers.map((customer) => (
-            <div key={customer.id} className="border rounded-lg p-4 hover:shadow-lg transition-shadow">
-              <div className="flex justify-between items-start mb-3">
-                <Building2 className="text-gray-400" size={24} />
-                <div className="flex gap-2">
+
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="px-4 py-3 text-left text-sm font-semibold">Name</th>
+              <th className="px-4 py-3 text-left text-sm font-semibold">Adresse</th>
+              <th className="px-4 py-3 text-right text-sm font-semibold">Stundensatz</th>
+              <th className="px-4 py-3 text-center text-sm font-semibold">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {customers.map((cust) => (
+              <tr key={cust.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 text-sm font-medium">{cust.name}</td>
+                <td className="px-4 py-3 text-sm text-gray-600">{cust.address}</td>
+                <td className="px-4 py-3 text-sm text-right">{cust.hourly_rate?.toFixed(2) || '0.00'}€</td>
+                <td className="px-4 py-3 text-center">
                   <button
-                    onClick={() => openEditCustomerModal(customer)}
-                    className="text-blue-600 hover:text-blue-900"
+                    onClick={() => {
+                      setEditingCustomer(cust);
+                      setCustomerForm({
+                        name: cust.name,
+                        address: cust.address,
+                        hourly_rate: cust.hourly_rate?.toString() || ''
+                      });
+                      setShowNewCustomerModal(true);
+                    }}
+                    className="p-1 text-blue-600 hover:bg-blue-50 rounded"
                   >
                     <Edit2 size={16} />
                   </button>
-                  <button 
-                    onClick={() => handleDeleteCustomer(customer.id)}
-                    className="text-red-600 hover:text-red-900"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-              <h3 className="font-semibold text-lg mb-2">{customer.name}</h3>
-              <p className="text-sm text-gray-600 mb-1">📍 {customer.address}</p>
-              <p className="text-sm text-gray-600 mb-1">👤 {customer.contact_person}</p>
-              <p className="text-sm text-gray-600">📞 {customer.phone}</p>
-              {customer.hourly_rate && (
-                <p className="text-sm font-semibold mt-2 text-blue-600">
-                  {customer.hourly_rate}€/h
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 
-   const LiveTab = () => (
-    <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b">
-        <h2 className="text-xl font-bold">Live-Übersicht</h2>
-        <p className="text-sm text-gray-600 mt-1">
-          Aktueller Status aller Mitarbeiter - Aktualisiert alle 30 Sekunden
-        </p>
-      </div>
-      
-      <div className="p-6">
-        {liveStatus.length === 0 ? (
-          <div className="text-center py-12">
-            <Users className="mx-auto text-gray-400 mb-4" size={48} />
-            <p className="text-gray-600">Momentan sind keine Mitarbeiter eingestempelt</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {liveStatus.map((status, idx) => (
-              <div key={idx} className="border rounded-lg p-4 hover:shadow-lg transition-shadow">
-                <div className="flex justify-between items-start mb-3">
-                  <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">
-                    AKTIV
-                  </span>
-                  <Clock className="text-gray-400" size={20} />
-                </div>
-                <h3 className="font-semibold text-lg">{status.employee_name}</h3>
-                <p className="text-sm text-gray-600 mt-2">📍 {status.object_name}</p>
-                <p className="text-sm text-gray-600">⏰ Seit: {status.check_in_time}</p>
-                <p className="text-sm font-semibold text-blue-600 mt-2">
-                  Arbeitszeit: {status.work_hours} Stunden
-                </p>
-                {status.is_paused && (
-                  <span className="inline-block mt-2 bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded">
-                    IN PAUSE
-                  </span>
-                )}
+  const LiveTab = () => (
+    <div className="bg-white rounded-lg shadow p-6">
+      <h2 className="text-xl font-bold mb-4">Live Status</h2>
+      {liveStatus.length === 0 ? (
+        <div className="text-center py-12">
+          <Users className="mx-auto text-gray-400 mb-4" size={48} />
+          <p className="text-gray-600">Momentan sind keine Mitarbeiter eingestempelt</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {liveStatus.map((status, idx) => (
+            <div key={idx} className="border rounded-lg p-4 hover:shadow-lg transition-shadow">
+              <div className="flex justify-between items-start mb-3">
+                <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">
+                  AKTIV
+                </span>
+                <Clock className="text-gray-400" size={20} />
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+              <h3 className="font-semibold text-lg">{status.employee_name}</h3>
+              <p className="text-sm text-gray-600 mt-2">?? {status.object_name}</p>
+              <p className="text-sm text-gray-600">? Seit: {status.check_in_time}</p>
+              <p className="text-sm font-semibold text-blue-600 mt-2">
+                Arbeitszeit: {status.work_hours} Stunden
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -687,7 +401,6 @@ useEffect(() => {
         <h2 className="text-xl font-bold">Berichte & Auswertungen</h2>
         <button className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
           Bericht generieren
-        <button onClick={() => setShowManualEntryModal(true)} className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 ml-3">Schicht nachtragen</button>
         </button>
       </div>
       
@@ -726,6 +439,737 @@ useEffect(() => {
       </div>
     </div>
   );
+
+  // ==================== JOURNAL TAB (NEU!) ====================
+  
+  const JournalTab = ({ employees, customers, showToast }) => {
+    const [bookings, setBookings] = useState([]);
+    const [filteredBookings, setFilteredBookings] = useState([]);
+    const [loading, setLoading] = useState(false);
+    
+    // Filter States
+    const [dateFrom, setDateFrom] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
+    const [dateTo, setDateTo] = useState(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0]);
+    const [selectedEmployee, setSelectedEmployee] = useState('all');
+    const [selectedObject, setSelectedObject] = useState('all');
+    const [selectedServiceType, setSelectedServiceType] = useState('all');
+    const [selectedEntryType, setSelectedEntryType] = useState('all');
+    
+    // Modal States
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editingBooking, setEditingBooking] = useState(null);
+    const [showNewBookingModal, setShowNewBookingModal] = useState(false);
+    const [useCustomObject, setUseCustomObject] = useState(false);
+    const [newBookingData, setNewBookingData] = useState({
+      employee_id: '',
+      object_id: '',
+      custom_object_name: '',
+      booking_date: new Date().toISOString().split('T')[0],
+      check_in_time: '09:00',
+      check_out_time: '17:00',
+      hourly_rate: '15.00',
+      service_type: 'Unterhaltsreinigung',
+      notes: ''
+    });
+    
+    // Sort State
+    const [sortField, setSortField] = useState('check_in');
+    const [sortDirection, setSortDirection] = useState('desc');
+
+    useEffect(() => {
+      loadBookings();
+    }, []);
+
+    useEffect(() => {
+      applyFilters();
+    }, [bookings, dateFrom, dateTo, selectedEmployee, selectedObject, selectedServiceType, selectedEntryType, sortField, sortDirection]);
+
+    const loadBookings = async () => {
+      setLoading(true);
+      try {
+        const response = await api.get('/admin/bookings/all');
+        setBookings(response.data);
+      } catch (error) {
+        showToast('Fehler beim Laden der Buchungen', 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const applyFilters = () => {
+      let filtered = [...bookings];
+
+      if (dateFrom) {
+        filtered = filtered.filter(b => new Date(b.check_in) >= new Date(dateFrom));
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59);
+        filtered = filtered.filter(b => new Date(b.check_in) <= toDate);
+      }
+      if (selectedEmployee !== 'all') {
+        filtered = filtered.filter(b => b.employee_id === parseInt(selectedEmployee));
+      }
+      if (selectedObject !== 'all') {
+        filtered = filtered.filter(b => b.object_id === parseInt(selectedObject));
+      }
+      if (selectedServiceType !== 'all') {
+        filtered = filtered.filter(b => b.service_type === selectedServiceType);
+      }
+      if (selectedEntryType !== 'all') {
+        const isManual = selectedEntryType === 'manual';
+        filtered = filtered.filter(b => b.is_manual_entry === isManual);
+      }
+
+      filtered.sort((a, b) => {
+        let aVal = a[sortField];
+        let bVal = b[sortField];
+        
+        if (sortField === 'check_in' || sortField === 'check_out') {
+          aVal = new Date(aVal);
+          bVal = new Date(bVal);
+        }
+        
+        if (sortDirection === 'asc') {
+          return aVal > bVal ? 1 : -1;
+        } else {
+          return aVal < bVal ? 1 : -1;
+        }
+      });
+
+      setFilteredBookings(filtered);
+    };
+
+    const handleSort = (field) => {
+      if (sortField === field) {
+        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+      } else {
+        setSortField(field);
+        setSortDirection('desc');
+      }
+    };
+
+    const handleEdit = (booking) => {
+      setEditingBooking(booking);
+      setShowEditModal(true);
+    };
+
+    const handleDelete = async (bookingId) => {
+      if (!confirm('Wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden!')) {
+        return;
+      }
+
+      try {
+        await api.delete(`/admin/bookings/${bookingId}`);
+        showToast('Buchung gelöscht', 'success');
+        loadBookings();
+      } catch (error) {
+        showToast('Fehler beim Löschen', 'error');
+      }
+    };
+
+    const handleSaveEdit = async () => {
+      try {
+        await api.put(`/admin/bookings/${editingBooking.id}`, editingBooking);
+        showToast('Buchung aktualisiert', 'success');
+        setShowEditModal(false);
+        loadBookings();
+      } catch (error) {
+        showToast('Fehler beim Speichern', 'error');
+      }
+    };
+    const handleSaveNewBooking = async () => {
+      try {
+        const bookingData = {
+          employee_id: parseInt(newBookingData.employee_id),
+          object_id: useCustomObject ? null : parseInt(newBookingData.object_id),
+          custom_object_name: useCustomObject ? newBookingData.custom_object_name : null,
+          check_in: `${newBookingData.booking_date}T${newBookingData.check_in_time}:00`,
+          check_out: `${newBookingData.booking_date}T${newBookingData.check_out_time}:00`,
+          hourly_rate: parseFloat(newBookingData.hourly_rate),
+          service_type: newBookingData.service_type,
+          notes: newBookingData.notes,
+          is_manual_entry: true
+        };
+        await api.post('/admin/bookings/manual', bookingData);
+        showToast('Buchung erstellt', 'success');
+        setShowNewBookingModal(false);
+        loadBookings();
+      } catch (error) {
+        showToast('Fehler beim Erstellen', 'error');
+      }
+    };
+
+    const exportCSV = () => {
+      const csvData = filteredBookings.map(b => ({
+        Datum: new Date(b.check_in).toLocaleDateString('de-DE'),
+        Mitarbeiter: b.employee_name,
+        Objekt: b.object_name,
+        'Von': new Date(b.check_in).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+        'Bis': b.check_out ? new Date(b.check_out).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'Offen',
+        Stunden: b.billed_hours?.toFixed(2) || '0.00',
+        Stundensatz: `${b.hourly_rate?.toFixed(2) || '0.00'}€`,
+        Betrag: `${((b.billed_hours || 0) * (b.hourly_rate || 0)).toFixed(2)}€`,
+        Art: b.service_type || 'Arbeit',
+        Typ: b.is_manual_entry ? 'Manuell' : 'Auto',
+        Notizen: b.notes || ''
+      }));
+
+      const csv = [
+        Object.keys(csvData[0]).join(';'),
+        ...csvData.map(row => Object.values(row).join(';'))
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `journal_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+    };
+
+    const calculateTotals = () => {
+      const totalHours = filteredBookings.reduce((sum, b) => sum + (b.billed_hours || 0), 0);
+      const totalAmount = filteredBookings.reduce((sum, b) => 
+        sum + ((b.billed_hours || 0) * (b.hourly_rate || 0)), 0
+      );
+      return { totalHours, totalAmount };
+    };
+
+    const { totalHours, totalAmount } = calculateTotals();
+
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold">Buchungsjournal</h2>
+            <p className="text-gray-600">{filteredBookings.length} Buchungen gefunden</p>
+          </div>
+          <button
+            onClick={exportCSV}
+            disabled={filteredBookings.length === 0}
+            className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-2 disabled:bg-gray-300"
+          >
+            <Download size={20} />
+            CSV Export
+          </button>
+        </div>
+          <button
+            onClick={() => setShowNewBookingModal(true)}
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"
+          >
+            <Plus size={20} />
+            Neue Buchung
+          </button>
+
+        {/* Filter */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="font-semibold mb-4">Filter</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Von Datum</label>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-full p-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bis Datum</label>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-full p-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mitarbeiter</label>
+              <select
+                value={selectedEmployee}
+                onChange={(e) => setSelectedEmployee(e.target.value)}
+                className="w-full p-2 border rounded-lg"
+              >
+                <option value="all">Alle</option>
+                {employees.map(emp => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Objekt</label>
+              <select
+                value={selectedObject}
+                onChange={(e) => setSelectedObject(e.target.value)}
+                className="w-full p-2 border rounded-lg"
+              >
+                <option value="all">Alle</option>
+                {customers.map(cust => (
+                  <option key={cust.id} value={cust.id}>
+                    {cust.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Art</label>
+              <select
+                value={selectedServiceType}
+                onChange={(e) => setSelectedServiceType(e.target.value)}
+                className="w-full p-2 border rounded-lg"
+              >
+                <option value="all">Alle</option>
+                <option value="Arbeit">Arbeit</option>
+                <option value="Urlaub">Urlaub</option>
+                <option value="Krank">Krank</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Typ</label>
+              <select
+                value={selectedEntryType}
+                onChange={(e) => setSelectedEntryType(e.target.value)}
+                className="w-full p-2 border rounded-lg"
+              >
+                <option value="all">Alle</option>
+                <option value="manual">Manuell</option>
+                <option value="auto">Automatisch</option>
+              </select>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setDateFrom('');
+              setDateTo('');
+              setSelectedEmployee('all');
+              setSelectedObject('all');
+              setSelectedServiceType('all');
+              setSelectedEntryType('all');
+            }}
+            className="mt-4 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+          >
+            Filter zurücksetzen
+          </button>
+        </div>
+
+        {/* Summen */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-blue-50 rounded-lg p-4">
+            <div className="text-sm text-blue-600">Gesamt Stunden</div>
+            <div className="text-2xl font-bold text-blue-700">{totalHours.toFixed(2)}h</div>
+          </div>
+          <div className="bg-green-50 rounded-lg p-4">
+            <div className="text-sm text-green-600">Gesamt Betrag</div>
+            <div className="text-2xl font-bold text-green-700">{totalAmount.toFixed(2)}€</div>
+          </div>
+        </div>
+
+        {/* Tabelle */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          {loading ? (
+            <div className="p-8 text-center">Lädt...</div>
+          ) : filteredBookings.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">Keine Buchungen gefunden</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th 
+                      className="px-4 py-3 text-left text-sm font-semibold cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('check_in')}
+                    >
+                      Datum {sortField === 'check_in' && (sortDirection === 'asc' ? '?' : '?')}
+                    </th>
+                    <th 
+                      className="px-4 py-3 text-left text-sm font-semibold cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('employee_name')}
+                    >
+                      Mitarbeiter {sortField === 'employee_name' && (sortDirection === 'asc' ? '?' : '?')}
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Objekt</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Von - Bis</th>
+                    <th 
+                      className="px-4 py-3 text-right text-sm font-semibold cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('billed_hours')}
+                    >
+                      Stunden {sortField === 'billed_hours' && (sortDirection === 'asc' ? '?' : '?')}
+                    </th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold">Satz</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold">Betrag</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold">Art</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold">Typ</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold">Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredBookings.map((booking) => (
+                    <tr key={booking.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm">
+                        {new Date(booking.check_in).toLocaleDateString('de-DE')}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-medium">
+                        {booking.employee_name}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {booking.object_name}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {new Date(booking.check_in).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                        {' - '}
+                        {booking.check_out 
+                          ? new Date(booking.check_out).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+                          : 'Offen'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-medium">
+                        {booking.billed_hours?.toFixed(2) || '0.00'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right">
+                        {booking.hourly_rate?.toFixed(2) || '0.00'}€
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-semibold text-green-600">
+                        {((booking.billed_hours || 0) * (booking.hourly_rate || 0)).toFixed(2)}€
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                          booking.service_type === 'Arbeit' ? 'bg-blue-100 text-blue-800' :
+                          booking.service_type === 'Urlaub' ? 'bg-green-100 text-green-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {booking.service_type || 'Arbeit'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-block px-2 py-1 rounded text-xs ${
+                          booking.is_manual_entry 
+                            ? 'bg-purple-100 text-purple-800' 
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {booking.is_manual_entry ? 'Manuell' : 'Auto'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex gap-2 justify-center">
+                          <button
+                            onClick={() => handleEdit(booking)}
+                            className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                            title="Bearbeiten"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(booking.id)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded"
+                            title="Löschen"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Edit Modal */}
+        {showEditModal && editingBooking && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-bold mb-4">Buchung bearbeiten</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Datum</label>
+                  <input
+                    type="date"
+                    value={editingBooking.check_in?.split('T')[0] || ''}
+                    onChange={(e) => {
+                      const newDate = e.target.value;
+                      const oldTime = editingBooking.check_in.split('T')[1];
+                      setEditingBooking({
+                        ...editingBooking,
+                        check_in: `${newDate}T${oldTime}`
+                      });
+                    }}
+                    className="w-full p-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Von</label>
+                  <input
+                    type="time"
+                    value={editingBooking.check_in?.split('T')[1]?.substring(0, 5) || ''}
+                    onChange={(e) => {
+                      const date = editingBooking.check_in.split('T')[0];
+                      setEditingBooking({
+                        ...editingBooking,
+                        check_in: `${date}T${e.target.value}:00`
+                      });
+                    }}
+                    className="w-full p-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Bis</label>
+                  <input
+                    type="time"
+                    value={editingBooking.check_out?.split('T')[1]?.substring(0, 5) || ''}
+                    onChange={(e) => {
+                      const date = editingBooking.check_in.split('T')[0];
+                      setEditingBooking({
+                        ...editingBooking,
+                        check_out: `${date}T${e.target.value}:00`
+                      });
+                    }}
+                    className="w-full p-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Mitarbeiter</label>
+                  <select
+                    value={editingBooking.employee_id}
+                    onChange={(e) => setEditingBooking({
+                      ...editingBooking,
+                      employee_id: parseInt(e.target.value)
+                    })}
+                    className="w-full p-2 border rounded-lg"
+                  >
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Art</label>
+                  <select
+                    value={editingBooking.service_type || 'Unterhaltsreinigung'}
+                    onChange={(e) => setEditingBooking({
+                      ...editingBooking,
+                      service_type: e.target.value
+                    })}
+                    className="w-full p-2 border rounded-lg"
+                  >
+                    <option value="Unterhaltsreinigung">Unterhaltsreinigung</option>
+                    <option value="Fensterreinigung">Fensterreinigung</option>
+                    <option value="Grundreinigung">Grundreinigung</option>
+                    <option value="Sonderreinigung">Sonderreinigung</option>
+                  </select>
+                </div>
+                  <label className="block text-sm font-medium mb-1">Objekt</label>
+                  <select
+                    value={editingBooking.object_id}
+                    onChange={(e) => setEditingBooking({
+                      ...editingBooking,
+                      object_id: parseInt(e.target.value)
+                    })}
+                    className="w-full p-2 border rounded-lg"
+                  >
+                    {customers.map(cust => (
+                      <option key={cust.id} value={cust.id}>
+                        {cust.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Stundensatz (€)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editingBooking.hourly_rate || '15.00'}
+                    onChange={(e) => setEditingBooking({
+                      ...editingBooking,
+                      hourly_rate: parseFloat(e.target.value)
+                    })}
+                    className="w-full p-2 border rounded-lg"
+                  />
+                </div>
+                  <label className="block text-sm font-medium mb-1">Notizen</label>
+                  <textarea
+                    value={editingBooking.notes || ''}
+                    onChange={(e) => setEditingBooking({
+                      ...editingBooking,
+                      notes: e.target.value
+                    })}
+                    className="w-full p-2 border rounded-lg"
+                    rows="3"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                >
+                  Speichern
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Neue Buchung Modal */}
+        {showNewBookingModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <h3 className="text-lg font-bold mb-4">Neue Buchung erstellen</h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Mitarbeiter *</label>
+                  <select
+                    value={newBookingData.employee_id}
+                    onChange={(e) => setNewBookingData({...newBookingData, employee_id: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                  >
+                    <option value="">Bitte wählen...</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 mb-2">
+                    <input
+                      type="checkbox"
+                      checked={useCustomObject}
+                      onChange={(e) => setUseCustomObject(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm font-medium">Einmaliger Kunde (nicht in DB)</span>
+                  </label>
+
+                  {useCustomObject ? (
+                    <input
+                      type="text"
+                      placeholder="Kundenname eingeben..."
+                      value={newBookingData.custom_object_name}
+                      onChange={(e) => setNewBookingData({...newBookingData, custom_object_name: e.target.value})}
+                      className="w-full p-2 border rounded-lg"
+                    />
+                  ) : (
+                    <select
+                      value={newBookingData.object_id}
+                      onChange={(e) => setNewBookingData({...newBookingData, object_id: e.target.value})}
+                      className="w-full p-2 border rounded-lg"
+                    >
+                      <option value="">Bitte wählen...</option>
+                      {customers.map(cust => (
+                        <option key={cust.id} value={cust.id}>{cust.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Datum *</label>
+                    <input
+                      type="date"
+                      value={newBookingData.booking_date}
+                      onChange={(e) => setNewBookingData({...newBookingData, booking_date: e.target.value})}
+                      className="w-full p-2 border rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Von *</label>
+                    <input
+                      type="time"
+                      value={newBookingData.check_in_time}
+                      onChange={(e) => setNewBookingData({...newBookingData, check_in_time: e.target.value})}
+                      className="w-full p-2 border rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Bis *</label>
+                    <input
+                      type="time"
+                      value={newBookingData.check_out_time}
+                      onChange={(e) => setNewBookingData({...newBookingData, check_out_time: e.target.value})}
+                      className="w-full p-2 border rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Stundensatz (€) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newBookingData.hourly_rate}
+                      onChange={(e) => setNewBookingData({...newBookingData, hourly_rate: e.target.value})}
+                      className="w-full p-2 border rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Art *</label>
+                    <select
+                      value={newBookingData.service_type}
+                      onChange={(e) => setNewBookingData({...newBookingData, service_type: e.target.value})}
+                      className="w-full p-2 border rounded-lg"
+                    >
+                      <option value="Unterhaltsreinigung">Unterhaltsreinigung</option>
+                      <option value="Fensterreinigung">Fensterreinigung</option>
+                      <option value="Grundreinigung">Grundreinigung</option>
+                      <option value="Sonderreinigung">Sonderreinigung</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Notizen</label>
+                  <textarea
+                    value={newBookingData.notes}
+                    onChange={(e) => setNewBookingData({...newBookingData, notes: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    rows="3"
+                    placeholder="Zusätzliche Informationen..."
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowNewBookingModal(false)}
+                  className="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={handleSaveNewBooking}
+                  disabled={!newBookingData.employee_id || (!useCustomObject && !newBookingData.object_id) || (useCustomObject && !newBookingData.custom_object_name)}
+                  className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300"
+                >
+                  Buchung erstellen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ==================== MAIN RETURN ====================
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -767,9 +1211,12 @@ useEffect(() => {
               { id: 'employees', label: 'Mitarbeiter', icon: Users },
               { id: 'customers', label: 'Kunden', icon: Building2 },
               { id: 'schedule', label: 'Dienstplan', icon: Calendar },
-			  { id: 'hours', label: 'Sollstunden', icon: Clock },
+              { id: 'km-verwaltung', label: 'KM-Verwaltung', icon: TrendingUp },
+              { id: 'journal', label: 'Journal', icon: BookOpen },
               { id: 'live', label: 'Live', icon: MapPin },
-              { id: 'reports', label: 'Berichte', icon: FileText }
+              { id: 'reports', label: 'Berichte', icon: FileText },
+              { id: 'abrechnungen', label: 'Abrechnungen', icon: FileText },
+              { id: 'km-journal', label: 'KM-Journal', icon: TrendingUp },
             ].map(tab => {
               const Icon = tab.icon;
               return (
@@ -797,25 +1244,20 @@ useEffect(() => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'overview' && <OverviewTab />}
         {activeTab === 'employees' && <EmployeesTab />}
-        {activeTab === "customers" && <CustomersTab />}
-		{activeTab === 'hours' && (
-		  <div className="bg-white rounded-lg shadow p-6">
-			<h2 className="text-xl font-bold mb-4">Sollstunden-Verwaltung</h2>
-			<div className="space-y-4">
-			  <p className="text-green-600 font-medium">✓ Tab funktioniert!</p>
-			  <p className="text-gray-600">Backend-Verbindung ist bereit:</p>
-			  <ul className="list-disc list-inside text-sm text-gray-500">
-				<li>customer_hours Tabelle ✓</li>
-				<li>special_rules Tabelle ✓</li>
-				<li>API-Endpoints laufen ✓</li>
-			  </ul>
-			  <p className="text-blue-600 mt-4">Nächster Schritt: Tabelle mit echten Daten anzeigen</p>
-			</div>
-		  </div>
-		)}
+        {activeTab === 'customers' && <CustomersTab />}
         {activeTab === 'schedule' && <ScheduleTab />}
+        {activeTab === 'hours' && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold mb-4">Sollstunden-Verwaltung</h2>
+            <p className="text-gray-600">Feature kommt bald...</p>
+          </div>
+        )}
+        {activeTab === 'journal' && <JournalTab employees={employees} customers={customers} showToast={showToast} />}
         {activeTab === 'live' && <LiveTab />}
         {activeTab === 'reports' && <ReportsTab />}
+        {activeTab === 'abrechnungen' && <AbrechnungenTab />}
+        {activeTab === 'km-journal' && <KmJournalTab employees={employees} customers={customers} showToast={showToast} />}
+        {activeTab === 'km-verwaltung' && <KmVerwaltungTab employees={employees} customers={customers} showToast={showToast} />}
       </div>
 
       {/* Toast Notification */}
@@ -840,99 +1282,65 @@ useEffect(() => {
             <h3 className="text-lg font-bold mb-4">
               {editingEmployee ? 'Mitarbeiter bearbeiten' : 'Neuer Mitarbeiter'}
             </h3>
+            
             <div className="space-y-4">
-  <div className="grid grid-cols-2 gap-4">
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Vorname</label>
-      <input
-        value={employeeForm.first_name}
-        onChange={(e) => setEmployeeForm({...employeeForm, first_name: e.target.value})}
-        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-    </div>
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Nachname</label>
-      <input
-        value={employeeForm.last_name}
-        onChange={(e) => setEmployeeForm({...employeeForm, last_name: e.target.value})}
-        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-    </div>
-  </div>
-  
-  <div>
-    <label className="block text-sm font-medium text-gray-700 mb-1">Personal-Nr</label>
-    <input
-      value={employeeForm.personal_nr}
-      onChange={(e) => setEmployeeForm({...employeeForm, personal_nr: e.target.value})}
-      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-    />
-  </div>
-  
-  <div>
-    <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
-    <input
-      type="email"
-      value={employeeForm.email}
-      onChange={(e) => setEmployeeForm({...employeeForm, email: e.target.value})}
-      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-    />
-  </div>
-  
-  {!editingEmployee && (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Passwort</label>
-      <input
-        type="password"
-        value={employeeForm.password}
-        onChange={(e) => setEmployeeForm({...employeeForm, password: e.target.value})}
-        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-    </div>
-  )}
-  
-  <div>
-    <label className="block text-sm font-medium text-gray-700 mb-1">Kategorie</label>
-    <select
-      value={employeeForm.tracking_mode}
-      onChange={(e) => setEmployeeForm({...employeeForm, tracking_mode: e.target.value})}
-      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-    >
-      <option value="A">Kategorie A - Vollautomatisch</option>
-      <option value="B">Kategorie B - War-da Button</option>
-      <option value="C">Kategorie C - Normal</option>
-    </select>
-    </div>
-    <div>
-  </div>
-  
-  <div className="flex items-center gap-2">
-    <input
-      type="checkbox"
-      checked={employeeForm.gps_required}
-      onChange={(e) => setEmployeeForm({...employeeForm, gps_required: e.target.checked})}
-      id="gps_required"
-      className="w-4 h-4"
-    />
-    <label htmlFor="gps_required" className="text-sm">
-      GPS-Pflicht aktivieren
-    </label>
-  </div>
-</div>
-            <div className="flex justify-end gap-3 mt-6">
+              <input
+                type="text"
+                placeholder="Personal-Nr"
+                value={employeeForm.personal_nr}
+                onChange={(e) => setEmployeeForm({...employeeForm, personal_nr: e.target.value})}
+                className="w-full p-2 border rounded-lg"
+              />
+              <input
+                type="text"
+                placeholder="Vorname"
+                value={employeeForm.first_name}
+                onChange={(e) => setEmployeeForm({...employeeForm, first_name: e.target.value})}
+                className="w-full p-2 border rounded-lg"
+              />
+              <input
+                type="text"
+                placeholder="Nachname"
+                value={employeeForm.last_name}
+                onChange={(e) => setEmployeeForm({...employeeForm, last_name: e.target.value})}
+                className="w-full p-2 border rounded-lg"
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={employeeForm.email}
+                onChange={(e) => setEmployeeForm({...employeeForm, email: e.target.value})}
+                className="w-full p-2 border rounded-lg"
+              />
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Stundensatz"
+                value={employeeForm.hourly_rate}
+                onChange={(e) => setEmployeeForm({...employeeForm, hourly_rate: e.target.value})}
+                className="w-full p-2 border rounded-lg"
+              />
+              <select
+                value={employeeForm.tracking_mode}
+                onChange={(e) => setEmployeeForm({...employeeForm, tracking_mode: e.target.value})}
+                className="w-full p-2 border rounded-lg"
+              >
+                <option value="A">Kategorie A</option>
+                <option value="B">Kategorie B</option>
+                <option value="C">Kategorie C</option>
+              </select>
+            </div>
+
+            <div className="flex gap-3 mt-6">
               <button
-                onClick={() => {
-                  setShowNewEmployeeModal(false);
-                  setEditingEmployee(null);
-        setShowNewEmployeeModal(false);
-                }}
-                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                onClick={() => setShowNewEmployeeModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSaveEmployee}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
               >
                 Speichern
               </button>
@@ -948,53 +1356,42 @@ useEffect(() => {
             <h3 className="text-lg font-bold mb-4">
               {editingCustomer ? 'Kunde bearbeiten' : 'Neuer Kunde'}
             </h3>
+            
             <div className="space-y-4">
               <input
-                placeholder="Firmenname/Objektname"
+                type="text"
+                placeholder="Name"
                 value={customerForm.name}
                 onChange={(e) => setCustomerForm({...customerForm, name: e.target.value})}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full p-2 border rounded-lg"
               />
               <input
+                type="text"
                 placeholder="Adresse"
                 value={customerForm.address}
                 onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                placeholder="Ansprechpartner"
-                value={customerForm.contact_person}
-                onChange={(e) => setCustomerForm({...customerForm, contact_person: e.target.value})}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                placeholder="Telefonnummer"
-                value={customerForm.phone}
-                onChange={(e) => setCustomerForm({...customerForm, phone: e.target.value})}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full p-2 border rounded-lg"
               />
               <input
                 type="number"
                 step="0.01"
-                placeholder="Stundensatz (€) - optional"
+                placeholder="Stundensatz"
                 value={customerForm.hourly_rate}
                 onChange={(e) => setCustomerForm({...customerForm, hourly_rate: e.target.value})}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full p-2 border rounded-lg"
               />
             </div>
-            <div className="flex justify-end gap-3 mt-6">
+
+            <div className="flex gap-3 mt-6">
               <button
-                onClick={() => {
-                  setShowNewCustomerModal(false);
-                  setEditingCustomer(null);
-                }}
-                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                onClick={() => setShowNewCustomerModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSaveCustomer}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
               >
                 Speichern
               </button>
@@ -1007,54 +1404,3 @@ useEffect(() => {
 };
 
 export default AdminDashboard;
-  const loadEmployees = () => {
-    api.get('/admin/employees-with-categories')
-      .then(response => {
-        if (response.data) {
-          const employeeData = response.data
-            .filter(emp => !emp.personal_nr.startsWith('A'))
-            .map(emp => ({
-              id: emp.id,
-              personal_nr: emp.personal_nr,
-              first_name: emp.name.split(' ')[0],
-              last_name: emp.name.split(' ')[1] || '',
-              email: emp.email || `${emp.personal_nr.toLowerCase()}@seda24.de`,
-              tracking_mode: emp.tracking_mode || emp.category || 'C',
-              hourly_rate: emp.hourly_rate || emp.hourly_rate_standard || 15.00,
-              is_active: true,
-              daily_hours: 8
-            }))
-            .sort((a, b) => a.personal_nr.localeCompare(b.personal_nr));
-          setEmployees(employeeData);
-          setShowNewEmployeeModal(false);
-          setEditingEmployee(null);
-        setShowNewEmployeeModal(false);
-        }
-      });
-
-      {/* Manual Entry Modal */}
-      {showManualEntryModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold mb-4">Schicht nachtragen</h3>
-            <div className="space-y-4">
-              <select className="w-full p-2 border rounded">
-                <option>Mitarbeiter wählen...</option>
-              </select>
-              <input type="date" className="w-full p-2 border rounded" />
-              <select className="w-full p-2 border rounded">
-                <option>Objekt wählen...</option>
-              </select>
-              <div className="grid grid-cols-2 gap-4">
-                <input type="time" className="p-2 border rounded" />
-                <input type="time" className="p-2 border rounded" />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowManualEntryModal(false)} className="px-4 py-2 border rounded">Abbrechen</button>
-              <button className="px-4 py-2 bg-green-500 text-white rounded">Speichern</button>
-            </div>
-          </div>
-        </div>
-      )}
-  };

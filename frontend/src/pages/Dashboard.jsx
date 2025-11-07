@@ -4,6 +4,7 @@ import { LogOut, Play, Square, Pause, Building, User, Clock, Calendar, Star, Che
 import { useNavigate } from 'react-router-dom';
 import HistoryTab from "../components/HistoryTab";
 import VacationTab from "../components/VacationTab";
+import KilometerTab from "../components/KilometerTab";
 
 const Dashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -85,9 +86,6 @@ const Dashboard = () => {
 
     try {
       const location = await getCurrentLocation();
-      // TEST: Feste Koordinaten für Debug
-      // TEST: Simuliere Position in SEDA Zentrale
-      // location = {lat: 48.794968, lng: 8.310615};
       const target = objectCoords[objectId];
       
       if (!target) return true;
@@ -103,12 +101,12 @@ const Dashboard = () => {
       
       if (distance <= 100) {
         const action = isCheckOut ? "Ausgestempelt" : "Eingestempelt";
-        alert(`✅ GPS OK! ${Math.round(distance)}m Entfernung. ${action}!`);
+        alert(`? GPS OK! ${Math.round(distance)}m Entfernung. ${action}!`);
         return true;
       } else {
         const action = isCheckOut ? "AUSSTEMPELN" : "EINSTEMPELN";
         const distText = distance > 1000 ? `${(distance/1000).toFixed(1)} km` : `${Math.round(distance)}m`;
-        alert(`❌ ${action} NICHT MÖGLICH! Du bist ${distText} vom ${target.name} entfernt!`);
+        alert(`? ${action} NICHT MÖGLICH! Du bist ${distText} vom ${target.name} entfernt!`);
         return false;
       }
     } catch (error) {
@@ -313,30 +311,28 @@ const Dashboard = () => {
     );
     
     console.log('Antwort vom Server:', response.data);
-    // Entferne das gebuchte Objekt aus der Liste
-    setScheduledObjects(prevObjects => prevObjects.filter(obj => obj.id !== parseInt(selectedObject)));
     
-    setButtonText(`✅ ${response.data.scheduled_hours}h gebucht!`);
-    setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
+    setButtonText(`? ${response.data.scheduled_hours}h gebucht!`);
+    setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 8000);
     
     fetchTodayHours();
     fetchWeekHours();
     fetchMonthHours();
   } catch (error) {
     if (error.response?.status === 400 && error.response?.data?.detail?.includes('bereits Stunden')) {
-      setButtonText('❌ Bereits gebucht!');
-      setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
+      setButtonText('? Bereits gebucht!');
+      setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 8000);
     } else {
       console.error('Fehler:', error);
-      setButtonText('❌ Fehler!');
-      setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 3000);
+      setButtonText('? Fehler!');
+      setTimeout(() => setButtonText('ICH WAR HEUTE ANWESEND'), 8000);
     }
   }
 };
 
   const handleCheckIn = async () => {
     try {
-      const isValid = (employeeCategory === "C") ? await validateLocation(parseInt(selectedObject)) : true;
+      const isValid = await validateLocation(parseInt(selectedObject));
       if (!isValid) return;
       const notes = "Arbeitsbeginn";
       await axios.post(`${API_URL}/time-entries/check-in`, { 
@@ -353,19 +349,12 @@ const Dashboard = () => {
 
   const handleCheckOut = async () => {
     try {
-      const isValid = employeeCategory === "C" ? await validateLocation(parseInt(selectedObject), true) : true;
-      if (!isValid) return;
       await axios.post(`${API_URL}/time-entries/check-out`, {}, { 
         headers: { Authorization: `Bearer ${token}` }
       });
       checkStatus();
       fetchTodayHours();
       fetchWeekHours();
-      if (employeeCategory === "C") {
-        const currentObj = scheduledObjects.find(obj => obj.id === parseInt(selectedObject));
-        const isValid = await validateLocation(parseInt(selectedObject), true);
-        if (!isValid) return;
-      }
       fetchMonthHours();
     } catch (error) { 
       alert('Fehler beim Ausstempeln: ' + (error.response?.data?.message || error.message)); 
@@ -480,6 +469,12 @@ const Dashboard = () => {
                   color: activeTab === 'historie' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
                 Historie
               </button>
+              <button onClick={() => setActiveTab('kilometer')}
+                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
+                  backgroundColor: activeTab === 'kilometer' ? '#1e3a5f' : '#f8f9fa',
+                  color: activeTab === 'kilometer' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
+                Kilometer
+              </button>
               <button onClick={() => setActiveTab('urlaub')}
                 style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
                   backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
@@ -574,7 +569,7 @@ const Dashboard = () => {
                 </div>
               </>
             ) : (
-              activeTab === "historie" ? activeTab === "historie" ? <HistoryTab /> : activeTab === "urlaub" ? <VacationTab token={token} /> : null : activeTab === "urlaub" ? <VacationTab token={token} /> : activeTab === "historie" ? <HistoryTab /> : activeTab === "urlaub" ? <VacationTab token={token} /> : null
+              activeTab === "historie" ? <HistoryTab /> : activeTab === "kilometer" ? <KilometerTab /> : activeTab === "urlaub" ? <VacationTab token={token} /> : null
             )}
           </div>
         </div>
@@ -598,7 +593,7 @@ const Dashboard = () => {
                   {employeeData?.name || 'Mitarbeiter'}
                 </div>
                 <div style={{ color: '#e2e8f0', fontSize: '12px' }}>
-                  Pers.Nr: {employeeData?.personal_nr || '－'}
+                  Pers.Nr: {employeeData?.personal_nr || '-'}
                 </div>
               </div>
               <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end' }}>
@@ -619,17 +614,23 @@ const Dashboard = () => {
                   color: activeTab === 'stempeluhr' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
                 Stempeluhr
               </button>
-              <button onClick={() => setActiveTab('urlaub')}
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'urlaub' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Urlaub
-              </button>
               <button onClick={() => setActiveTab('historie')}
                 style={{padding: '10px 20px', borderRadius: '8px', border: 'none', 
                   backgroundColor: activeTab === 'historie' ? '#1e3a5f' : '#f8f9fa',
                   color: activeTab === 'historie' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
                 Historie
+              </button>
+              <button onClick={() => setActiveTab('kilometer')}
+                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
+                  backgroundColor: activeTab === 'kilometer' ? '#1e3a5f' : '#f8f9fa',
+                  color: activeTab === 'kilometer' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
+                Kilometer
+              </button>
+              <button onClick={() => setActiveTab('urlaub')}
+                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
+                  backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
+                  color: activeTab === 'urlaub' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
+                Urlaub
               </button>
             </div>
           </div>
@@ -672,7 +673,7 @@ const Dashboard = () => {
                     {scheduledObjects.map((obj) => (
                       <option key={obj.id} value={obj.id}>
                         {obj.name}
-                        {obj.is_scheduled_today && ' ⭐ HEUTE'}
+                        {obj.is_scheduled_today && ' ? HEUTE'}
                         {obj.planned_hours && ` (${obj.planned_hours}h geplant)`}
                       </option>
                     ))}
@@ -740,9 +741,9 @@ const Dashboard = () => {
                       background: serviceType === 'Unterhaltsreinigung' ? 'white' : '#fef3c7'
                     }}
                   >
-                    <option value="Unterhaltsreinigung">Unterhaltsreinigung (15€/Std)</option>
-                    <option value="Fensterreinigung">Fensterreinigung (20€/Std)</option>
-                    <option value="Grundreinigung">Grundreinigung (20€/Std)</option>
+                    <option value="Unterhaltsreinigung">Unterhaltsreinigung (15/Std)</option>
+                    <option value="Fensterreinigung">Fensterreinigung (20/Std)</option>
+                    <option value="Grundreinigung">Grundreinigung (20/Std)</option>
                   </select>
                 </div>
 
@@ -754,7 +755,7 @@ const Dashboard = () => {
                   border: '1px solid #bfdbfe'
                 }}>
                   <div style={{ fontSize: '14px', color: '#1e40af', textAlign: 'center' }}>
-                    💡 <strong>Hinweis:</strong> Ein Klick bucht deine kompletten Sollstunden für heute.
+                    ?? <strong>Hinweis:</strong> Ein Klick bucht deine kompletten Sollstunden für heute.
                     Du kannst jedes Objekt einmal pro Tag buchen.
                   </div>
                 </div>
@@ -803,7 +804,7 @@ const Dashboard = () => {
                 </div>
               </>
             ) : (
-              activeTab === "historie" ? <HistoryTab /> : activeTab === "urlaub" ? <VacationTab token={token} /> : null
+              activeTab === "historie" ? <HistoryTab /> : activeTab === "kilometer" ? <KilometerTab /> : activeTab === "urlaub" ? <VacationTab token={token} /> : null
             )}
           </div>
         </div>
@@ -826,7 +827,7 @@ const Dashboard = () => {
                 {employeeData?.name || 'Mitarbeiter'}
               </div>
               <div style={{ color: '#e2e8f0', fontSize: '12px' }}>
-                Pers.Nr: {employeeData?.personal_nr || '－'}
+                Pers.Nr: {employeeData?.personal_nr || '-'}
               </div>
             </div>
             <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end' }}>
@@ -841,12 +842,6 @@ const Dashboard = () => {
         {/* TAB-NAVIGATION */}
         <div className="bg-white rounded-t-2xl shadow-xl p-4">
           <div className="flex gap-2">
-              <button onClick={() => setActiveTab('urlaub')}
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'urlaub' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Urlaub
-              </button>
             <button onClick={() => setActiveTab('stempeluhr')}
               style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
                 backgroundColor: activeTab === 'stempeluhr' ? '#1e3a5f' : '#f8f9fa',
@@ -858,6 +853,18 @@ const Dashboard = () => {
                 backgroundColor: activeTab === 'historie' ? '#1e3a5f' : '#f8f9fa',
                 color: activeTab === 'historie' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
               Historie
+            </button>
+            <button onClick={() => setActiveTab('kilometer')}
+              style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
+                backgroundColor: activeTab === 'kilometer' ? '#1e3a5f' : '#f8f9fa',
+                color: activeTab === 'kilometer' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
+              Kilometer
+            </button>
+            <button onClick={() => setActiveTab('urlaub')}
+              style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
+                backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
+                color: activeTab === 'urlaub' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
+              Urlaub
             </button>
           </div>
         </div>
@@ -967,7 +974,7 @@ const Dashboard = () => {
               </div>
             </>
           ) : (
-            activeTab === "historie" ? <HistoryTab /> : <VacationTab token={token} />
+            activeTab === "historie" ? <HistoryTab /> : activeTab === "kilometer" ? <KilometerTab /> : <VacationTab token={token} />
           )}
         </div>
       </div>

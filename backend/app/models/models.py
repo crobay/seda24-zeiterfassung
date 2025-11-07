@@ -96,6 +96,7 @@ class TimeEntry(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"))
+    custom_object_name = Column(String, nullable=True)
     object_id = Column(Integer, ForeignKey("objects.id"))
     check_in = Column(DateTime)
     check_out = Column(DateTime, nullable=True)
@@ -215,3 +216,12 @@ class SpecialRule(Base):
 
 # Und in der Customer Klasse ergänzen:
 # hours = relationship("CustomerHours", back_populates="customer", uselist=False)
+class KmDistance(Base):
+    __tablename__ = "km_distances"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"))
+    object_id = Column(Integer, ForeignKey("objects.id"))
+    distance_km = Column(Float)
+    rate_per_km = Column(Float, default=0.30)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

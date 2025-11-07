@@ -132,3 +132,8 @@ INFO:     Will watch for changes in these directories: ['/root/zeiterfassung/bac
 ERROR:    [Errno 98] Address already in use
 INFO:     Will watch for changes in these directories: ['/root/zeiterfassung/backend']
 ERROR:    [Errno 98] Address already in use
+INFO:     Started server process [1039677]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8003 (Press CTRL+C to quit)
+INFO:     127.0.0.1:60078 - "GET /api/v1/admin/bookings/all HTTP/1.1" 401 Unauthorized
