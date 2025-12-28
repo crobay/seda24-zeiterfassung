@@ -140,6 +140,7 @@ class PDFGenerator:
                 urlaub_amount += e['amount']
             elif e['type'] == 'krank':
                 kranktage += 1
+                work_amount += e['amount']  # Krankengeld auch zählen
             else:
                 total_hours += e['hours']
                 work_amount += e['amount']

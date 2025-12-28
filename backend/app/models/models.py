@@ -44,7 +44,6 @@ class Employee(Base):
     address = Column(Text)
     gps_required = Column(Boolean, default=True)
     tracking_mode = Column(String(1), default='C')  # A=Automatik, B=Button, C=Normal
-    auto_stamp = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -102,6 +101,7 @@ class TimeEntry(Base):
     check_out = Column(DateTime, nullable=True)
     service_type = Column(String, default='Unterhaltsreinigung')
     hourly_rate = Column(Float, default=15.00)
+    billed_hours = Column(Float, nullable=True)
     gps_lat = Column(Float, nullable=True)
     gps_lng = Column(Float, nullable=True)
     photo_url = Column(String, nullable=True)

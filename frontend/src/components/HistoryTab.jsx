@@ -124,7 +124,7 @@ const HistoryTab = () => {
       <div className="flex justify-between items-center mt-3 pt-3 border-t">
         <div>
           <span className="text-gray-500 text-xs">Stunden:</span>
-          <span className="ml-1 font-bold text-sm">{entry.hours?.toFixed(2) || entry.total_hours?.toFixed(2)} h</span>
+	  <span className="ml-1 font-bold text-sm">{entry.billed_hours?.toFixed(2) || entry.hours?.toFixed(2) || entry.total_hours?.toFixed(2)} h</span>
         </div>
         <div className="text-right">
           <div className="text-xs text-gray-500">{formatCurrency(entry.hourly_rate)}/h</div>

@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Building2, Calendar, Activity, FileText, Plus, Edit2, Trash2, 
   Save, X, Check, AlertCircle, LogOut, Search, Download, Upload,
-  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp
+  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu
 } from 'lucide-react';
 import ScheduleTab from "../components/ScheduleTab";
 import AbrechnungenTab from "./AbrechnungenTab";
 import KmJournalTab from "./KmJournalTab";
-import api from '../services/api';
 import KmVerwaltungTab from "../components/KmVerwaltungTab";
+import api from '../services/api';
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -52,6 +52,9 @@ const AdminDashboard = () => {
   
   // Toast
   const [toast, setToast] = useState(null);
+  
+  // Bottom Navigation
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
@@ -1169,6 +1172,370 @@ const AdminDashboard = () => {
     );
   };
 
+  // ==================== BOTTOM NAVIGATION ====================
+  
+  const BottomNav = () => {
+    return (
+      <>
+        {/* Bottom Navigation Bar */}
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: 'white',
+          borderTop: '2px solid #e0e0e0',
+          display: 'flex',
+          justifyContent: 'space-around',
+          padding: '8px 0',
+          zIndex: 1000,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.1)'
+        }}>
+          {/* Tab 1: Übersicht */}
+          <button
+            onClick={() => {
+              setActiveTab('overview');
+              setShowMoreMenu(false);
+            }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: activeTab === 'overview' ? '#3b82f6' : '#666',
+              fontWeight: activeTab === 'overview' ? 'bold' : 'normal'
+            }}
+          >
+            <Activity size={24} />
+            <span style={{ fontSize: '11px' }}>Übersicht</span>
+          </button>
+
+          {/* Tab 2: Dienstplan */}
+          <button
+            onClick={() => {
+              setActiveTab('schedule');
+              setShowMoreMenu(false);
+            }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: activeTab === 'schedule' ? '#3b82f6' : '#666',
+              fontWeight: activeTab === 'schedule' ? 'bold' : 'normal'
+            }}
+          >
+            <Calendar size={24} />
+            <span style={{ fontSize: '11px' }}>Dienstplan</span>
+          </button>
+
+          {/* Tab 3: Journal */}
+          <button
+            onClick={() => {
+              setActiveTab('journal');
+              setShowMoreMenu(false);
+            }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: activeTab === 'journal' ? '#3b82f6' : '#666',
+              fontWeight: activeTab === 'journal' ? 'bold' : 'normal'
+            }}
+          >
+            <BookOpen size={24} />
+            <span style={{ fontSize: '11px' }}>Journal</span>
+          </button>
+
+          {/* Tab 4: KM-Journal */}
+          <button
+            onClick={() => {
+              setActiveTab('km-journal');
+              setShowMoreMenu(false);
+            }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: activeTab === 'km-journal' ? '#3b82f6' : '#666',
+              fontWeight: activeTab === 'km-journal' ? 'bold' : 'normal'
+            }}
+          >
+            <TrendingUp size={24} />
+            <span style={{ fontSize: '11px' }}>KM</span>
+          </button>
+
+          {/* Tab 5: Mehr */}
+          <button
+            onClick={() => setShowMoreMenu(!showMoreMenu)}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: showMoreMenu || ['employees', 'customers', 'hours', 'live', 'reports', 'abrechnungen', 'km-verwaltung'].includes(activeTab) ? '#3b82f6' : '#666',
+              fontWeight: showMoreMenu || ['employees', 'customers', 'hours', 'live', 'reports', 'abrechnungen', 'km-verwaltung'].includes(activeTab) ? 'bold' : 'normal'
+            }}
+          >
+            <Menu size={24} />
+            <span style={{ fontSize: '11px' }}>Mehr</span>
+          </button>
+        </div>
+
+        {/* Mehr-Overlay */}
+        {showMoreMenu && (
+          <div
+            onClick={() => setShowMoreMenu(false)}
+            style={{
+              position: 'fixed',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              top: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              zIndex: 999,
+              display: 'flex',
+              alignItems: 'flex-end'
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                backgroundColor: 'white',
+                width: '100%',
+                borderTopLeftRadius: '16px',
+                borderTopRightRadius: '16px',
+                padding: '20px',
+                paddingBottom: '100px',
+                boxShadow: '0 -4px 20px rgba(0,0,0,0.2)'
+              }}
+            >
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px'
+              }}>
+                <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#1f2937' }}>Weitere Optionen</h3>
+                <button
+                  onClick={() => setShowMoreMenu(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '8px'
+                  }}
+                >
+                  <X size={24} color="#666" />
+                </button>
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <button
+                  onClick={() => {
+                    setActiveTab('employees');
+                    setShowMoreMenu(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: activeTab === 'employees' ? '#3b82f6' : '#f3f4f6',
+                    color: activeTab === 'employees' ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <Users size={24} />
+                  Mitarbeiter
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('customers');
+                    setShowMoreMenu(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: activeTab === 'customers' ? '#3b82f6' : '#f3f4f6',
+                    color: activeTab === 'customers' ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <Building2 size={24} />
+                  Kunden
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('hours');
+                    setShowMoreMenu(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: activeTab === 'hours' ? '#3b82f6' : '#f3f4f6',
+                    color: activeTab === 'hours' ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <Clock size={24} />
+                  Sollstunden
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('live');
+                    setShowMoreMenu(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: activeTab === 'live' ? '#3b82f6' : '#f3f4f6',
+                    color: activeTab === 'live' ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <MapPin size={24} />
+                  Live-Status
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('reports');
+                    setShowMoreMenu(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: activeTab === 'reports' ? '#3b82f6' : '#f3f4f6',
+                    color: activeTab === 'reports' ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <FileText size={24} />
+                  Berichte
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('abrechnungen');
+                    setShowMoreMenu(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: activeTab === 'abrechnungen' ? '#3b82f6' : '#f3f4f6',
+                    color: activeTab === 'abrechnungen' ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <FileText size={24} />
+                  Abrechnungen
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('km-verwaltung');
+                    setShowMoreMenu(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: activeTab === 'km-verwaltung' ? '#3b82f6' : '#f3f4f6',
+                    color: activeTab === 'km-verwaltung' ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <TrendingUp size={24} />
+                  KM-Verwaltung
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Spacer für Bottom Nav */}
+        <div style={{ height: '80px' }}></div>
+      </>
+    );
+  };
+
   // ==================== MAIN RETURN ====================
 
   return (
@@ -1202,43 +1569,7 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8">
-            {[
-              { id: 'overview', label: 'Übersicht', icon: Activity },
-              { id: 'employees', label: 'Mitarbeiter', icon: Users },
-              { id: 'customers', label: 'Kunden', icon: Building2 },
-              { id: 'schedule', label: 'Dienstplan', icon: Calendar },
-              { id: 'km-verwaltung', label: 'KM-Verwaltung', icon: TrendingUp },
-              { id: 'journal', label: 'Journal', icon: BookOpen },
-              { id: 'live', label: 'Live', icon: MapPin },
-              { id: 'reports', label: 'Berichte', icon: FileText },
-              { id: 'abrechnungen', label: 'Abrechnungen', icon: FileText },
-              { id: 'km-journal', label: 'KM-Journal', icon: TrendingUp },
-            ].map(tab => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`
-                    flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors
-                    ${activeTab === tab.id 
-                      ? 'border-blue-500 text-blue-600' 
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }
-                  `}
-                >
-                  <Icon size={20} />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-      </div>
+
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1257,7 +1588,7 @@ const AdminDashboard = () => {
         {activeTab === 'reports' && <ReportsTab />}
         {activeTab === 'abrechnungen' && <AbrechnungenTab />}
         {activeTab === 'km-journal' && <KmJournalTab employees={employees} customers={customers} showToast={showToast} />}
-        {activeTab === 'km-verwaltung' && <KmVerwaltungTab employees={employees} customers={customers} showToast={showToast} />}
+        {activeTab === 'km-verwaltung' && <KmVerwaltungTab showToast={showToast} />}
       </div>
 
       {/* Toast Notification */}
@@ -1399,6 +1730,9 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Bottom Navigation */}
+      <BottomNav />
     </div>
   );
 };

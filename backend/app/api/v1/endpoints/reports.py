@@ -20,7 +20,7 @@ class HistoryEntry(BaseModel):
     object_name: str
     check_in: datetime
     check_out: Optional[datetime]
-    hours: float
+    total_hours: float
     service_type: Optional[str]
     hourly_rate: float
     amount: float
@@ -212,7 +212,7 @@ def get_my_history(
         # Stunden berechnen
         if entry.check_out:
             delta = entry.check_out - entry.check_in
-            hours = delta.total_seconds() / 3600
+            hours = entry.billed_hours if entry.billed_hours else (delta.total_seconds() / 3600)
         else:
             # Laufende Zeit bis jetzt
             delta = datetime.now() - entry.check_in
@@ -226,11 +226,11 @@ def get_my_history(
                 hourly_rate = employee.hourly_rate if employee.hourly_rate else 15.0
                 hours = amount / hourly_rate
             else:
-                hours = delta.total_seconds() / 3600
+                hours = entry.billed_hours if entry.billed_hours else (delta.total_seconds() / 3600)
                 # Normale Berechnung
                 hourly_rate = entry.hourly_rate if entry.hourly_rate else (employee.hourly_rate or 0)
         hourly_rate = entry.hourly_rate if entry.hourly_rate else (employee.hourly_rate or 0)
-        amount = hours * hourly_rate
+        amount = (entry.billed_hours if entry.billed_hours else hours) * hourly_rate
         
         total_hours += hours
         total_amount += amount
@@ -241,7 +241,7 @@ def get_my_history(
             object_name=object_name,
             check_in=entry.check_in,
             check_out=entry.check_out,
-            hours=round(hours, 2),
+            total_hours=round(hours, 2),
             service_type=entry.service_type,
             hourly_rate=hourly_rate,
             amount=round(amount, 2)

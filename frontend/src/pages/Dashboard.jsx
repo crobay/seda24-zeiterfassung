@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { LogOut, Play, Square, Pause, Building, User, Clock, Calendar, Star, CheckCircle, AlertCircle, Gauge, Users, PlayCircle, ChevronsRight, Shield, UserCheck, Info } from 'lucide-react';
+import { LogOut, Play, Square, Pause, Building, User, Clock, Calendar, Star, CheckCircle, AlertCircle, Gauge, Users, PlayCircle, ChevronsRight, Shield, UserCheck, Info, Home, History, Car, Menu, X as CloseIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import HistoryTab from "../components/HistoryTab";
 import VacationTab from "../components/VacationTab";
@@ -30,6 +30,9 @@ const Dashboard = () => {
   const [hasWorkToday, setHasWorkToday] = useState(false);
   const [infoMessage, setInfoMessage] = useState('');
   
+  // Bottom Navigation - Mehr Overlay
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+
 
   const getCurrentLocation = () => {
     return new Promise((resolve, reject) => {
@@ -419,6 +422,199 @@ const Dashboard = () => {
 
   const currentObject = scheduledObjects.find(obj => obj.id === selectedObject);
 
+  // BOTTOM NAVIGATION KOMPONENTE
+  const BottomNav = ({ categoryLabel }) => {
+    return (
+      <>
+        {/* Bottom Navigation Bar */}
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: 'white',
+          borderTop: '2px solid #e0e0e0',
+          display: 'flex',
+          justifyContent: 'space-around',
+          padding: '8px 0',
+          zIndex: 1000,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.1)'
+        }}>
+          {/* Tab 1: Stempel/Übersicht */}
+          <button
+            onClick={() => {
+              setActiveTab('stempeluhr');
+              setShowMoreMenu(false);
+            }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: activeTab === 'stempeluhr' ? '#1e3a5f' : '#666',
+              fontWeight: activeTab === 'stempeluhr' ? 'bold' : 'normal'
+            }}
+          >
+            <Home size={24} />
+            <span style={{ fontSize: '11px' }}>{categoryLabel}</span>
+          </button>
+
+          {/* Tab 2: Historie */}
+          <button
+            onClick={() => {
+              setActiveTab('historie');
+              setShowMoreMenu(false);
+            }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: activeTab === 'historie' ? '#1e3a5f' : '#666',
+              fontWeight: activeTab === 'historie' ? 'bold' : 'normal'
+            }}
+          >
+            <History size={24} />
+            <span style={{ fontSize: '11px' }}>Historie</span>
+          </button>
+
+          {/* Tab 3: Kilometer */}
+          <button
+            onClick={() => {
+              setActiveTab('kilometer');
+              setShowMoreMenu(false);
+            }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: activeTab === 'kilometer' ? '#1e3a5f' : '#666',
+              fontWeight: activeTab === 'kilometer' ? 'bold' : 'normal'
+            }}
+          >
+            <Car size={24} />
+            <span style={{ fontSize: '11px' }}>KM</span>
+          </button>
+
+          {/* Tab 4: Mehr */}
+          <button
+            onClick={() => setShowMoreMenu(!showMoreMenu)}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              padding: '8px',
+              cursor: 'pointer',
+              color: showMoreMenu || activeTab === 'urlaub' ? '#1e3a5f' : '#666',
+              fontWeight: showMoreMenu || activeTab === 'urlaub' ? 'bold' : 'normal'
+            }}
+          >
+            <Menu size={24} />
+            <span style={{ fontSize: '11px' }}>Mehr</span>
+          </button>
+        </div>
+
+        {/* Mehr-Overlay */}
+        {showMoreMenu && (
+          <div
+            onClick={() => setShowMoreMenu(false)}
+            style={{
+              position: 'fixed',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              top: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              zIndex: 999,
+              display: 'flex',
+              alignItems: 'flex-end'
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                backgroundColor: 'white',
+                width: '100%',
+                borderTopLeftRadius: '16px',
+                borderTopRightRadius: '16px',
+                padding: '20px',
+                paddingBottom: '80px',
+                boxShadow: '0 -4px 20px rgba(0,0,0,0.2)'
+              }}
+            >
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px'
+              }}>
+                <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#1e3a5f' }}>Weitere Optionen</h3>
+                <button
+                  onClick={() => setShowMoreMenu(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '8px'
+                  }}
+                >
+                  <CloseIcon size={24} color="#666" />
+                </button>
+              </div>
+              
+              <button
+                onClick={() => {
+                  setActiveTab('urlaub');
+                  setShowMoreMenu(false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
+                  color: activeTab === 'urlaub' ? 'white' : '#333',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}
+              >
+                <Calendar size={24} />
+                Urlaub
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Spacer für Bottom Nav */}
+        <div style={{ height: '70px' }}></div>
+      </>
+    );
+  };
+
   if (loadingCategory) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#1e3a5f' }}>
@@ -454,38 +650,8 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* TAB-NAVIGATION */}
-          <div className="bg-white rounded-t-2xl shadow-xl p-4">
-            <div className="flex gap-2">
-              <button onClick={() => setActiveTab('stempeluhr')} 
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  backgroundColor: activeTab === 'stempeluhr' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'stempeluhr' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Übersicht
-              </button>
-              <button onClick={() => setActiveTab('historie')}
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none', 
-                  backgroundColor: activeTab === 'historie' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'historie' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Historie
-              </button>
-              <button onClick={() => setActiveTab('kilometer')}
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  backgroundColor: activeTab === 'kilometer' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'kilometer' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Kilometer
-              </button>
-              <button onClick={() => setActiveTab('urlaub')}
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'urlaub' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Urlaub
-              </button>
-            </div>
-          </div>
-
           {/* TAB-INHALT */}
-          <div className="bg-white rounded-b-2xl shadow-xl p-8">
+          <div className="bg-white rounded-2xl shadow-xl p-8" style={{ marginBottom: '20px' }}>
             {activeTab === 'stempeluhr' ? (
               <>
                 <div className="text-center mb-6">
@@ -568,10 +734,17 @@ const Dashboard = () => {
                   </div>
                 </div>
               </>
-            ) : (
-              activeTab === "historie" ? <HistoryTab /> : activeTab === "kilometer" ? <KilometerTab /> : activeTab === "urlaub" ? <VacationTab token={token} /> : null
-            )}
+            ) : activeTab === 'historie' ? (
+              <HistoryTab />
+            ) : activeTab === 'kilometer' ? (
+              <KilometerTab />
+            ) : activeTab === 'urlaub' ? (
+              <VacationTab token={token} />
+            ) : null}
           </div>
+
+          {/* BOTTOM NAVIGATION */}
+          <BottomNav categoryLabel="Übersicht" />
         </div>
       </div>
     );
@@ -605,38 +778,8 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* TAB-NAVIGATION */}
-          <div className="bg-white rounded-t-2xl shadow-xl p-4">
-            <div className="flex gap-2">
-              <button onClick={() => setActiveTab('stempeluhr')} 
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  backgroundColor: activeTab === 'stempeluhr' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'stempeluhr' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Stempeluhr
-              </button>
-              <button onClick={() => setActiveTab('historie')}
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none', 
-                  backgroundColor: activeTab === 'historie' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'historie' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Historie
-              </button>
-              <button onClick={() => setActiveTab('kilometer')}
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  backgroundColor: activeTab === 'kilometer' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'kilometer' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Kilometer
-              </button>
-              <button onClick={() => setActiveTab('urlaub')}
-                style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
-                  color: activeTab === 'urlaub' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-                Urlaub
-              </button>
-            </div>
-          </div>
-
           {/* TAB-INHALT */}
-          <div className="bg-white rounded-b-2xl shadow-xl p-8">
+          <div className="bg-white rounded-2xl shadow-xl p-8" style={{ marginBottom: '20px' }}>
             {activeTab === 'stempeluhr' ? (
               <>
                 <div className="text-center mb-6">
@@ -803,10 +946,17 @@ const Dashboard = () => {
                   </div>
                 </div>
               </>
-            ) : (
-              activeTab === "historie" ? <HistoryTab /> : activeTab === "kilometer" ? <KilometerTab /> : activeTab === "urlaub" ? <VacationTab token={token} /> : null
-            )}
+            ) : activeTab === 'historie' ? (
+              <HistoryTab />
+            ) : activeTab === 'kilometer' ? (
+              <KilometerTab />
+            ) : activeTab === 'urlaub' ? (
+              <VacationTab token={token} />
+            ) : null}
           </div>
+
+          {/* BOTTOM NAVIGATION */}
+          <BottomNav categoryLabel="Stempel" />
         </div>
       </div>
     );
@@ -839,38 +989,8 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* TAB-NAVIGATION */}
-        <div className="bg-white rounded-t-2xl shadow-xl p-4">
-          <div className="flex gap-2">
-            <button onClick={() => setActiveTab('stempeluhr')}
-              style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                backgroundColor: activeTab === 'stempeluhr' ? '#1e3a5f' : '#f8f9fa',
-                color: activeTab === 'stempeluhr' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-              Stempeluhr
-            </button>
-            <button onClick={() => setActiveTab('historie')}
-              style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                backgroundColor: activeTab === 'historie' ? '#1e3a5f' : '#f8f9fa',
-                color: activeTab === 'historie' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-              Historie
-            </button>
-            <button onClick={() => setActiveTab('kilometer')}
-              style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                backgroundColor: activeTab === 'kilometer' ? '#1e3a5f' : '#f8f9fa',
-                color: activeTab === 'kilometer' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-              Kilometer
-            </button>
-            <button onClick={() => setActiveTab('urlaub')}
-              style={{padding: '10px 20px', borderRadius: '8px', border: 'none',
-                backgroundColor: activeTab === 'urlaub' ? '#1e3a5f' : '#f8f9fa',
-                color: activeTab === 'urlaub' ? 'white' : '#666', fontWeight: 'bold', cursor: 'pointer'}}>
-              Urlaub
-            </button>
-          </div>
-        </div>
-
         {/* TAB-INHALT */}
-        <div className="bg-white rounded-b-2xl shadow-xl p-8">
+        <div className="bg-white rounded-2xl shadow-xl p-8" style={{ marginBottom: '20px' }}>
           {activeTab === 'stempeluhr' ? (
             <>
               <h2 style={{ textAlign: 'center', color: '#6c757d', fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Zeiterfassung</h2>
@@ -973,10 +1093,17 @@ const Dashboard = () => {
                 </div>
               </div>
             </>
+          ) : activeTab === 'historie' ? (
+            <HistoryTab />
+          ) : activeTab === 'kilometer' ? (
+            <KilometerTab />
           ) : (
-            activeTab === "historie" ? <HistoryTab /> : activeTab === "kilometer" ? <KilometerTab /> : <VacationTab token={token} />
+            <VacationTab token={token} />
           )}
         </div>
+
+        {/* BOTTOM NAVIGATION */}
+        <BottomNav categoryLabel="Stempel" />
       </div>
     </div>
   );
