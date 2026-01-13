@@ -778,7 +778,7 @@ def get_all_bookings(db: Session = Depends(get_db), admin = Depends(verify_admin
         "object_name": obj.name if (obj := db.query(Object).filter(Object.id == e.object_id).first()) else "Unbekannt",
         "check_in": e.check_in.isoformat() if e.check_in else None,
         "check_out": e.check_out.isoformat() if e.check_out else None,
-        "billed_hours": float((e.check_out - e.check_in).total_seconds() / 3600) if (e.check_in and e.check_out) else (float(e.billed_hours) if hasattr(e, 'billed_hours') and e.billed_hours else 0),
+        "billed_hours": float(e.billed_hours) if e.billed_hours else (float((e.check_out - e.check_in).total_seconds() / 3600) if (e.check_in and e.check_out) else 0),
         "hourly_rate": float(e.hourly_rate) if e.hourly_rate else 0,
         "service_type": e.service_type,
         "notes": e.notes,
@@ -1303,3 +1303,32 @@ def update_km_entry(
     db.commit()
     
     return {"message": "KM aktualisiert", "new_km": distance_km, "new_amount": distance_km * 0.30}
+
+@router.get("/schedule/{employee_id}/{object_id}/{date}")
+def get_schedule_for_booking(
+    employee_id: int,
+    object_id: int,
+    date: str,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Lädt Dienstplan-Daten für manuelle Buchung"""
+    from datetime import datetime
+    schedule_date = datetime.strptime(date, '%Y-%m-%d').date()
+    
+    schedule = db.query(Schedule).filter(
+        Schedule.employee_id == employee_id,
+        Schedule.object_id == object_id,
+        Schedule.date == schedule_date
+    ).first()
+    
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Kein Dienstplan gefunden")
+    
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    
+    return {
+        "start_time": schedule.start_time.strftime('%H:%M'),
+        "end_time": schedule.end_time.strftime('%H:%M'),
+        "hourly_rate": float(employee.hourly_rate) if employee else 15.50
+    }

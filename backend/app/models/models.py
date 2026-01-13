@@ -40,7 +40,7 @@ class Employee(Base):
     total_hours_since_start = Column(Float, default=0.0)
     start_hours = Column(Float, default=0.0)
 # Compatibility für alte API
-    hourly_rate = Column(Float, default=15.00)  # Fallback für API
+    hourly_rate = Column(Float, default=15.50)  # Fallback für API
     address = Column(Text)
     gps_required = Column(Boolean, default=True)
     tracking_mode = Column(String(1), default='C')  # A=Automatik, B=Button, C=Normal
@@ -100,7 +100,7 @@ class TimeEntry(Base):
     check_in = Column(DateTime)
     check_out = Column(DateTime, nullable=True)
     service_type = Column(String, default='Unterhaltsreinigung')
-    hourly_rate = Column(Float, default=15.00)
+    hourly_rate = Column(Float, default=15.50)
     billed_hours = Column(Float, nullable=True)
     gps_lat = Column(Float, nullable=True)
     gps_lng = Column(Float, nullable=True)

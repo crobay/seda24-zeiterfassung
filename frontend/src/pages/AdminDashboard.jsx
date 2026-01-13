@@ -470,10 +470,35 @@ const AdminDashboard = () => {
       booking_date: new Date().toISOString().split('T')[0],
       check_in_time: '09:00',
       check_out_time: '17:00',
-      hourly_rate: '15.00',
+      hourly_rate: '15.50',
       service_type: 'Unterhaltsreinigung',
       notes: ''
     });
+  // Auto-load schedule data when MA, Kunde, Datum changed
+  useEffect(() => {
+    const loadScheduleData = async () => {
+      if (newBookingData.employee_id && newBookingData.object_id && newBookingData.booking_date) {
+        try {
+          const response = await axios.get(
+            `${API_URL}/admin/schedule/${newBookingData.employee_id}/${newBookingData.object_id}/${newBookingData.booking_date}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (response.data) {
+            setNewBookingData(prev => ({
+              ...prev,
+              check_in_time: response.data.start_time || prev.check_in_time,
+              check_out_time: response.data.end_time || prev.check_out_time,
+              hourly_rate: response.data.hourly_rate || prev.hourly_rate
+            }));
+          }
+        } catch (err) {
+          console.log('Kein Dienstplan gefunden');
+        }
+      }
+    };
+    loadScheduleData();
+  }, [newBookingData.employee_id, newBookingData.object_id, newBookingData.booking_date]);
+
     
     // Sort State
     const [sortField, setSortField] = useState('check_in');
@@ -989,7 +1014,7 @@ const AdminDashboard = () => {
                   <input
                     type="number"
                     step="0.01"
-                    value={editingBooking.hourly_rate || '15.00'}
+                    value={editingBooking.hourly_rate || '15.50'}
                     onChange={(e) => setEditingBooking({
                       ...editingBooking,
                       hourly_rate: parseFloat(e.target.value)

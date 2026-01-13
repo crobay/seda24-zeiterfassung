@@ -39,7 +39,7 @@ def auto_book_category_a():
                 
                 if not existing:
                     # Kleine Variation
-                    start_var = random.randint(0, 3)
+                    start_var = random.randint(-3, 3)
                     end_var = random.randint(0, 2)
                     
                     check_in = now.replace(hour=schedule.start_time.hour, minute=schedule.start_time.minute) + timedelta(minutes=start_var)
@@ -50,7 +50,8 @@ def auto_book_category_a():
                         object_id=schedule.object_id,
                         check_in=check_in,
                         check_out=check_out,
-			billed_hours=schedule.planned_hours,  # Sollstunden verwenden!
+                        hourly_rate=emp.hourly_rate,
+                        billed_hours=schedule.planned_hours,
                         is_manual_entry=True,
                         notes=f"Auto-Booking Kategorie A"
                     )
