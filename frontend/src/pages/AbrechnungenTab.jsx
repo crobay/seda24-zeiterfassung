@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { FileText, Download, Package, Calendar, Users } from 'lucide-react';
+import { FileText, Download, Package, Calendar, Users, Table } from 'lucide-react';
 
 const AbrechnungenTab = () => {
   const [employees, setEmployees] = useState([]);
@@ -9,8 +9,9 @@ const AbrechnungenTab = () => {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [loading, setLoading] = useState(false);
+  const [loadingLexware, setLoadingLexware] = useState(false);
   const [message, setMessage] = useState('');
-  
+
   const API_URL = 'https://app.seda.de/api/v1';
   const token = localStorage.getItem('token');
 
@@ -48,20 +49,19 @@ const AbrechnungenTab = () => {
 
   const generatePDF = async (type) => {
     if (selectedEmployees.length === 0) {
-      setMessage('❌ Bitte mindestens einen Mitarbeiter auswählen!');
+      setMessage('Bitte mindestens einen Mitarbeiter auswaehlen!');
       setTimeout(() => setMessage(''), 3000);
       return;
     }
 
     setLoading(true);
-    setMessage('⏳ PDF wird generiert...');
+    setMessage('PDF wird generiert...');
 
     try {
       if (selectedEmployees.length === 1) {
-        // Einzelner MA
         const empId = selectedEmployees[0];
         let endpoint = '';
-        
+
         if (type === 'zeitnachweis') {
           endpoint = `${API_URL}/admin/generate-pdf-zeitnachweis`;
         } else if (type === 'kilometer') {
@@ -79,7 +79,6 @@ const AbrechnungenTab = () => {
           }
         );
 
-        // Download
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
@@ -90,10 +89,9 @@ const AbrechnungenTab = () => {
         link.click();
         link.remove();
 
-        setMessage('✅ PDF erfolgreich heruntergeladen!');
-        
+        setMessage('PDF erfolgreich heruntergeladen!');
+
       } else {
-        // Mehrere MAs - immer als Bulk
         const response = await axios.post(
           `${API_URL}/admin/generate-pdf-bulk`,
           {
@@ -109,7 +107,6 @@ const AbrechnungenTab = () => {
           }
         );
 
-        // Download ZIP
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
@@ -118,20 +115,58 @@ const AbrechnungenTab = () => {
         link.click();
         link.remove();
 
-        setMessage(`✅ ${selectedEmployees.length} PDFs als ZIP heruntergeladen!`);
+        setMessage(`${selectedEmployees.length} PDFs als ZIP heruntergeladen!`);
       }
-      
+
     } catch (error) {
       console.error('PDF-Fehler:', error);
-      setMessage('❌ Fehler beim Generieren der PDF!');
+      setMessage('Fehler beim Generieren der PDF!');
     } finally {
       setLoading(false);
       setTimeout(() => setMessage(''), 5000);
     }
   };
 
+  const downloadLexwareExport = async (mode) => {
+    if (mode === 'selected' && selectedEmployees.length === 0) {
+      setMessage('Bitte mindestens einen Mitarbeiter auswaehlen!');
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
+    setLoadingLexware(true);
+    const count = mode === 'all' ? 'alle MAs' : `${selectedEmployees.length} MA(s)`;
+    setMessage(`Lexware XML wird generiert (${count})...`);
+    try {
+      let url = `${API_URL}/admin/lexware-export?year=${year}&month=${month}`;
+      if (mode === 'selected') {
+        url += `&employee_ids=${selectedEmployees.join(',')}`;
+      }
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.setAttribute('download', `Lexware_Export_${month.toString().padStart(2,'0')}_${year}.zip`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setMessage('Lexware XML Export heruntergeladen!');
+    } catch (error) {
+      if (error.response && error.response.status === 404) {
+        setMessage('Keine Zeiteintraege fuer diesen Monat gefunden!');
+      } else {
+        setMessage('Fehler beim Lexware Export!');
+      }
+    } finally {
+      setLoadingLexware(false);
+      setTimeout(() => setMessage(''), 5000);
+    }
+  };
+
   const monthNames = [
-    'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+    'Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni',
     'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
   ];
 
@@ -165,9 +200,9 @@ const AbrechnungenTab = () => {
         }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
             <Calendar size={24} />
-            Zeitraum wählen
+            Zeitraum waehlen
           </h3>
-          
+
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Monat</label>
             <select
@@ -216,17 +251,17 @@ const AbrechnungenTab = () => {
         }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
             <Package size={24} />
-            Ausgewählte Mitarbeiter
+            Ausgewaehlte Mitarbeiter
           </h3>
           <div style={{ fontSize: '48px', fontWeight: 'bold', marginBottom: '10px' }}>
             {selectedEmployees.length}
           </div>
           <p style={{ opacity: 0.9 }}>
-            {selectedEmployees.length === 1 ? 'Mitarbeiter ausgewählt' : 'Mitarbeiter ausgewählt'}
+            Mitarbeiter ausgewaehlt
           </p>
           {selectedEmployees.length > 1 && (
             <p style={{ marginTop: '10px', fontSize: '14px', opacity: 0.9 }}>
-              💡 PDFs werden als ZIP-Datei heruntergeladen
+              PDFs werden als ZIP-Datei heruntergeladen
             </p>
           )}
         </div>
@@ -243,7 +278,7 @@ const AbrechnungenTab = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <Users size={24} />
-            Mitarbeiter auswählen
+            Mitarbeiter auswaehlen
           </h3>
           <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
             <input
@@ -252,7 +287,7 @@ const AbrechnungenTab = () => {
               onChange={handleSelectAll}
               style={{ width: '20px', height: '20px', cursor: 'pointer' }}
             />
-            <span style={{ fontWeight: '600' }}>Alle auswählen</span>
+            <span style={{ fontWeight: '600' }}>Alle auswaehlen</span>
           </label>
         </div>
 
@@ -291,15 +326,16 @@ const AbrechnungenTab = () => {
         </div>
       </div>
 
-      {/* BUTTONS */}
+      {/* PDF BUTTONS */}
       <div style={{
         background: 'white',
         borderRadius: '15px',
         padding: '25px',
-        boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+        boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+        marginBottom: '20px'
       }}>
         <h3 style={{ marginBottom: '20px' }}>PDF generieren</h3>
-        
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
           <button
             onClick={() => generatePDF('zeitnachweis')}
@@ -379,14 +415,88 @@ const AbrechnungenTab = () => {
             Komplett-Paket
           </button>
         </div>
+      </div>
+
+      {/* LEXWARE XML EXPORT */}
+      <div style={{
+        background: 'white',
+        borderRadius: '15px',
+        padding: '25px',
+        boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+      }}>
+        <h3 style={{ marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Table size={24} />
+          Lexware XML Export
+        </h3>
+        <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
+          Excel-XML fuer Lexware "Arbeitszeit aus Excel-Erfassung importieren". Pro Mitarbeiter eine XML-Datei als ZIP.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+          <button
+            onClick={() => downloadLexwareExport('all')}
+            disabled={loadingLexware}
+            style={{
+              background: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)',
+              color: 'white',
+              padding: '18px 20px',
+              borderRadius: '12px',
+              border: 'none',
+              cursor: loadingLexware ? 'not-allowed' : 'pointer',
+              opacity: loadingLexware ? 0.5 : 1,
+              fontSize: '16px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              transition: 'transform 0.2s'
+            }}
+            onMouseOver={(e) => !loadingLexware && (e.currentTarget.style.transform = 'translateY(-3px)')}
+            onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+          >
+            <Users size={22} />
+            Alle Mitarbeiter
+          </button>
+
+          <button
+            onClick={() => downloadLexwareExport('selected')}
+            disabled={loadingLexware || selectedEmployees.length === 0}
+            style={{
+              background: selectedEmployees.length > 0
+                ? 'linear-gradient(135deg, #9333ea 0%, #7c3aed 100%)'
+                : '#e5e7eb',
+              color: selectedEmployees.length > 0 ? 'white' : '#9ca3af',
+              padding: '18px 20px',
+              borderRadius: '12px',
+              border: selectedEmployees.length > 0 ? 'none' : '2px dashed #d1d5db',
+              cursor: selectedEmployees.length > 0 ? 'pointer' : 'not-allowed',
+              opacity: loadingLexware ? 0.5 : 1,
+              fontSize: '16px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              transition: 'transform 0.2s'
+            }}
+            onMouseOver={(e) => selectedEmployees.length > 0 && !loadingLexware && (e.currentTarget.style.transform = 'translateY(-3px)')}
+            onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+          >
+            <Table size={22} />
+            {selectedEmployees.length > 0
+              ? `Ausgewaehlte (${selectedEmployees.length})`
+              : 'Oben MAs auswaehlen'}
+          </button>
+        </div>
 
         {message && (
           <div style={{
             marginTop: '20px',
             padding: '15px',
             borderRadius: '10px',
-            background: message.includes('✅') ? '#d1fae5' : message.includes('❌') ? '#fee2e2' : '#fef3c7',
-            color: message.includes('✅') ? '#065f46' : message.includes('❌') ? '#991b1b' : '#92400e',
+            background: message.includes('heruntergeladen') || message.includes('erfolgreich') ? '#d1fae5' : message.includes('Fehler') || message.includes('Bitte') || message.includes('Keine') ? '#fee2e2' : '#fef3c7',
+            color: message.includes('heruntergeladen') || message.includes('erfolgreich') ? '#065f46' : message.includes('Fehler') || message.includes('Bitte') || message.includes('Keine') ? '#991b1b' : '#92400e',
             textAlign: 'center',
             fontWeight: '600'
           }}>

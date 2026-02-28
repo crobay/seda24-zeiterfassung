@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Building2, Calendar, Activity, FileText, Plus, Edit2, Trash2, 
   Save, X, Check, AlertCircle, LogOut, Search, Download, Upload,
-  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu
+  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu, Calculator
 } from 'lucide-react';
 import ScheduleTab from "../components/ScheduleTab";
 import AbrechnungenTab from "./AbrechnungenTab";
 import KmJournalTab from "./KmJournalTab";
 import KmVerwaltungTab from "../components/KmVerwaltungTab";
+import LohnUebersichtTab from "./LohnUebersichtTab";
 import api from '../services/api';
 
 const AdminDashboard = () => {
@@ -450,10 +451,18 @@ const AdminDashboard = () => {
     const [filteredBookings, setFilteredBookings] = useState([]);
     const [loading, setLoading] = useState(false);
     
-    // Filter States
-    const [dateFrom, setDateFrom] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
-    const [dateTo, setDateTo] = useState(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0]);
     const [selectedEmployee, setSelectedEmployee] = useState('all');
+    // Filter States - FIX: Explizite Datumsberechnung
+    const today = new Date();
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    
+    const [dateFrom, setDateFrom] = useState(
+      `${firstDay.getFullYear()}-${String(firstDay.getMonth() + 1).padStart(2, '0')}-01`
+    );
+    const [dateTo, setDateTo] = useState(
+      `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`
+    );
     const [selectedObject, setSelectedObject] = useState('all');
     const [selectedServiceType, setSelectedServiceType] = useState('all');
     const [selectedEntryType, setSelectedEntryType] = useState('all');
@@ -1550,6 +1559,29 @@ const AdminDashboard = () => {
                   <TrendingUp size={24} />
                   KM-Verwaltung
                 </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('lohn-uebersicht');
+                    setShowMoreMenu(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: activeTab === 'lohn-uebersicht' ? '#3b82f6' : '#f3f4f6',
+                    color: activeTab === 'lohn-uebersicht' ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}
+                >
+                  <Calculator size={24} />
+                  Lohnübersicht
+                </button>
               </div>
             </div>
           </div>
@@ -1614,6 +1646,7 @@ const AdminDashboard = () => {
         {activeTab === 'abrechnungen' && <AbrechnungenTab />}
         {activeTab === 'km-journal' && <KmJournalTab employees={employees} customers={customers} showToast={showToast} />}
         {activeTab === 'km-verwaltung' && <KmVerwaltungTab showToast={showToast} />}
+        {activeTab === 'lohn-uebersicht' && <LohnUebersichtTab />}
       </div>
 
       {/* Toast Notification */}

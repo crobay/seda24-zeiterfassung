@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 # KmDistance is in models
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, text
 from datetime import date, datetime, timedelta, time
 from typing import List, Optional
 from jose import jwt
@@ -1140,6 +1140,23 @@ def delete_km_entry(
     db.commit()
     return {"status": "ok"}
 
+@router.post("/km-journal/bulk-delete")
+def bulk_delete_km_entries(
+    data: dict,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin)
+):
+    """Löscht mehrere KM-Einträge auf einmal"""
+    from sqlalchemy import text
+
+    ids = data.get("ids", [])
+    if not ids:
+        return {"status": "error", "message": "Keine IDs angegeben"}
+
+    db.execute(text("DELETE FROM km_daily_entries WHERE id = ANY(:ids)"), {"ids": ids})
+    db.commit()
+    return {"status": "ok", "deleted": len(ids)}
+
 
 # ==================== KM-VERWALTUNG ====================
 
@@ -1332,3 +1349,284 @@ def get_schedule_for_booking(
         "end_time": schedule.end_time.strftime('%H:%M'),
         "hourly_rate": float(employee.hourly_rate) if employee else 15.50
     }
+
+# ============================================================
+# LOHNÜBERSICHT ENDPOINT
+# ============================================================
+from calendar import monthrange
+
+FEIERTAGE_BW = {
+    date(2025, 1, 1): 'Neujahr', date(2025, 1, 6): 'Heilige Drei Könige',
+    date(2025, 4, 18): 'Karfreitag', date(2025, 4, 21): 'Ostermontag',
+    date(2025, 5, 1): 'Tag der Arbeit', date(2025, 5, 29): 'Christi Himmelfahrt',
+    date(2025, 6, 9): 'Pfingstmontag', date(2025, 6, 19): 'Fronleichnam',
+    date(2025, 10, 3): 'Tag der Deutschen Einheit', date(2025, 11, 1): 'Allerheiligen',
+    date(2025, 12, 25): 'Weihnachten', date(2025, 12, 26): '2. Weihnachtsfeiertag',
+    date(2026, 1, 1): 'Neujahr', date(2026, 1, 6): 'Heilige Drei Könige',
+    date(2026, 4, 3): 'Karfreitag', date(2026, 4, 6): 'Ostermontag',
+    date(2026, 5, 1): 'Tag der Arbeit', date(2026, 5, 14): 'Christi Himmelfahrt',
+    date(2026, 5, 25): 'Pfingstmontag', date(2026, 6, 4): 'Fronleichnam',
+    date(2026, 10, 3): 'Tag der Deutschen Einheit', date(2026, 11, 1): 'Allerheiligen',
+    date(2026, 12, 25): 'Weihnachten', date(2026, 12, 26): '2. Weihnachtsfeiertag',
+}
+
+@router.get("/lohn-uebersicht")
+def get_lohn_uebersicht(
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    first_day = date(year, month, 1)
+    last_day = date(year, month, monthrange(year, month)[1])
+    
+    employees = db.query(Employee).filter(Employee.is_active == True).order_by(Employee.personal_nr).all()
+    result = []
+    
+    for emp in employees:
+        if emp.personal_nr and emp.personal_nr.startswith('A'):
+            continue
+        
+        normal_hours = sonder_hours = sonntag_hours = nacht_hours = feiertag_hours = 0.0
+        
+        entries = db.query(TimeEntry).filter(
+            TimeEntry.employee_id == emp.id,
+            func.date(TimeEntry.check_in) >= first_day,
+            func.date(TimeEntry.check_in) <= last_day,
+            TimeEntry.check_out != None
+        ).all()
+        
+        for entry in entries:
+            if not entry.check_in or not entry.check_out:
+                continue
+            hours = entry.billed_hours or (entry.check_out - entry.check_in).total_seconds() / 3600
+            entry_date = entry.check_in.date()
+            is_sonder = entry.service_type in ('Fensterreinigung', 'Sonderreinigung', 'Grundreinigung')
+            
+            # Feiertag: nur separat, nicht zu normal
+            if entry_date in FEIERTAGE_BW:
+                feiertag_hours += hours
+            # Sonder: eigener Satz 20€, nicht zu normal
+            elif is_sonder:
+                sonder_hours += hours
+            # Sonntag: zu normal UND separat für 50% Zuschlag
+            elif entry_date.weekday() == 6:
+                normal_hours += hours
+                sonntag_hours += hours
+            # Normal: voll zu normal, Nacht-Anteil zusätzlich ausweisen
+            else:
+                normal_hours += hours
+                ci_time = entry.check_in.time()
+                co_time = entry.check_out.time()
+                if ci_time.hour < 6:
+                    nacht_h = min(hours, (6 - ci_time.hour - ci_time.minute/60))
+                    nacht_hours += nacht_h
+                elif co_time.hour >= 23:
+                    nacht_h = co_time.hour - 23 + co_time.minute/60
+                    nacht_hours += nacht_h
+        
+        urlaub_schedules = db.query(Schedule).filter(
+            Schedule.employee_id == emp.id,
+            Schedule.date >= first_day, Schedule.date <= last_day,
+            Schedule.status == 'urlaub'
+        ).all()
+        urlaub_hours = sum(s.planned_hours or 0 for s in urlaub_schedules)
+        
+        vacation_ent = db.execute(text(
+            "SELECT vacation_rate FROM vacation_entitlements WHERE employee_id = :emp_id AND year = :year"
+        ), {"emp_id": emp.id, "year": year}).fetchone()
+        vacation_rate = vacation_ent[0] if vacation_ent else (emp.hourly_rate or 15.50)
+        
+        km_result = db.execute(text(
+            "SELECT COALESCE(SUM(amount), 0) FROM km_daily_entries WHERE employee_id = :emp_id AND date >= :first AND date <= :last AND is_billable = true"
+        ), {"emp_id": emp.id, "first": first_day, "last": last_day}).fetchone()
+        km_amount = float(km_result[0]) if km_result else 0.0
+        
+        hourly_rate = emp.hourly_rate or 15.50
+        normal_amount = normal_hours * hourly_rate
+        sonder_amount = sonder_hours * 20.0
+        urlaub_amount = urlaub_hours * vacation_rate
+        gesamt = normal_amount + sonder_amount + urlaub_amount
+        
+        result.append({
+            "employee_id": emp.id, "personal_nr": emp.personal_nr,
+            "name": f"{emp.first_name} {emp.last_name}", "hourly_rate": hourly_rate,
+            "normal_hours": round(normal_hours, 2), "normal_amount": round(normal_amount, 2),
+            "sonder_hours": round(sonder_hours, 2), "sonder_amount": round(sonder_amount, 2),
+            "sonntag_hours": round(sonntag_hours, 2), "nacht_hours": round(nacht_hours, 2),
+            "feiertag_hours": round(feiertag_hours, 2),
+            "urlaub_hours": round(urlaub_hours, 2), "urlaub_amount": round(urlaub_amount, 2),
+            "km_amount": round(km_amount, 2), "gesamt": round(gesamt, 2)
+        })
+    return result
+
+
+# ============================================================
+# Lexware XML Export
+# ============================================================
+
+def _merge_intervals(intervals):
+    """Ueberlappende Zeitintervalle zusammenfassen. Gibt max 4 Bloecke zurueck."""
+    if not intervals:
+        return []
+    sorted_ivs = sorted(intervals, key=lambda x: x[0])
+    merged = [list(sorted_ivs[0])]
+    for start, end in sorted_ivs[1:]:
+        if start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return merged[:4]
+
+
+def _time_str(dt_val):
+    """DateTime oder Time zu HH:MM String."""
+    if isinstance(dt_val, datetime):
+        return dt_val.strftime('%H:%M')
+    if isinstance(dt_val, time):
+        return dt_val.strftime('%H:%M')
+    return str(dt_val)[:5]
+
+
+def _generate_lexware_xml(employee_name, personal_nr, year, month, day_data):
+    """Generiert eine Excel-XML-Datei (SpreadsheetML) fuer Lexware Import."""
+    from calendar import monthrange
+    _, last_day = monthrange(year, month)
+
+    rows_xml = ""
+    for day in range(1, last_day + 1):
+        dt = date(year, month, day)
+        date_str = dt.strftime('%d.%m.%Y')
+        blocks = day_data.get(day, [])
+
+        cells = [f'    <Cell><Data ss:Type="String">{date_str}</Data></Cell>']
+        total_minutes = 0
+        for i in range(4):
+            if i < len(blocks):
+                von = _time_str(blocks[i][0])
+                bis = _time_str(blocks[i][1])
+                cells.append(f'    <Cell><Data ss:Type="String">{von}</Data></Cell>')
+                cells.append(f'    <Cell><Data ss:Type="String">{bis}</Data></Cell>')
+                start_dt = blocks[i][0] if isinstance(blocks[i][0], datetime) else datetime.combine(dt, blocks[i][0])
+                end_dt = blocks[i][1] if isinstance(blocks[i][1], datetime) else datetime.combine(dt, blocks[i][1])
+                diff = (end_dt - start_dt).total_seconds() / 60
+                total_minutes += max(diff, 0)
+            else:
+                cells.append('    <Cell><Data ss:Type="String"></Data></Cell>')
+                cells.append('    <Cell><Data ss:Type="String"></Data></Cell>')
+
+        total_hours = round(total_minutes / 60, 2)
+        cells.append(f'    <Cell><Data ss:Type="Number">{total_hours}</Data></Cell>')
+
+        cells_str = "\n".join(cells)
+        rows_xml += f'   <Row>\n{cells_str}\n   </Row>\n'
+
+    xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Font ss:FontName="Arial" ss:Size="10"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Font ss:FontName="Arial" ss:Size="10" ss:Bold="1"/>
+   <Interior ss:Color="#D9E1F2" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="{personal_nr}">
+  <Table>
+   <Column ss:Width="80"/>
+   <Column ss:Width="50" ss:Span="8"/>
+   <Column ss:Width="60"/>
+   <Row ss:StyleID="Header">
+    <Cell><Data ss:Type="String">Datum</Data></Cell>
+    <Cell><Data ss:Type="String">Von1</Data></Cell>
+    <Cell><Data ss:Type="String">Bis1</Data></Cell>
+    <Cell><Data ss:Type="String">Von2</Data></Cell>
+    <Cell><Data ss:Type="String">Bis2</Data></Cell>
+    <Cell><Data ss:Type="String">Von3</Data></Cell>
+    <Cell><Data ss:Type="String">Bis3</Data></Cell>
+    <Cell><Data ss:Type="String">Von4</Data></Cell>
+    <Cell><Data ss:Type="String">Bis4</Data></Cell>
+    <Cell><Data ss:Type="String">Summe</Data></Cell>
+   </Row>
+{rows_xml}  </Table>
+ </Worksheet>
+</Workbook>'''
+    return xml
+
+
+import io
+
+@router.get("/lexware-export")
+def lexware_export(
+    year: int = Query(...),
+    month: int = Query(...),
+    employee_ids: str = Query(None, description="Komma-separierte MA-IDs, leer = alle"),
+    db: Session = Depends(get_db),
+    admin=Depends(verify_admin)
+):
+    """Lexware XML Export: Pro MA eine XML-Datei, alle als ZIP."""
+    from calendar import monthrange
+    _, last_day_num = monthrange(year, month)
+    first_day = date(year, month, 1)
+    last_day = date(year, month, last_day_num)
+
+    q = db.query(TimeEntry).join(Employee).filter(
+        TimeEntry.check_in >= datetime.combine(first_day, time(0, 0)),
+        TimeEntry.check_in <= datetime.combine(last_day, time(23, 59, 59)),
+        TimeEntry.check_out.isnot(None),
+        TimeEntry.object_id != 999,
+        Employee.is_active == True,
+    )
+
+    if employee_ids:
+        ids = [int(x) for x in employee_ids.split(",") if x.strip().isdigit()]
+        if ids:
+            q = q.filter(TimeEntry.employee_id.in_(ids))
+
+    entries = q.all()
+
+    emp_data = defaultdict(lambda: defaultdict(list))
+    emp_info = {}
+    for e in entries:
+        emp_id = e.employee_id
+        if emp_id not in emp_info:
+            emp = e.employee
+            emp_info[emp_id] = {
+                "name": f"{emp.first_name}_{emp.last_name}",
+                "personal_nr": emp.personal_nr,
+            }
+        day = e.check_in.day
+        if e.check_out:
+            emp_data[emp_id][day].append((e.check_in, e.check_out))
+
+    if not emp_data:
+        raise HTTPException(status_code=404, detail="Keine Zeiteintraege fuer diesen Monat gefunden")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for emp_id in sorted(emp_data.keys(), key=lambda x: emp_info[x]['personal_nr']):
+            info = emp_info[emp_id]
+            day_blocks = {}
+            for day, intervals in emp_data[emp_id].items():
+                day_blocks[day] = _merge_intervals(intervals)
+
+            xml_content = _generate_lexware_xml(
+                info['name'], info['personal_nr'],
+                year, month, day_blocks
+            )
+            filename = f"{info['personal_nr']}_{info['name']}_{month:02d}_{year}.xml"
+            zf.writestr(filename, xml_content)
+
+    zip_buffer.seek(0)
+    month_names = ['', 'Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni',
+                   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
+    zip_filename = f"Lexware_Export_{month_names[month]}_{year}.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+    )

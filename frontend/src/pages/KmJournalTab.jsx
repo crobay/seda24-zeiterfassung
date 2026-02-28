@@ -1,20 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { TrendingUp, Edit2, X, Save } from 'lucide-react';
+import { TrendingUp, Edit2, X, Save, Trash2 } from 'lucide-react';
 
 const KmJournalTab = ({ employees, customers, showToast }) => {
   const [kmEntries, setKmEntries] = useState([]);
   const [filteredEntries, setFilteredEntries] = useState([]);
-  const [dateFrom, setDateFrom] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-  });
-  const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
   const [selectedEmployee, setSelectedEmployee] = useState('all');
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+  const [dateFrom, setDateFrom] = useState(
+    `${firstDay.getFullYear()}-${String(firstDay.getMonth() + 1).padStart(2, '0')}-01`
+  );
+  const [dateTo, setDateTo] = useState(
+    `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`
+  );
   const [selectedObject, setSelectedObject] = useState('all');
   const [editModal, setEditModal] = useState(false);
   const [editEntry, setEditEntry] = useState(null);
   const [editKm, setEditKm] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => { loadKmEntries(); }, []);
   useEffect(() => { applyFilters(); }, [kmEntries, dateFrom, dateTo, selectedEmployee, selectedObject]);
@@ -60,6 +67,35 @@ const KmJournalTab = ({ employees, customers, showToast }) => {
     } catch (error) {
       console.error("Edit Error:", error);
       showToast("Fehler beim Speichern", "error");
+    }
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredEntries.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredEntries.map(e => e.id)));
+    }
+  };
+
+  const bulkDelete = async () => {
+    try {
+      await api.post("/admin/km-journal/bulk-delete", { ids: Array.from(selectedIds) });
+      showToast(`${selectedIds.size} Einträge gelöscht`, "success");
+      setSelectedIds(new Set());
+      setShowDeleteConfirm(false);
+      loadKmEntries();
+    } catch (error) {
+      console.error("Bulk Delete Error:", error);
+      showToast("Fehler beim Löschen", "error");
     }
   };
 
@@ -111,10 +147,31 @@ const KmJournalTab = ({ employees, customers, showToast }) => {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
+          <span className="text-red-700 font-medium">{selectedIds.size} Einträge ausgewählt</span>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
+          >
+            <Trash2 size={16} />
+            Ausgewählte löschen
+          </button>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg shadow overflow-x-auto">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-3 py-3 text-center w-10">
+                <input
+                  type="checkbox"
+                  checked={filteredEntries.length > 0 && selectedIds.size === filteredEntries.length}
+                  onChange={toggleSelectAll}
+                  className="w-4 h-4 rounded"
+                />
+              </th>
               <th className="px-4 py-3 text-left text-sm">Datum</th>
               <th className="px-4 py-3 text-left text-sm">MA</th>
               <th className="px-4 py-3 text-left text-sm">Objekt</th>
@@ -125,7 +182,15 @@ const KmJournalTab = ({ employees, customers, showToast }) => {
           </thead>
           <tbody className="divide-y">
             {filteredEntries.map(entry => (
-              <tr key={entry.id} className="hover:bg-gray-50">
+              <tr key={entry.id} className={`hover:bg-gray-50 ${selectedIds.has(entry.id) ? 'bg-red-50' : ''}`}>
+                <td className="px-3 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(entry.id)}
+                    onChange={() => toggleSelect(entry.id)}
+                    className="w-4 h-4 rounded"
+                  />
+                </td>
                 <td className="px-4 py-3 text-sm">{new Date(entry.date).toLocaleDateString('de-DE')}</td>
                 <td className="px-4 py-3 text-sm">{entry.employee_name}</td>
                 <td className="px-4 py-3 text-sm">{entry.object_name}</td>
@@ -146,6 +211,32 @@ const KmJournalTab = ({ employees, customers, showToast }) => {
         </table>
         {filteredEntries.length === 0 && <div className="text-center py-8 text-gray-500">Keine Eintraege</div>}
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h3 className="text-xl font-bold text-red-600 mb-4">Einträge löschen?</h3>
+            <p className="text-gray-700 mb-6">
+              Sollen wirklich <strong>{selectedIds.size} Einträge</strong> unwiderruflich gelöscht werden?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={bulkDelete}
+                className="flex-1 flex items-center justify-center gap-2 bg-red-500 text-white py-2 px-4 rounded hover:bg-red-600 transition"
+              >
+                <Trash2 size={18} />
+                Ja, löschen
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-400 transition"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
