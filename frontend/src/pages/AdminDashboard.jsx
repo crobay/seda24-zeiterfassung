@@ -467,6 +467,10 @@ const AdminDashboard = () => {
     const [selectedServiceType, setSelectedServiceType] = useState('all');
     const [selectedEntryType, setSelectedEntryType] = useState('all');
     
+    // Checkbox States
+    const [selectedBookingIds, setSelectedBookingIds] = useState(new Set());
+    const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+
     // Modal States
     const [showEditModal, setShowEditModal] = useState(false);
     const [editingBooking, setEditingBooking] = useState(null);
@@ -664,6 +668,34 @@ const AdminDashboard = () => {
       link.click();
     };
 
+    const toggleBookingSelect = (id) => {
+      setSelectedBookingIds(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+      });
+    };
+
+    const toggleBookingSelectAll = () => {
+      if (selectedBookingIds.size === filteredBookings.length) {
+        setSelectedBookingIds(new Set());
+      } else {
+        setSelectedBookingIds(new Set(filteredBookings.map(b => b.id)));
+      }
+    };
+
+    const bulkDeleteBookings = async () => {
+      try {
+        await api.post('/admin/bookings/bulk-delete', { ids: Array.from(selectedBookingIds) });
+        showToast(`${selectedBookingIds.size} Buchungen gelöscht`, 'success');
+        setSelectedBookingIds(new Set());
+        setShowBulkDeleteConfirm(false);
+        loadBookings();
+      } catch (error) {
+        showToast('Fehler beim Löschen', 'error');
+      }
+    };
+
     const calculateTotals = () => {
       const totalHours = filteredBookings.reduce((sum, b) => sum + (b.billed_hours || 0), 0);
       const totalAmount = filteredBookings.reduce((sum, b) => 
@@ -804,6 +836,20 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {/* Ausgewählte löschen */}
+        {selectedBookingIds.size > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
+            <span className="text-red-700 font-medium">{selectedBookingIds.size} Buchungen ausgewählt</span>
+            <button
+              onClick={() => setShowBulkDeleteConfirm(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
+            >
+              <Trash2 size={16} />
+              Ausgewählte löschen
+            </button>
+          </div>
+        )}
+
         {/* Tabelle */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
           {loading ? (
@@ -815,7 +861,15 @@ const AdminDashboard = () => {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th 
+                    <th className="px-3 py-3 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={filteredBookings.length > 0 && selectedBookingIds.size === filteredBookings.length}
+                        onChange={toggleBookingSelectAll}
+                        className="w-4 h-4 rounded"
+                      />
+                    </th>
+                    <th
                       className="px-4 py-3 text-left text-sm font-semibold cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('check_in')}
                     >
@@ -844,7 +898,15 @@ const AdminDashboard = () => {
                 </thead>
                 <tbody className="divide-y">
                   {filteredBookings.map((booking) => (
-                    <tr key={booking.id} className="hover:bg-gray-50">
+                    <tr key={booking.id} className={`hover:bg-gray-50 ${selectedBookingIds.has(booking.id) ? 'bg-red-50' : ''}`}>
+                      <td className="px-3 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedBookingIds.has(booking.id)}
+                          onChange={() => toggleBookingSelect(booking.id)}
+                          className="w-4 h-4 rounded"
+                        />
+                      </td>
                       <td className="px-4 py-3 text-sm">
                         {new Date(booking.check_in).toLocaleDateString('de-DE')}
                       </td>
@@ -1197,6 +1259,33 @@ const AdminDashboard = () => {
                   className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300"
                 >
                   Buchung erstellen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bulk Delete Bestätigung */}
+        {showBulkDeleteConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+              <h3 className="text-xl font-bold text-red-600 mb-4">Buchungen löschen?</h3>
+              <p className="text-gray-700 mb-6">
+                Sollen wirklich <strong>{selectedBookingIds.size} Buchungen</strong> unwiderruflich gelöscht werden?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={bulkDeleteBookings}
+                  className="flex-1 flex items-center justify-center gap-2 bg-red-500 text-white py-2 px-4 rounded hover:bg-red-600 transition"
+                >
+                  <Trash2 size={18} />
+                  Ja, löschen
+                </button>
+                <button
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-400 transition"
+                >
+                  Abbrechen
                 </button>
               </div>
             </div>

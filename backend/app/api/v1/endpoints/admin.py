@@ -826,6 +826,19 @@ def delete_booking(booking_id: int, db: Session = Depends(get_db), admin = Depen
     db.delete(entry)
     db.commit()
 
+@router.post("/bookings/bulk-delete")
+def bulk_delete_bookings(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    """Loescht mehrere Buchungen auf einmal"""
+    from app.models.models import TimeEntry
+
+    ids = data.get("ids", [])
+    if not ids:
+        return {"status": "error", "message": "Keine IDs angegeben"}
+
+    deleted = db.query(TimeEntry).filter(TimeEntry.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    return {"status": "ok", "deleted": deleted}
+
 @router.post("/bookings/manual")
 def create_manual_booking(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
     from app.models.models import TimeEntry, Employee, Object
