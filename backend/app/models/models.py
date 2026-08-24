@@ -52,6 +52,9 @@ class Employee(Base):
     telegram_chat_id = Column(BigInteger, nullable=True)
     zeitkonto_aktiv = Column(Boolean, default=False)
     gender = Column(String(1), default='M')
+    # Vertragliche Arbeitstage: kommaseparierte Wochentage, Python-Konvention (0=Mo..6=So)
+    # Beispiel: "0,1,2,3,4" = Mo-Fr, "0,2,4" = Mo/Mi/Fr, NULL = nicht konfiguriert
+    work_days_profile = Column(String(20), nullable=True)
 
     user = relationship("User", back_populates="employee")
     time_entries = relationship("TimeEntry", back_populates="employee")
