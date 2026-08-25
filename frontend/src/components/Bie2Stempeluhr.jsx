@@ -706,11 +706,11 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
         {/* Sync-Status Banner */}
         {syncMessage && (
           <div style={{
-            background: pendingSync > 0 ? '#fffbeb' : '#f0fdf4',
-            border: `1px solid ${pendingSync > 0 ? '#fde68a' : '#86efac'}`,
+            background: pendingSync > 0 ? '#eff6ff' : '#f0fdf4',
+            border: `1px solid ${pendingSync > 0 ? '#93c5fd' : '#86efac'}`,
             borderRadius: '8px', padding: '8px 12px', marginBottom: '10px',
             fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px',
-            color: pendingSync > 0 ? '#92400e' : '#166534'
+            color: pendingSync > 0 ? '#1e3a8a' : '#166534'
           }}>
             {pendingSync > 0 ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
             {syncMessage}
@@ -779,11 +779,11 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
         {/* ===== NOCH NICHT UEBERTRAGEN (pending Stempel) ===== */}
         {!isWorking && pendingEntries.length > 0 && (
           <div style={{
-            background: '#fff7ed', border: '2px solid #fb923c', borderRadius: '12px',
+            background: '#eff6ff', border: '3px solid #3b82f6', borderRadius: '12px',
             padding: '14px', marginBottom: '12px'
           }}>
-            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#9a3412', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <WifiOff size={16} /> Noch nicht uebertragen
+            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#1e3a8a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <WifiOff size={18} /> Noch nicht uebertragen
             </div>
             {pendingEntries.map((entry, i) => {
               const h = Math.floor(entry.duration_minutes / 60);
@@ -794,13 +794,13 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
               return (
                 <div key={i} style={{
                   background: 'white', borderRadius: '8px', padding: '10px 12px',
-                  marginBottom: '6px', border: '1px solid #fed7aa'
+                  marginBottom: '6px', border: '1px solid #bfdbfe'
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#1f2937', fontFamily: 'monospace' }}>
                       {entry.check_in} – {entry.check_out}
                     </span>
-                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#ea580c' }}>
+                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#2563eb' }}>
                       {durationStr}
                     </span>
                   </div>
@@ -810,7 +810,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
                 </div>
               );
             })}
-            <div style={{ fontSize: '12px', color: '#9a3412', marginTop: '8px', lineHeight: '1.4' }}>
+            <div style={{ fontSize: '12px', color: '#1e3a8a', fontWeight: '600', marginTop: '8px', lineHeight: '1.4' }}>
               Bitte App geoeffnet lassen oder spaeter nochmal oeffnen, sobald Internet da ist.
             </div>
           </div>
@@ -819,10 +819,10 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
         {/* ===== HEUTE GEBUCHT (nur server-bestaetigte Eintraege) ===== */}
         {!isWorking && !isOpenCatchup && todayEntries.length > 0 && (
           <div style={{
-            background: '#f0fdf4', border: '2px solid #86efac', borderRadius: '12px',
+            background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '12px',
             padding: '14px', marginBottom: '12px'
           }}>
-            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#166534', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontSize: '13px', fontWeight: '500', color: '#166534', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Check size={16} /> Heute gebucht
             </div>
             {todayEntries.map((entry, i) => {

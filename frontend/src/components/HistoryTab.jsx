@@ -3,7 +3,17 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { Calendar, Clock, Building, Euro } from 'lucide-react';
+import { Calendar, Clock, Building, Euro, Droplets, Sparkles, SprayCan } from 'lucide-react';
+import { API_URL } from '../config.js';
+
+const formatHoursReadable = (hours) => {
+  if (!hours || hours <= 0) return "0 Min";
+  const h = Math.floor(hours);
+  const m = Math.round((hours % 1) * 60);
+  if (h === 0) return `${m} Min`;
+  if (m === 0) return `${h} Std`;
+  return `${h} Std ${m} Min`;
+};
 
 const HistoryTab = () => {
   const [history, setHistory] = useState(null);
@@ -14,8 +24,8 @@ const HistoryTab = () => {
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      let url = `https://app.seda.de/api/v1/reports/my/history`;
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      let url = `${API_URL}/reports/my/history`;
       const params = new URLSearchParams();
       
       // Je nach Filter verschiedene Parameter setzen
@@ -98,16 +108,19 @@ const HistoryTab = () => {
           <div className="font-semibold text-sm">{formatDate(entry.date || entry.check_in)}</div>
           <div className="text-gray-600 text-xs mt-1">{entry.object_name}</div>
         </div>
-        <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
+        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full ${
           entry.service_type === 'Fensterreinigung' ? 'bg-blue-100 text-blue-800' :
           entry.service_type === 'Grundreinigung' ? 'bg-green-100 text-green-800' :
           entry.service_type === 'Unterhaltsreinigung' ? 'bg-yellow-100 text-yellow-800' :
           'bg-gray-100 text-gray-800'
         }`}>
+          {entry.service_type === 'Fensterreinigung' && <Droplets size={12} />}
+          {entry.service_type === 'Grundreinigung' && <Sparkles size={12} />}
+          {entry.service_type === 'Unterhaltsreinigung' && <SprayCan size={12} />}
           {entry.service_type || 'Standard'}
         </span>
       </div>
-      
+
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div>
           <span className="text-gray-500">Check-in:</span>
@@ -119,12 +132,19 @@ const HistoryTab = () => {
             {entry.service_type === "Urlaub" ? "00:00" : (entry.check_out ? formatTime(entry.check_out) : <span className="text-green-600">Läuft...</span>)}
           </span>
         </div>
+        {entry.pause_minutes > 0 && (
+          <div className="col-span-2 mt-1">
+            <span className="inline-block px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs">
+              Pause: {entry.pause_minutes} Min
+            </span>
+          </div>
+        )}
       </div>
       
       <div className="flex justify-between items-center mt-3 pt-3 border-t">
         <div>
-          <span className="text-gray-500 text-xs">Stunden:</span>
-	  <span className="ml-1 font-bold text-sm">{entry.billed_hours?.toFixed(2) || entry.hours?.toFixed(2) || entry.total_hours?.toFixed(2)} h</span>
+          <span className="text-gray-500 text-xs">Arbeitszeit:</span>
+	  <span className="ml-1 font-bold text-sm">{formatHoursReadable(entry.billed_hours || entry.hours || entry.total_hours || 0)}</span>
         </div>
         <div className="text-right">
           <div className="text-xs text-gray-500">{formatCurrency(entry.hourly_rate)}/h</div>
@@ -237,7 +257,7 @@ const HistoryTab = () => {
         <div className="bg-green-50 p-4 rounded-lg">
           <div className="text-sm text-green-600 font-medium">Gesamtstunden</div>
           <div className="text-2xl font-bold mt-1">
-            {totalHours.toFixed(2)} h
+            {formatHoursReadable(totalHours)}
           </div>
         </div>
         <div className="bg-purple-50 p-4 rounded-lg">
@@ -279,8 +299,11 @@ const HistoryTab = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Check-out
                 </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Pause
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Stunden
+                  Arbeitszeit
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Service
@@ -312,16 +335,26 @@ const HistoryTab = () => {
                       <span className="text-green-600 font-medium">Läuft...</span>
                     )}
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                    {entry.pause_minutes > 0 ? (
+                      <span className="inline-block px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">
+                        {entry.pause_minutes} Min
+                      </span>
+                    ) : '-'}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    {(entry.hours || entry.total_hours || 0).toFixed(2)} h
+                    {formatHoursReadable(entry.hours || entry.total_hours || 0)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full ${
                       entry.service_type === 'Fensterreinigung' ? 'bg-blue-100 text-blue-800' :
                       entry.service_type === 'Grundreinigung' ? 'bg-green-100 text-green-800' :
                       entry.service_type === 'Unterhaltsreinigung' ? 'bg-yellow-100 text-yellow-800' :
                       'bg-gray-100 text-gray-800'
                     }`}>
+                      {entry.service_type === 'Fensterreinigung' && <Droplets size={12} />}
+                      {entry.service_type === 'Grundreinigung' && <Sparkles size={12} />}
+                      {entry.service_type === 'Unterhaltsreinigung' && <SprayCan size={12} />}
                       {entry.service_type || 'Standard'}
                     </span>
                   </td>
