@@ -1019,22 +1019,54 @@ def create_replacement(
         raise HTTPException(status_code=404, detail="Original-Schicht nicht gefunden")
     
     original.status = reason
-    
+
+    # Zeiten: von Original uebernehmen, Fallback auf Objekt-Standardzeiten
+    r_start = original.start_time
+    r_end = original.end_time
+    r_hours = original.planned_hours
+
+    if not r_start or not r_end:
+        # Standardzeiten des Objekts fuer den Wochentag laden
+        weekday = original.date.weekday() if original.date else original.weekday
+        std = db.query(ObjectStandardTime).filter(
+            ObjectStandardTime.object_id == original.object_id,
+            ObjectStandardTime.weekday == weekday,
+        ).first()
+        if std and std.start_time and std.end_time:
+            r_start = std.start_time
+            r_end = std.end_time
+            r_hours = std.standard_hours
+        else:
+            # Kein Wochentag-Eintrag: Fallback auf objects.start_time/end_time
+            obj = db.query(Object).filter(Object.id == original.object_id).first()
+            if obj and obj.start_time and obj.end_time:
+                r_start = obj.start_time
+                r_end = obj.end_time
+                from datetime import datetime as dt_cls
+                delta = dt_cls.combine(original.date, obj.end_time) - dt_cls.combine(original.date, obj.start_time)
+                r_hours = round(delta.total_seconds() / 3600, 2)
+
+    if not r_start or not r_end:
+        raise HTTPException(
+            status_code=400,
+            detail="Fuer dieses Objekt sind keine Standardzeiten hinterlegt. Bitte Zeiten manuell eintragen."
+        )
+
     replacement = Schedule(
         employee_id=replacement_employee_id,
         object_id=original.object_id,
-        date=original.date,  # NEU: Verwende Datum statt weekday
+        date=original.date,
         weekday=original.weekday,
-        start_time=original.start_time,
-        end_time=original.end_time,
-        planned_hours=original.planned_hours,
+        start_time=r_start,
+        end_time=r_end,
+        planned_hours=r_hours,
         status='vertretung',
         replacement_for=original.employee_id
     )
-    
+
     db.add(replacement)
     db.commit()
-    
+
     return {
         'status': 'ok',
         'original_id': original.id,
