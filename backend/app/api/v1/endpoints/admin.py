@@ -767,11 +767,21 @@ def get_week_schedule(
     ).all()
     
     
-    # Hole Standard-Zeiten für Objekte
-    from sqlalchemy import text
-    standard_times_query = text("SELECT object_id, start_time, end_time, standard_hours FROM object_standard_times")
-    standard_times_result = db.execute(standard_times_query).fetchall()
-    standard_times_dict = {row[0]: {"start": str(row[1])[:5] if row[1] else "06:00", "end": str(row[2])[:5] if row[2] else "14:00", "hours": float(row[3]) if row[3] else 8.0} for row in standard_times_result}
+    # Hole Standard-Zeiten fuer Objekte (v2 = pro Wochentag)
+    all_std_times = db.query(ObjectStandardTime).all()
+    # Dict: object_id -> {weekday -> {start, end, hours}}
+    standard_times_by_day = {}
+    for st in all_std_times:
+        standard_times_by_day.setdefault(st.object_id, {})[st.weekday] = {
+            "start": st.start_time.strftime("%H:%M") if st.start_time else None,
+            "end": st.end_time.strftime("%H:%M") if st.end_time else None,
+            "hours": st.standard_hours,
+        }
+    # Fallback-Dict (erster vorhandener Eintrag) fuer Objekt-Default
+    standard_times_dict = {}
+    for obj_id, days in standard_times_by_day.items():
+        first = next(iter(days.values()))
+        standard_times_dict[obj_id] = {"start": first["start"] or "06:00", "end": first["end"] or "14:00", "hours": first["hours"] or 8.0}
     # Get all employees and objects for the UI
     employees = db.query(Employee).filter(Employee.personal_nr != 'A0001').all()
     objects = db.query(Object).all()
@@ -855,7 +865,8 @@ def get_week_schedule(
                 'gps_lat': obj.gps_lat,
                 'start_time': standard_times_dict.get(obj.id, {}).get('start', '06:00'),
                 'end_time': standard_times_dict.get(obj.id, {}).get('end', '14:00'),
-                'gps_lng': obj.gps_lng
+                'gps_lng': obj.gps_lng,
+                'times_by_weekday': standard_times_by_day.get(obj.id, {}),
             } for obj in objects
         ]
     }
@@ -1163,10 +1174,20 @@ def get_month_schedule(
         and_(Schedule.date >= first_day, Schedule.date <= last_day)
     ).all()
 
-    # Standard-Zeiten
-    standard_times_query = text("SELECT object_id, start_time, end_time, standard_hours FROM object_standard_times")
-    standard_times_result = db.execute(standard_times_query).fetchall()
-    standard_times_dict = {row[0]: {"start": str(row[1])[:5] if row[1] else "06:00", "end": str(row[2])[:5] if row[2] else "14:00"} for row in standard_times_result}
+    # Hole Standard-Zeiten fuer Objekte (v2 = pro Wochentag)
+    all_std_times = db.query(ObjectStandardTime).all()
+    standard_times_by_day = {}
+    for st in all_std_times:
+        standard_times_by_day.setdefault(st.object_id, {})[st.weekday] = {
+            "start": st.start_time.strftime("%H:%M") if st.start_time else None,
+            "end": st.end_time.strftime("%H:%M") if st.end_time else None,
+            "hours": st.standard_hours,
+        }
+    # Fallback-Dict (erster vorhandener Eintrag) fuer Objekt-Default
+    standard_times_dict = {}
+    for obj_id, days in standard_times_by_day.items():
+        first = next(iter(days.values()))
+        standard_times_dict[obj_id] = {"start": first["start"] or "06:00", "end": first["end"] or "14:00", "hours": first["hours"] or 8.0}
 
     employees = db.query(Employee).filter(Employee.personal_nr != 'A0001').all()
     objects = db.query(Object).all()
@@ -1236,7 +1257,8 @@ def get_month_schedule(
         'objects': [
             {'id': obj.id, 'name': obj.name, 'customer_name': obj.customer.name if obj.customer else '',
              'start_time': standard_times_dict.get(obj.id, {}).get('start', '06:00'),
-             'end_time': standard_times_dict.get(obj.id, {}).get('end', '14:00')}
+             'end_time': standard_times_dict.get(obj.id, {}).get('end', '14:00'),
+             'times_by_weekday': standard_times_by_day.get(obj.id, {})}
             for obj in objects
         ],
     }

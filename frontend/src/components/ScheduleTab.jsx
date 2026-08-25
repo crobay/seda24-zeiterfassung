@@ -215,42 +215,40 @@ const ScheduleTab = () => {
     } catch (e) { console.error('Letzte-Schicht-Toggle fehlgeschlagen:', e); }
   };
 
-  const handleObjectChange = async (objectId, isEdit = false) => {
+  const handleObjectChange = (objectId, isEdit = false) => {
     if (!objectId) return;
 
     const data = weekData || monthData;
     const obj = data?.objects?.find(o => o.id == objectId);
 
-    // Fallback: Zeiten vom Objekt selbst (altes Verhalten)
-    let startTime = obj?.start_time ? obj.start_time.substring(0, 5) : '06:00';
-    let endTime = obj?.end_time ? obj.end_time.substring(0, 5) : '14:00';
+    // Zeiten aus v2 (times_by_weekday) pro Wochentag
+    const dayIndex = isEdit ? editingSchedule?.dayIndex : newShiftData?.dayIndex;
+    const dateStr = (viewMode === 'week' ? weekData : monthData)?.days?.[dayIndex]?.date;
+    let startTime = '';
+    let endTime = '';
+    let noTimesWarning = false;
 
-    // Versuch: ObjectStandardTime pro Wochentag laden
-    try {
-      const res = await api.get(`/admin/objects/${objectId}/standard-times`);
-      const stdTimes = res.data;
-
-      if (stdTimes && stdTimes.length > 0) {
-        const dayIndex = isEdit ? editingSchedule?.dayIndex : newShiftData?.dayIndex;
-        const dateStr = weekData?.days?.[dayIndex]?.date;
-        if (dateStr) {
-          const weekday = new Date(dateStr).getDay();
-          // JS: 0=So,1=Mo → Backend: 0=Mo,1=Di → Umrechnung: (jsDay+6)%7
-          const backendWeekday = (weekday + 6) % 7;
-          const match = stdTimes.find(t => t.weekday === backendWeekday);
-          if (match) {
-            startTime = match.start_time || startTime;
-            endTime = match.end_time || endTime;
-          } else {
-            // Kein Match für Wochentag → ersten verfügbaren nehmen
-            startTime = stdTimes[0].start_time || startTime;
-            endTime = stdTimes[0].end_time || endTime;
-          }
-        }
+    if (dateStr && obj?.times_by_weekday) {
+      const jsDay = new Date(dateStr + 'T00:00:00').getDay();
+      const backendWeekday = (jsDay + 6) % 7; // JS: 0=So → Backend: 0=Mo
+      const match = obj.times_by_weekday[backendWeekday];
+      if (match && match.start && match.end) {
+        startTime = match.start;
+        endTime = match.end;
+      } else {
+        noTimesWarning = true;
       }
-    } catch (e) {
-      // API-Fehler → Objekt-Fallback wird verwendet
-      console.log('Keine Sollstunden gefunden, nutze Objekt-Zeiten');
+    }
+
+    // Fallback: Objekt-Default (erster v2-Eintrag)
+    if (!startTime || !endTime) {
+      startTime = obj?.start_time ? obj.start_time.substring(0, 5) : '';
+      endTime = obj?.end_time ? obj.end_time.substring(0, 5) : '';
+    }
+
+    if (noTimesWarning && obj) {
+      const dayName = dateStr ? ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][new Date(dateStr + 'T00:00:00').getDay()] : 'diesen Tag';
+      alert(`Hinweis: Fuer ${obj.name} sind keine Sollzeiten fuer ${dayName} hinterlegt. Bitte Zeiten manuell eingeben oder Sollzeiten im Objekt pflegen.`);
     }
 
     if (isEdit && editingSchedule) {
