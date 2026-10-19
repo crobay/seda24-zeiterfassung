@@ -208,6 +208,25 @@ def check_shift_endings():
                 logger.info(f"check_shift_endings: {emp_name} Schedule {sched.id} - Schon gebucht (Entry {existing_entry.id}), kein Push")
                 continue
 
+            # Keine Schichtbestaetigung fuer Objekte mit aktiver C-Zuweisung:
+            # Wer dort stempeln soll, bekommt keine "Warst du da?"-Abfrage - sonst
+            # koennte eine Bestaetigung entstehen, waehrend parallel ein offline
+            # gepufferter Stempel unterwegs ist (Doppelbuchung). Die normale Stempel-
+            # Erinnerung (check_missing_stamps) laeuft davon unabhaengig weiter.
+            # Spiegelbildlich zur Sperre im Antwort-Handler (_handle_confirm) und im
+            # Reminder-Job (send_telegram_reminders), die ebenfalls allein auf die
+            # C-Zuweisung pruefen.
+            c_assignment = db.query(EmployeeObjectAssignment).filter(
+                EmployeeObjectAssignment.employee_id == sched.employee_id,
+                EmployeeObjectAssignment.object_id == sched.object_id,
+                EmployeeObjectAssignment.tracking_category == 'C',
+                EmployeeObjectAssignment.is_active == True,
+            ).first()
+            if c_assignment:
+                logger.info(f"check_shift_endings: {emp_name} Schedule {sched.id} - "
+                           f"C-Zuweisung Objekt {sched.object_id}, keine shift_confirm-Abfrage")
+                continue
+
             # Notification erstellen (Browser-Push deaktiviert, wird pending_telegram)
             result = push_service.send_shift_confirmation(db, sched.employee_id, sched.id)
             status = result.status if result else 'null'
