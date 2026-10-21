@@ -1,7 +1,5 @@
 import axios from 'axios';
-
-// Backend läuft auf Port 8001!
-const API_URL = 'https://app.seda.de/api/v1';
+import { API_URL } from '../config.js';
 
 // Axios-Instanz mit Basis-Config
 const api = axios.create({
@@ -11,10 +9,10 @@ const api = axios.create({
   },
 });
 
-// Token automatisch mitsenden
+// Token automatisch mitsenden (localStorage oder sessionStorage)
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -33,24 +31,20 @@ export const authService = {
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('user_email', email);
 
-// NEUE ZEILEN HIER EINFÜGEN:
-if (email === 'admin@seda24.de') {
-  localStorage.setItem('userRole', 'admin');
-} else {
-  localStorage.setItem('userRole', 'mitarbeiter');
-}
+      localStorage.setItem('userRole', response.data.role || 'mitarbeiter');
     }
     return response.data;
   },
   
   logout: () => {
     localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
     localStorage.removeItem('user_email');
     window.location.href = '/login';
   },
-  
+
   isAuthenticated: () => {
-    return !!localStorage.getItem('token');
+    return !!(localStorage.getItem('token') || sessionStorage.getItem('token'));
   }
 };
 

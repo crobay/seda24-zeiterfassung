@@ -42,7 +42,7 @@ const GenehmigungenTab = ({ showToast }) => {
     }
   };
 
-  const handleApprove = async (id) => {
+  const handleApprove = async (id, force = false) => {
     const data = editData[id];
     if (!data) return;
     try {
@@ -52,11 +52,18 @@ const GenehmigungenTab = ({ showToast }) => {
         payload.override_km = parseFloat(payload.override_km) || 0;
       }
       delete payload.km_display;
+      if (force) payload.force = true;
       const res = await api.post(`/admin/pending-bookings/${id}/approve`, payload);
       showToast(`Eingetragen: ${res.data.hours}h, ${res.data.brutto} EUR${res.data.km_booked ? ` + ${res.data.km_booked} km` : ''}`, 'success');
       loadBookings();
     } catch (e) {
-      showToast(e.response?.data?.detail || 'Fehler', 'error');
+      if (e.response?.status === 409) {
+        if (window.confirm(e.response.data.detail)) {
+          handleApprove(id, true);
+        }
+      } else {
+        showToast(e.response?.data?.detail || 'Fehler', 'error');
+      }
     }
   };
 

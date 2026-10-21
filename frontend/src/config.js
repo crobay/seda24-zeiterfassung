@@ -1,5 +1,9 @@
-// Automatische Erkennung: app.seda.de oder app.seda.de
 const hostname = window.location.hostname;
-export const API_URL = hostname === 'app.seda.de' 
-  ? 'https://app.seda.de/api/v1'
-  : 'https://app.seda.de/api/v1';
+
+const API_URLS = {
+  'app.seda.de':  'https://app.seda.de/api/v1',
+  'dev.seda.de':  'https://dev.seda.de/api/v1',
+  'demo.seda.de': 'https://demo.seda.de/api/v1',
+};
+
+export const API_URL = API_URLS[hostname] || 'https://dev.seda.de/api/v1';

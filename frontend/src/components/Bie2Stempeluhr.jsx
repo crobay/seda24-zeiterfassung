@@ -500,7 +500,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
       await performAction('check_out', currentObjectId);
     } catch (e) {
       const detail = e.response?.data?.detail || '';
-      if (e.response?.status === 422 && detail.includes('Mindestarbeitszeit')) {
+      if (e.response?.status === 422 && detail.includes('möglich zu gehen')) {
         setMinDurationMsg(detail);
       } else {
         setError(detail || 'Fehler beim Ausstempeln');

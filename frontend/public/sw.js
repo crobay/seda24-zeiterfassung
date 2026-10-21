@@ -1,46 +1,13 @@
-const CACHE_NAME = 'seda24-v1';
-const urlsToCache = [
-  '/',
-  '/manifest.json'
-];
-
-// Install Service Worker
-self.addEventListener('install', event => {
+// Dieser alte Service Worker deregistriert sich selbst und räumt Caches auf
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('Cache opened');
-        return cache.addAll(urlsToCache);
-      })
+    caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))
+      .then(() => self.clients.matchAll())
+      .then(clients => clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' })))
+      .then(() => self.registration.unregister())
   );
 });
-
-// Fetch events
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        // Cache hit - return response
-        if (response) {
-          return response;
-        }
-        return fetch(event.request);
-      }
-    )
-  );
-});
-
-// Activate and clean old caches
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
+self.addEventListener('fetch', (event) => {
+  event.respondWith(fetch(event.request));
 });

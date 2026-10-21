@@ -18,9 +18,9 @@ const KmVerwaltungTab = ({ showToast }) => {
       const [distRes, empRes, objRes] = await Promise.all([
         api.get('/admin/km-distances/all'),
         api.get('/admin/employees-with-categories'),
-        api.get('/admin/customers')
+        api.get('/admin/objects-list')
       ]);
-      
+
       setDistances(distRes.data.sort((a, b) => a.personal_nr.localeCompare(b.personal_nr)));
       setEmployees(empRes.data);
       setObjects(objRes.data);
@@ -119,12 +119,12 @@ const KmVerwaltungTab = ({ showToast }) => {
                     <td style={{padding:'12px'}}>{dist.personal_nr}</td>
                     <td style={{padding:'12px'}}>
                       <select value={editForm.employee_id} onChange={e=>setEditForm({...editForm,employee_id:parseInt(e.target.value)})} style={{width:'100%',padding:'8px',border:'1px solid #ddd',borderRadius:'6px'}}>
-                        {employees.map(emp=><option key={emp.id} value={emp.id}>{getEmployeeName(emp)}</option>)}
+                        {employees.filter(e => e.is_active !== false).map(emp=><option key={emp.id} value={emp.id}>{getEmployeeName(emp)}</option>)}
                       </select>
                     </td>
                     <td style={{padding:'12px'}}>
                       <select value={editForm.object_id} onChange={e=>setEditForm({...editForm,object_id:parseInt(e.target.value)})} style={{width:'100%',padding:'8px',border:'1px solid #ddd',borderRadius:'6px'}}>
-                        {objects.map(obj=><option key={obj.id} value={obj.id}>{obj.name}</option>)}
+                        {objects.filter(o => o.is_active !== false).map(obj=><option key={obj.id} value={obj.id}>{obj.name}</option>)}
                       </select>
                     </td>
                     <td style={{padding:'12px',fontSize:'13px',color:'#666'}}>{objects.find(o=>o.id===editForm.object_id)?.address}</td>
@@ -167,14 +167,14 @@ const KmVerwaltungTab = ({ showToast }) => {
               <label style={{display:'block',marginBottom:'8px',fontWeight:'600'}}>Mitarbeiter</label>
               <select value={newForm.employee_id} onChange={e=>setNewForm({...newForm,employee_id:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px',fontSize:'16px'}}>
                 <option value="">Bitte wählen...</option>
-                {employees.map(emp=><option key={emp.id} value={emp.id}>{getEmployeeName(emp)}</option>)}
+                {employees.filter(e => e.is_active !== false).map(emp=><option key={emp.id} value={emp.id}>{getEmployeeName(emp)}</option>)}
               </select>
             </div>
             <div style={{marginBottom:'20px'}}>
               <label style={{display:'block',marginBottom:'8px',fontWeight:'600'}}>Objekt</label>
               <select value={newForm.object_id} onChange={e=>setNewForm({...newForm,object_id:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px',fontSize:'16px'}}>
                 <option value="">Bitte wählen...</option>
-                {objects.map(obj=><option key={obj.id} value={obj.id}>{obj.name}</option>)}
+                {objects.filter(o => o.is_active !== false).map(obj=><option key={obj.id} value={obj.id}>{obj.name}</option>)}
               </select>
             </div>
             <div style={{marginBottom:'30px'}}>

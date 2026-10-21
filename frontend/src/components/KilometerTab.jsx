@@ -5,6 +5,7 @@ import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { de } from 'date-fns/locale';
 // DIESE ICONS FUNKTIONIEREN (aus HistoryTab kopiert)
 import { Calendar, Clock, Building, Euro } from 'lucide-react';
+import { API_URL } from '../config.js';
 
 const KilometerTab = () => {
   const [kmData, setKmData] = useState(null);
@@ -15,8 +16,8 @@ const KilometerTab = () => {
   const fetchKmData = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      let url = `https://app.seda.de/api/v1/km/my-km`;
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      let url = `${API_URL}/km/my-km`;
       const params = new URLSearchParams();
       
       const now = new Date();
@@ -73,20 +74,29 @@ const KilometerTab = () => {
   };
 
   const formatCurrency = (amount) => {
-    if (amount === null || amount === undefined) return '0,00 Ä';
+    if (amount === null || amount === undefined) return '0,00 ‚Ç¨';
     return new Intl.NumberFormat('de-DE', {
       style: 'currency',
       currency: 'EUR'
     }).format(amount);
   };
 
-  // Mobile Card f¸r KM-Daten
+  // Mobile Card fuer KM-Daten
   const MobileCard = ({ entry }) => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-3">
       <div className="flex justify-between items-start mb-2">
         <div>
           <div className="font-semibold text-sm">{formatDate(entry.date)}</div>
-          <div className="text-gray-600 text-xs mt-1">{entry.object_name}</div>
+          <div className="text-gray-600 text-xs mt-1">
+            <Building size={12} className="inline mr-1" />
+            {entry.object_name}
+          </div>
+          {(entry.time_from || entry.time_to) && (
+            <div className="text-gray-500 text-xs mt-1">
+              <Clock size={12} className="inline mr-1" />
+              {entry.time_from || '?'} - {entry.time_to || '?'}
+            </div>
+          )}
         </div>
         <div className="text-right">
           <div className="font-bold text-green-600">{formatCurrency(entry.amount)}</div>
@@ -179,7 +189,7 @@ const KilometerTab = () => {
         </div>
       </div>
 
-      {/* Zusammenfassung (angepasst f¸r KM) */}
+      {/* Zusammenfassung (angepasst f√ºr KM) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-blue-50 p-4 rounded-lg">
           <div className="text-sm text-blue-600 font-medium">Zeitraum</div>
@@ -205,11 +215,11 @@ const KilometerTab = () => {
         </div>
       </div>
 
-      {/* MOBILE: Cards (angepasst f¸r KM) */}
+      {/* MOBILE: Cards (angepasst f√ºr KM) */}
       <div className="block md:hidden">
         {entries.length === 0 ? (
           <div className="text-center py-8 text-gray-500 bg-white rounded-lg">
-            Keine Eintr‰ge im gew‰hlten Zeitraum
+            Keine Eintr√§ge im gew√§hlten Zeitraum
           </div>
         ) : (
           entries.map((entry) => (
@@ -218,22 +228,25 @@ const KilometerTab = () => {
         )}
       </div>
 
-      {/* DESKTOP: Tabelle (angepasst f¸r KM) */}
+      {/* DESKTOP: Tabelle (angepasst f√ºr KM) */}
       <div className="hidden md:block bg-white rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Datum
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Objekt
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Uhrzeit
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   KM
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Betrag
                 </th>
               </tr>
@@ -241,16 +254,21 @@ const KilometerTab = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {entries.map((entry) => (
                 <tr key={entry.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm">
                     {formatDate(entry.date)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
                     {entry.object_name}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-600">
+                    {entry.time_from && entry.time_to
+                      ? `${entry.time_from} - ${entry.time_to}`
+                      : '-'}
+                  </td>
+                  <td className="px-4 py-4 whitespace-nowrap text-sm">
                     {(entry.distance_km || 0).toFixed(1)} km
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold">
                     {formatCurrency(entry.amount)}
                   </td>
                 </tr>
@@ -259,7 +277,7 @@ const KilometerTab = () => {
           </table>
           {entries.length === 0 && (
             <div className="text-center py-8 text-gray-500">
-              Keine Eintr‰ge im gew‰hlten Zeitraum
+              Keine Eintr√§ge im gew√§hlten Zeitraum
             </div>
           )}
         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FileText, Download, Package, Calendar, Users, Table } from 'lucide-react';
+import { API_URL } from '../config.js';
 
 const AbrechnungenTab = () => {
   const [employees, setEmployees] = useState([]);
@@ -11,8 +12,6 @@ const AbrechnungenTab = () => {
   const [loading, setLoading] = useState(false);
   const [loadingLexware, setLoadingLexware] = useState(false);
   const [message, setMessage] = useState('');
-
-  const API_URL = 'https://app.seda.de/api/v1';
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -49,19 +48,20 @@ const AbrechnungenTab = () => {
 
   const generatePDF = async (type) => {
     if (selectedEmployees.length === 0) {
-      setMessage('Bitte mindestens einen Mitarbeiter auswaehlen!');
+      setMessage('❌ Bitte mindestens einen Mitarbeiter auswählen!');
       setTimeout(() => setMessage(''), 3000);
       return;
     }
 
     setLoading(true);
-    setMessage('PDF wird generiert...');
+    setMessage('⏳ PDF wird generiert...');
 
     try {
       if (selectedEmployees.length === 1) {
+        // Einzelner MA
         const empId = selectedEmployees[0];
         let endpoint = '';
-
+        
         if (type === 'zeitnachweis') {
           endpoint = `${API_URL}/admin/generate-pdf-zeitnachweis`;
         } else if (type === 'kilometer') {
@@ -79,6 +79,7 @@ const AbrechnungenTab = () => {
           }
         );
 
+        // Download
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
@@ -89,9 +90,10 @@ const AbrechnungenTab = () => {
         link.click();
         link.remove();
 
-        setMessage('PDF erfolgreich heruntergeladen!');
-
+        setMessage('✅ PDF erfolgreich heruntergeladen!');
+        
       } else {
+        // Mehrere MAs - immer als Bulk
         const response = await axios.post(
           `${API_URL}/admin/generate-pdf-bulk`,
           {
@@ -107,6 +109,7 @@ const AbrechnungenTab = () => {
           }
         );
 
+        // Download ZIP
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
@@ -115,12 +118,12 @@ const AbrechnungenTab = () => {
         link.click();
         link.remove();
 
-        setMessage(`${selectedEmployees.length} PDFs als ZIP heruntergeladen!`);
+        setMessage(`✅ ${selectedEmployees.length} PDFs als ZIP heruntergeladen!`);
       }
-
+      
     } catch (error) {
       console.error('PDF-Fehler:', error);
-      setMessage('Fehler beim Generieren der PDF!');
+      setMessage('❌ Fehler beim Generieren der PDF!');
     } finally {
       setLoading(false);
       setTimeout(() => setMessage(''), 5000);
@@ -128,14 +131,15 @@ const AbrechnungenTab = () => {
   };
 
   const downloadLexwareExport = async (mode) => {
+    // mode: 'all' oder 'selected'
     if (mode === 'selected' && selectedEmployees.length === 0) {
-      setMessage('Bitte mindestens einen Mitarbeiter auswaehlen!');
+      setMessage('❌ Bitte mindestens einen Mitarbeiter auswählen!');
       setTimeout(() => setMessage(''), 3000);
       return;
     }
     setLoadingLexware(true);
     const count = mode === 'all' ? 'alle MAs' : `${selectedEmployees.length} MA(s)`;
-    setMessage(`Lexware XML wird generiert (${count})...`);
+    setMessage(`⏳ Lexware XML wird generiert (${count})...`);
     try {
       let url = `${API_URL}/admin/lexware-export?year=${year}&month=${month}`;
       if (mode === 'selected') {
@@ -152,12 +156,12 @@ const AbrechnungenTab = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      setMessage('Lexware XML Export heruntergeladen!');
+      setMessage('✅ Lexware XML Export heruntergeladen!');
     } catch (error) {
       if (error.response && error.response.status === 404) {
-        setMessage('Keine Zeiteintraege fuer diesen Monat gefunden!');
+        setMessage('❌ Keine Zeiteinträge für diesen Monat gefunden!');
       } else {
-        setMessage('Fehler beim Lexware Export!');
+        setMessage('❌ Fehler beim Lexware Export!');
       }
     } finally {
       setLoadingLexware(false);
@@ -166,7 +170,7 @@ const AbrechnungenTab = () => {
   };
 
   const monthNames = [
-    'Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni',
+    'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
     'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
   ];
 
@@ -200,9 +204,9 @@ const AbrechnungenTab = () => {
         }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
             <Calendar size={24} />
-            Zeitraum waehlen
+            Zeitraum wählen
           </h3>
-
+          
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Monat</label>
             <select
@@ -251,17 +255,17 @@ const AbrechnungenTab = () => {
         }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
             <Package size={24} />
-            Ausgewaehlte Mitarbeiter
+            Ausgewählte Mitarbeiter
           </h3>
           <div style={{ fontSize: '48px', fontWeight: 'bold', marginBottom: '10px' }}>
             {selectedEmployees.length}
           </div>
           <p style={{ opacity: 0.9 }}>
-            Mitarbeiter ausgewaehlt
+            {selectedEmployees.length === 1 ? 'Mitarbeiter ausgewählt' : 'Mitarbeiter ausgewählt'}
           </p>
           {selectedEmployees.length > 1 && (
             <p style={{ marginTop: '10px', fontSize: '14px', opacity: 0.9 }}>
-              PDFs werden als ZIP-Datei heruntergeladen
+              💡 PDFs werden als ZIP-Datei heruntergeladen
             </p>
           )}
         </div>
@@ -278,7 +282,7 @@ const AbrechnungenTab = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <Users size={24} />
-            Mitarbeiter auswaehlen
+            Mitarbeiter auswählen
           </h3>
           <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
             <input
@@ -287,7 +291,7 @@ const AbrechnungenTab = () => {
               onChange={handleSelectAll}
               style={{ width: '20px', height: '20px', cursor: 'pointer' }}
             />
-            <span style={{ fontWeight: '600' }}>Alle auswaehlen</span>
+            <span style={{ fontWeight: '600' }}>Alle auswählen</span>
           </label>
         </div>
 
@@ -429,7 +433,7 @@ const AbrechnungenTab = () => {
           Lexware XML Export
         </h3>
         <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
-          Excel-XML fuer Lexware "Arbeitszeit aus Excel-Erfassung importieren". Pro Mitarbeiter eine XML-Datei als ZIP.
+          Excel-XML für Lexware "Arbeitszeit aus Excel-Erfassung importieren". Pro Mitarbeiter eine XML-Datei als ZIP.
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
@@ -485,8 +489,8 @@ const AbrechnungenTab = () => {
           >
             <Table size={22} />
             {selectedEmployees.length > 0
-              ? `Ausgewaehlte (${selectedEmployees.length})`
-              : 'Oben MAs auswaehlen'}
+              ? `Ausgewählte (${selectedEmployees.length})`
+              : 'Oben MAs auswählen'}
           </button>
         </div>
 
@@ -495,8 +499,8 @@ const AbrechnungenTab = () => {
             marginTop: '20px',
             padding: '15px',
             borderRadius: '10px',
-            background: message.includes('heruntergeladen') || message.includes('erfolgreich') ? '#d1fae5' : message.includes('Fehler') || message.includes('Bitte') || message.includes('Keine') ? '#fee2e2' : '#fef3c7',
-            color: message.includes('heruntergeladen') || message.includes('erfolgreich') ? '#065f46' : message.includes('Fehler') || message.includes('Bitte') || message.includes('Keine') ? '#991b1b' : '#92400e',
+            background: message.includes('✅') ? '#d1fae5' : message.includes('❌') ? '#fee2e2' : '#fef3c7',
+            color: message.includes('✅') ? '#065f46' : message.includes('❌') ? '#991b1b' : '#92400e',
             textAlign: 'center',
             fontWeight: '600'
           }}>
