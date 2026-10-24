@@ -45,6 +45,7 @@ class Employee(Base):
     address = Column(Text)
     gps_required = Column(Boolean, default=True)
     tracking_mode = Column(String(1), default='C')
+    auto_stamp = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
     # V3.0 Felder
@@ -55,6 +56,10 @@ class Employee(Base):
     # Vertragliche Arbeitstage: kommaseparierte Wochentage, Python-Konvention (0=Mo..6=So)
     # Beispiel: "0,1,2,3,4" = Mo-Fr, "0,2,4" = Mo/Mi/Fr, NULL = nicht konfiguriert
     work_days_profile = Column(String(20), nullable=True)
+    # Durchschnittliche Arbeitstage pro Woche (fuer Abrufkraefte ohne feste Wochentage)
+    # Wenn gesetzt, wird dieser Wert fuer die Urlaubstage-Zaehlung verwendet statt Wochentagsprofil
+    avg_work_days_per_week = Column(Float, nullable=True)
+    enforce_min_duration = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="employee")
     time_entries = relationship("TimeEntry", back_populates="employee")
@@ -151,6 +156,7 @@ class Schedule(Base):
     original_planned_hours = Column(Float, nullable=True)
     original_end_time = Column(Time, nullable=True)
     no_stamp_notified = Column(Boolean, default=False)
+    no_stamp_ma_notified = Column(Boolean, default=False)
 
     employee = relationship("Employee")
     object = relationship("Object")
