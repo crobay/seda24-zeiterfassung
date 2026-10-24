@@ -31,13 +31,16 @@ def get_my_km_entries(
         SELECT
             k.id,
             k.date,
-            o.name as object_name,
+            COALESCE(o.name, k.custom_object_name, 'Unbekannt') as object_name,
             k.distance_km,
             k.amount,
             k.is_billable,
-            k.is_longest_trip
+            k.is_longest_trip,
+            t.check_in,
+            t.check_out
         FROM km_daily_entries k
-        JOIN objects o ON o.id = k.object_id
+        LEFT JOIN objects o ON o.id = k.object_id
+        LEFT JOIN time_entries t ON t.id = k.time_entry_id
         WHERE k.employee_id = :emp_id
     """
     
@@ -61,15 +64,30 @@ def get_my_km_entries(
     
     entries = []
     for row in result:
+        check_in_str = None
+        check_out_str = None
+        time_from = None
+        time_to = None
+        if row.check_in:
+            check_in_str = row.check_in.isoformat()
+            time_from = row.check_in.strftime("%H:%M")
+        if row.check_out:
+            check_out_str = row.check_out.isoformat()
+            time_to = row.check_out.strftime("%H:%M")
+
         entry = {
             "id": row.id,
-            "date": row.date.isoformat(), 
+            "date": row.date.isoformat(),
             "object_name": row.object_name,
             "distance_km": float(row.distance_km or 0),
             "amount": float(row.amount or 0),
             "is_billable": row.is_billable,
-            "is_longest_trip": row.is_longest_trip
+            "is_longest_trip": row.is_longest_trip,
+            "check_in": check_in_str,
+            "check_out": check_out_str,
+            "time_from": time_from,
+            "time_to": time_to,
         }
         entries.append(entry)
-    
+
     return entries

@@ -27,7 +27,7 @@ class ReportService:
                 total_minutes += duration
                 
                 details.append({
-                    "object": entry.object.name if entry.object else "Unbekannt",
+                    "object": entry.object.name if entry.object else (entry.custom_object_name or entry.service_type or "Unbekannt"),
                     "check_in": entry.check_in.strftime("%H:%M"),
                     "check_out": entry.check_out.strftime("%H:%M"),
                     "duration_minutes": round(duration),

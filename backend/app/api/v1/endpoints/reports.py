@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
 from app.db.database import get_db
-from app.models.models import User, TimeEntry, Employee, Object
+from app.models.models import User, TimeEntry, Employee, Object, VacationEntitlement, BreakEntry
 from sqlalchemy import func
 from app.api.v1.endpoints.auth import get_current_user
 import pandas as pd
@@ -24,6 +24,8 @@ class HistoryEntry(BaseModel):
     service_type: Optional[str]
     hourly_rate: float
     amount: float
+    brutto_hours: Optional[float] = None
+    pause_minutes: Optional[int] = 0
     
     class Config:
         from_attributes = True
@@ -71,9 +73,14 @@ def get_my_today_report(
             # Skip Urlaub (object_id = 999)
             if entry.object_id == 999:
                 continue
-            diff = entry.check_out - entry.check_in
-            total_hours += diff.total_seconds() / 3600
-            print(f"+ {diff.total_seconds()/3600:.2f}h")  # DEBUG
+            # billed_hours hat Vorrang (Kat B mit Sollstunden)
+            if entry.billed_hours and entry.billed_hours > 0:
+                total_hours += entry.billed_hours
+                print(f"+ {entry.billed_hours:.2f}h (billed)")  # DEBUG
+            else:
+                diff = entry.check_out - entry.check_in
+                total_hours += max(0, diff.total_seconds() / 3600)
+                print(f"+ {diff.total_seconds()/3600:.2f}h (diff)")  # DEBUG
     
     print(f"TOTAL: {total_hours}")  # DEBUG
     
@@ -105,9 +112,14 @@ def get_my_week_hours(
     total_hours = 0
     for entry in entries:
         if entry.check_out:
-            diff = entry.check_out - entry.check_in
-            total_hours += diff.total_seconds() / 3600
-    
+            if entry.object_id == 999:
+                continue
+            if entry.billed_hours and entry.billed_hours > 0:
+                total_hours += entry.billed_hours
+            else:
+                diff = entry.check_out - entry.check_in
+                total_hours += max(0, diff.total_seconds() / 3600)
+
     return {
         "total_hours": round(total_hours, 2),
         "week_start": monday.isoformat(),
@@ -141,12 +153,14 @@ def get_my_month_hours(
     total_hours = 0
     for entry in entries:
         if entry.check_out:
-            diff = entry.check_out - entry.check_in
-            total_hours += diff.total_seconds() / 3600
-    
-            # Skip Urlaub (object_id = 999)
             if entry.object_id == 999:
                 continue
+            if entry.billed_hours and entry.billed_hours > 0:
+                total_hours += entry.billed_hours
+            else:
+                diff = entry.check_out - entry.check_in
+                total_hours += max(0, diff.total_seconds() / 3600)
+
     return {
         "total_hours": round(total_hours, 2),
         "month": today.month,
@@ -189,11 +203,11 @@ def get_my_history(
     else:
         start_date = end_date - timedelta(days=30)
     
-    # TimeEntry-Einträge mit Object-Namen abrufen
+    # TimeEntry-Einträge mit Object-Namen abrufen (LEFT JOIN fuer Urlaub + custom)
     entries = db.query(
         TimeEntry,
         Object.name.label('object_name')
-    ).join(
+    ).outerjoin(
         Object, TimeEntry.object_id == Object.id
     ).filter(
         TimeEntry.employee_id == employee.id,
@@ -202,49 +216,67 @@ def get_my_history(
     ).order_by(
         TimeEntry.check_in.desc()
     ).all()
-    
+
+    # Break-Daten fuer alle Eintraege laden
+    entry_ids = [e.id for e, _ in entries]
+    all_breaks = db.query(BreakEntry).filter(BreakEntry.time_entry_id.in_(entry_ids)).all() if entry_ids else []
+    breaks_by_entry = {}
+    for b in all_breaks:
+        breaks_by_entry.setdefault(b.time_entry_id, []).append(b)
+
     # Daten aufbereiten
     history_entries = []
     total_hours = 0
     total_amount = 0
-    
+
     for entry, object_name in entries:
-        # Stunden berechnen
-        if entry.check_out:
+        # Objektname: DB-Objekt > custom_object_name > service_type Fallback
+        display_name = object_name or entry.custom_object_name or entry.service_type or "Unbekannt"
+
+        # Urlaub (object_id=999) - fester Tagessatz aus dem time_entry
+        if entry.object_id == 999 or entry.service_type == 'Urlaub':
+            hourly_rate = float(entry.hourly_rate) if entry.hourly_rate else 0
+            amount = hourly_rate  # 1 Tag = 1x Tagessatz (im Entry fixiert)
+            hours = 1.0  # 1 Urlaubstag
+            display_name = "Urlaub"
+        elif entry.check_out:
             delta = entry.check_out - entry.check_in
             hours = entry.billed_hours if entry.billed_hours else (delta.total_seconds() / 3600)
+            hourly_rate = entry.hourly_rate if entry.hourly_rate else (employee.hourly_rate or 0)
+            amount = (entry.billed_hours if entry.billed_hours else hours) * hourly_rate
         else:
             # Laufende Zeit bis jetzt
             delta = datetime.now() - entry.check_in
-            # Skip Urlaub (object_id = 999)
-            if (entry.object_id == 999 or (entry.object_id == 1 and entry.check_in.hour == 0)):
-                # Urlaubsbetrag berechnen
-                # Hole vacation_rate direkt aus DB mit SQL
-                result = db.execute("SELECT vacation_rate FROM vacation_entitlements WHERE employee_id = :emp_id AND year = :year", {"emp_id": employee_id, "year": entry.check_in.year})
-                vac = result.fetchone()
-                amount = vac[0] if vac else 67.50
-                hourly_rate = employee.hourly_rate if employee.hourly_rate else 15.0
-                hours = amount / hourly_rate
-            else:
-                hours = entry.billed_hours if entry.billed_hours else (delta.total_seconds() / 3600)
-                # Normale Berechnung
-                hourly_rate = entry.hourly_rate if entry.hourly_rate else (employee.hourly_rate or 0)
-        hourly_rate = entry.hourly_rate if entry.hourly_rate else (employee.hourly_rate or 0)
-        amount = (entry.billed_hours if entry.billed_hours else hours) * hourly_rate
+            hours = entry.billed_hours if entry.billed_hours else (delta.total_seconds() / 3600)
+            hourly_rate = entry.hourly_rate if entry.hourly_rate else (employee.hourly_rate or 0)
+            amount = hours * hourly_rate
         
         total_hours += hours
         total_amount += amount
         
+        # Pause berechnen
+        brutto_hours = None
+        pause_minutes = 0
+        if entry.check_in and entry.check_out and entry.object_id != 999 and entry.service_type != 'Urlaub':
+            brutto_hours = round((entry.check_out - entry.check_in).total_seconds() / 3600, 2)
+            entry_breaks = breaks_by_entry.get(entry.id, [])
+            for b in entry_breaks:
+                if b.start_time and b.end_time:
+                    pause_minutes += (b.end_time - b.start_time).total_seconds() / 60
+            pause_minutes = round(pause_minutes)
+
         history_entries.append(HistoryEntry(
             id=entry.id,
             date=entry.check_in.date(),
-            object_name=object_name,
+            object_name=display_name,
             check_in=entry.check_in,
             check_out=entry.check_out,
             total_hours=round(hours, 2),
             service_type=entry.service_type,
             hourly_rate=hourly_rate,
-            amount=round(amount, 2)
+            amount=round(amount, 2),
+            brutto_hours=brutto_hours,
+            pause_minutes=pause_minutes
         ))
     
     return HistoryResponse(

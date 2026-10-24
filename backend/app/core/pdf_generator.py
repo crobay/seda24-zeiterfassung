@@ -79,50 +79,75 @@ class PDFGenerator:
         return pdf_path
     
     def _get_time_entries(self, employee_id: int, year: int, month: int) -> List[Dict]:
-        """Lädt Zeitbuchungen für einen Monat"""
+        """Laedt Zeitbuchungen fuer einen Monat"""
         from calendar import monthrange
-        
-        # Ersten und letzten Tag des Monats
+        from app.models.models import BreakEntry
+
         start_date = datetime(year, month, 1)
         _, last_day = monthrange(year, month)
         end_date = datetime(year, month, last_day, 23, 59, 59)
-        
-        # Query
-        entries = self.db.query(TimeEntry, Object.name).join(
+
+        entries = self.db.query(TimeEntry, Object.name).outerjoin(
             Object, TimeEntry.object_id == Object.id
         ).filter(
             TimeEntry.employee_id == employee_id,
             TimeEntry.check_in >= start_date,
             TimeEntry.check_in <= end_date
         ).order_by(TimeEntry.check_in).all()
-        
-        # Aufbereiten
+
+        # Break-Daten laden
+        entry_ids = [e.id for e, _ in entries]
+        all_breaks = self.db.query(BreakEntry).filter(BreakEntry.time_entry_id.in_(entry_ids)).all() if entry_ids else []
+        breaks_by_entry = {}
+        for b in all_breaks:
+            breaks_by_entry.setdefault(b.time_entry_id, []).append(b)
+
         result = []
         for entry, object_name in entries:
-            if entry.check_out:
-                delta = entry.check_out - entry.check_in
-                hours = delta.total_seconds() / 3600
-            else:
-                hours = 0
-            
-            # Typ erkennen
+            display_name = entry.custom_object_name or object_name or 'Unbekannt'
+
             entry_type = 'normal'
             if entry.object_id == 999:
                 entry_type = 'urlaub'
-            elif 'krank' in object_name.lower():
+            elif object_name and 'krank' in object_name.lower():
                 entry_type = 'krank'
-            
+
+            if entry_type == 'urlaub':
+                hourly_rate = float(entry.hourly_rate) if entry.hourly_rate else 0
+                hours = 1.0
+                amount = hourly_rate
+            else:
+                if entry.billed_hours is not None:
+                    hours = float(entry.billed_hours)
+                elif entry.check_out:
+                    delta = entry.check_out - entry.check_in
+                    hours = delta.total_seconds() / 3600
+                else:
+                    hours = 0
+                hourly_rate = float(entry.hourly_rate) if entry.hourly_rate else 15.0
+                amount = round(hours * hourly_rate, 2)
+
+            # Pause berechnen
+            pause_minutes = 0
+            if entry.check_in and entry.check_out and entry_type == 'normal':
+                entry_breaks = breaks_by_entry.get(entry.id, [])
+                for b in entry_breaks:
+                    if b.start_time and b.end_time:
+                        pause_minutes += (b.end_time - b.start_time).total_seconds() / 60
+                pause_minutes = round(pause_minutes)
+
             result.append({
                 'date': entry.check_in.date(),
-                'object_name': object_name,
+                'object_name': display_name,
                 'check_in': entry.check_in,
                 'check_out': entry.check_out,
                 'hours': round(hours, 2),
-                'hourly_rate': entry.hourly_rate or 15.0,
-                'amount': round(hours * (entry.hourly_rate or 15.0), 2),
-                'type': entry_type
+                'hourly_rate': hourly_rate,
+                'amount': round(amount, 2),
+                'type': entry_type,
+                'pause_minutes': pause_minutes
             })
-        
+
         return result
     
     def _calculate_stats(self, entries: List[Dict], employee: Employee) -> Dict:
@@ -168,14 +193,14 @@ class PDFGenerator:
         # Aus km_daily_entries laden (mit Object-Join für Namen)
         from sqlalchemy import text
         query = text("""
-            SELECT 
+            SELECT
                 kde.date,
-                o.name as object_name,
+                COALESCE(o.name, kde.custom_object_name, 'Unbekannt') as object_name,
                 kde.distance_km,
                 kde.is_longest_trip,
                 kde.amount
             FROM km_daily_entries kde
-            JOIN objects o ON o.id = kde.object_id
+            LEFT JOIN objects o ON o.id = kde.object_id
             WHERE kde.employee_id = :emp_id
               AND kde.date >= :start_date
               AND kde.date <= :end_date
@@ -225,20 +250,23 @@ class PDFGenerator:
             
             if e['type'] == 'urlaub':
                 row_class = "urlaub-row"
-                badge = '<span class="badge badge-urlaub">🏖️ Urlaub</span>'
+                badge = '<span class="badge badge-urlaub">Urlaub</span>'
                 zeit = "-"
+                pause_cell = "-"
                 stunden = "-"
                 lohn_h = "-"
             elif e['type'] == 'krank':
                 row_class = "krank-row"
-                badge = '<span class="badge badge-krank">🤒 Krankheit</span>'
+                badge = '<span class="badge badge-krank">Krankheit</span>'
                 zeit = "-"
+                pause_cell = "-"
                 stunden = "-"
                 lohn_h = "-"
             else:
                 row_class = ""
                 badge = e['object_name']
                 zeit = f"{e['check_in'].strftime('%H:%M')} - {e['check_out'].strftime('%H:%M')}"
+                pause_cell = f"{e['pause_minutes']} Min" if e.get('pause_minutes', 0) > 0 else "-"
                 stunden = f"{e['hours']}"
                 lohn_h = f"{e['hourly_rate']:.2f} €"
             
@@ -247,6 +275,7 @@ class PDFGenerator:
                         <td><strong>{weekday}, {e['date'].strftime('%d.%m.')}</strong></td>
                         <td>{badge}</td>
                         <td class="center-align">{zeit}</td>
+                        <td class="center-align">{pause_cell}</td>
                         <td class="right-align">{stunden}</td>
                         <td class="right-align">{lohn_h}</td>
                         <td class="right-align"><strong>{e['amount']:.2f} €</strong></td>
@@ -373,7 +402,8 @@ class PDFGenerator:
                         <th>Datum</th>
                         <th>Kunde/Objekt</th>
                         <th class="center-align">Arbeitszeit</th>
-                        <th class="right-align">Stunden</th>
+                        <th class="center-align">Pause</th>
+                        <th class="right-align">Netto h</th>
                         <th class="right-align">Lohn/h</th>
                         <th class="right-align">Betrag</th>
                     </tr>
@@ -381,7 +411,7 @@ class PDFGenerator:
                 <tbody>
                     {table_rows}
                     <tr class="total-row">
-                        <td colspan="3"><strong>GESAMT {month_names[month].upper()} {year}</strong></td>
+                        <td colspan="4"><strong>GESAMT {month_names[month].upper()} {year}</strong></td>
                         <td class="right-align"><strong>{stats['total_hours']} h</strong></td>
                         <td class="right-align">-</td>
                         <td class="right-align"><strong>{stats['gesamt_brutto']:.2f} €</strong></td>
@@ -545,7 +575,7 @@ class PDFGenerator:
                 <tbody>
                     {table_rows}
                     <tr class="total-row">
-                        <td colspan="3"><strong>GESAMT {month_names[month].upper()} {year}</strong></td>
+                        <td colspan="4"><strong>GESAMT {month_names[month].upper()} {year}</strong></td>
                         <td class="right-align"><strong>{total_km:.1f} km</strong></td>
                         <td class="right-align"><strong>{total_betrag:.2f} €</strong></td>
                     </tr>
