@@ -32,3 +32,16 @@ class UserResponse(UserBase):
 
 class NewPassword(BaseModel):
     new_password: str
+    old_password: Optional[str] = None
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordReset(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
+class PasswordResetByToken(BaseModel):
+    token: str
+    new_password: str
