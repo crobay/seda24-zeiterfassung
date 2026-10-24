@@ -46,6 +46,7 @@ import api from '../services/api';
   const JournalTab = React.memo(({ employees, customers, showToast, setShowKmModal, setKmBookingInfo, setKmDistance,
     selectedEmployee, setSelectedEmployee, dateFrom, setDateFrom, dateTo, setDateTo,
     selectedObject, setSelectedObject, selectedServiceType, setSelectedServiceType,
+    selectedCleaningType, setSelectedCleaningType,
     selectedEntryType, setSelectedEntryType, sortField, setSortField, sortDirection, setSortDirection }) => {
     // Alle Objekte aus allen Kunden extrahieren (flache Liste)
     const allObjects = customers.flatMap(c =>
@@ -58,6 +59,12 @@ import api from '../services/api';
     const [bookings, setBookings] = useState([]);
     const [filteredBookings, setFilteredBookings] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [activeQuick, setActiveQuick] = useState(null);
+    // Reinigungsart-Optionen DYNAMISCH aus den vorhandenen service_type-Werten
+    // (ohne die Buchungsarten Urlaub/Krank/Abwesenheit)
+    const cleaningTypes = Array.from(new Set(bookings.map(b => b.service_type).filter(Boolean)))
+      .filter(t => !['Urlaub', 'Krank', 'Abwesenheit'].includes(t))
+      .sort();
     
     // Filter + Sort kommen jetzt aus Props (State lebt im Parent)
     
@@ -119,7 +126,7 @@ import api from '../services/api';
 
     useEffect(() => {
       applyFilters();
-    }, [bookings, dateFrom, dateTo, selectedEmployee, selectedObject, selectedServiceType, selectedEntryType, sortField, sortDirection]);
+    }, [bookings, dateFrom, dateTo, selectedEmployee, selectedObject, selectedServiceType, selectedCleaningType, selectedEntryType, sortField, sortDirection]);
 
     const loadBookings = async () => {
       setLoading(true);
@@ -154,6 +161,9 @@ import api from '../services/api';
         filtered = filtered.filter(b => !['Urlaub', 'Krank', 'Abwesenheit'].includes(b.service_type));
       } else if (selectedServiceType !== 'all') {
         filtered = filtered.filter(b => b.service_type === selectedServiceType);
+      }
+      if (selectedCleaningType && selectedCleaningType !== 'all') {
+        filtered = filtered.filter(b => b.service_type === selectedCleaningType);
       }
       if (selectedEntryType !== 'all') {
         const isManual = selectedEntryType === 'manual';
@@ -225,6 +235,18 @@ import api from '../services/api';
         setSortField(field);
         setSortDirection('desc');
       }
+    };
+
+    // Datum-Schnellfilter: setzt Von/Bis und merkt sich den aktiven Button
+    const setQuickRange = (key) => {
+      const fmt = (d) => d.toISOString().split('T')[0];
+      const today = new Date();
+      const from = new Date();
+      if (key === '7') from.setDate(from.getDate() - 6);
+      else if (key === '14') from.setDate(from.getDate() - 13);
+      setDateFrom(fmt(from));
+      setDateTo(fmt(today));
+      setActiveQuick(key);
     };
 
     const handleEdit = (booking) => {
@@ -403,7 +425,7 @@ import api from '../services/api';
               <input
                 type="date"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={(e) => { setDateFrom(e.target.value); setActiveQuick(null); }}
                 className="w-full p-2 border rounded-lg"
               />
             </div>
@@ -412,7 +434,7 @@ import api from '../services/api';
               <input
                 type="date"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={(e) => { setDateTo(e.target.value); setActiveQuick(null); }}
                 className="w-full p-2 border rounded-lg"
               />
             </div>
@@ -447,7 +469,7 @@ import api from '../services/api';
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Art</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Buchungsart</label>
               <select
                 value={selectedServiceType}
                 onChange={(e) => setSelectedServiceType(e.target.value)}
@@ -461,7 +483,7 @@ import api from '../services/api';
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Typ</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Erfassung</label>
               <select
                 value={selectedEntryType}
                 onChange={(e) => setSelectedEntryType(e.target.value)}
@@ -472,20 +494,46 @@ import api from '../services/api';
                 <option value="auto">Automatisch</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Reinigungsart</label>
+              <select
+                value={selectedCleaningType}
+                onChange={(e) => setSelectedCleaningType(e.target.value)}
+                className="w-full p-2 border rounded-lg"
+              >
+                <option value="all">Alle</option>
+                {cleaningTypes.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          <button
-            onClick={() => {
-              setDateFrom('');
-              setDateTo('');
-              setSelectedEmployee('all');
-              setSelectedObject('all');
-              setSelectedServiceType('all');
-              setSelectedEntryType('all');
-            }}
-            className="mt-4 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-          >
-            Filter zurücksetzen
-          </button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[{k:'today',l:'Heute'},{k:'7',l:'Letzte 7 Tage'},{k:'14',l:'Letzte 14 Tage'}].map(({k,l}) => (
+              <button
+                key={k}
+                onClick={() => setQuickRange(k)}
+                className={`px-4 py-2 rounded-lg ${activeQuick === k ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+              >
+                {l}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                setDateFrom('');
+                setDateTo('');
+                setSelectedEmployee('all');
+                setSelectedObject('all');
+                setSelectedServiceType('all');
+                setSelectedCleaningType('all');
+                setSelectedEntryType('all');
+                setActiveQuick(null);
+              }}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+            >
+              Filter zurücksetzen
+            </button>
+          </div>
         </div>
 
         {/* Summen */}
@@ -562,8 +610,13 @@ import api from '../services/api';
                     </th>
                     <th className="px-4 py-3 text-right text-sm font-semibold">Satz</th>
                     <th className="px-4 py-3 text-right text-sm font-semibold">Betrag</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold">Art</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold">Typ</th>
+                    <th
+                      className="px-4 py-3 text-center text-sm font-semibold cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('service_type')}
+                    >
+                      Reinigungsart {sortField === 'service_type' && (sortDirection === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold">Erfassung</th>
                     <th className="px-4 py-3 text-center text-sm font-semibold">Aktionen</th>
                   </tr>
                 </thead>
@@ -1150,6 +1203,7 @@ const AdminDashboard = () => {
   );
   const [journalObject, setJournalObject] = useState('all');
   const [journalServiceType, setJournalServiceType] = useState('Arbeit');
+  const [journalCleaningType, setJournalCleaningType] = useState('all');
   const [journalEntryType, setJournalEntryType] = useState('all');
   const [journalSortField, setJournalSortField] = useState('check_in');
   const [journalSortDir, setJournalSortDir] = useState('desc');
@@ -2262,6 +2316,7 @@ const AdminDashboard = () => {
           dateTo={journalDateTo} setDateTo={setJournalDateTo}
           selectedObject={journalObject} setSelectedObject={setJournalObject}
           selectedServiceType={journalServiceType} setSelectedServiceType={setJournalServiceType}
+          selectedCleaningType={journalCleaningType} setSelectedCleaningType={setJournalCleaningType}
           selectedEntryType={journalEntryType} setSelectedEntryType={setJournalEntryType}
           sortField={journalSortField} setSortField={setJournalSortField}
           sortDirection={journalSortDir} setSortDirection={setJournalSortDir}
