@@ -52,6 +52,53 @@ async def get_employee_schedule(
     
     return result
 
+# ========== WOCHEN-DIENSTPLAN FUER MA ==========
+@router.get("/my-week")
+async def get_my_week_schedule(
+    week_offset: int = Query(0, description="0=aktuelle Woche, 1=naechste, -1=letzte"),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Dienstplan des eingeloggten MA fuer eine Woche."""
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    if not employee:
+        return {"days": [], "week_start": None, "week_end": None}
+
+    today = date.today()
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+    sunday = monday + timedelta(days=6)
+
+    schedules = db.query(Schedule).filter(
+        Schedule.employee_id == employee.id,
+        Schedule.date >= monday,
+        Schedule.date <= sunday,
+        Schedule.status.in_(["normal", "vertretung"])
+    ).order_by(Schedule.date, Schedule.start_time).all()
+
+    wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    days = []
+    for s in schedules:
+        obj = db.query(Object).filter(Object.id == s.object_id).first()
+        days.append({
+            "date": s.date.isoformat(),
+            "weekday": wochentage[s.date.weekday()],
+            "weekday_short": wochentage[s.date.weekday()][:2],
+            "object_name": obj.name if obj else f"Objekt {s.object_id}",
+            "start_time": s.start_time.strftime("%H:%M") if s.start_time else None,
+            "end_time": s.end_time.strftime("%H:%M") if s.end_time else None,
+            "planned_hours": s.planned_hours,
+            "is_driver": s.is_driver,
+            "status": s.status,
+        })
+
+    return {
+        "days": days,
+        "week_start": monday.isoformat(),
+        "week_end": sunday.isoformat(),
+        "employee_name": f"{employee.first_name} {employee.last_name}",
+    }
+
+
 # ========== HEUTIGER DIENSTPLAN ==========
 @router.get("/today")
 async def get_today_schedule(

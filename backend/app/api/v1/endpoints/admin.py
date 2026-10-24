@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, time
 from typing import List, Optional
 from jose import jwt
 from app.db.database import get_db
-from app.models.models import User, Employee, TimeEntry, Schedule, Object, Customer, KmDistance, ShiftChangeRequest, MasterScheduleEntry, CustomerRevenue, UserObjectAssignment, ObjectStandardTime, FinanceSetting, FixedCost, MonthlyFixedCost
+from app.models.models import User, Employee, TimeEntry, Schedule, Object, Customer, KmDistance, ShiftChangeRequest, MasterScheduleEntry, CustomerRevenue, UserObjectAssignment, ObjectStandardTime, FinanceSetting, FixedCost, MonthlyFixedCost, PushNotification
 import os
 from dotenv import load_dotenv
 from app.api.v1.endpoints.auth import get_current_user
@@ -166,7 +166,7 @@ def get_user_object_ids(db: Session, user: User):
 
 
 @router.get("/dashboard/stats")
-def get_stats(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_stats(db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     from app.models.models import SickNote, VacationRequest, Message as MsgModel
 
     total = db.query(Employee).join(User).filter(User.role != "admin", Employee.is_active == True).count()
@@ -222,7 +222,7 @@ def get_stats(db: Session = Depends(get_db), admin = Depends(verify_admin)):
     }
 
 @router.get("/live-status")
-def get_live(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_live(db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Live-Status: Aktive Schichten, heute gestempelt, kommende Schichten."""
     from app.models.models import TimeEntry, Employee, Object
     now = datetime.now()
@@ -334,7 +334,7 @@ def get_live(db: Session = Depends(get_db), admin = Depends(verify_admin)):
 
 
 @router.get("/badge-counts")
-def get_badge_counts(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_badge_counts(db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Badge-Zaehler fuer Mehr-Menue: Offene Punkte, Krank, Post, Urlaub."""
     from app.models.models import PushNotification, VacationRequest, Message as MsgModel, CorrectionRequest
 
@@ -408,15 +408,15 @@ def get_badge_counts(db: Session = Depends(get_db), admin = Depends(verify_admin
 
 
 @router.get("/employees-with-categories")
-def get_employees_with_categories(include_inactive: bool = Query(False), db: Session = Depends(get_db)):
+def get_employees_with_categories(include_inactive: bool = Query(False), db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     query = db.query(Employee)
     if not include_inactive:
         query = query.filter(Employee.is_active == True)
     employees = query.all()
-    return [{"id": e.id, "personal_nr": e.personal_nr, "name": f"{e.first_name} {e.last_name}", "first_name": e.first_name, "last_name": e.last_name, "tracking_mode": e.tracking_mode or "C", "category": e.tracking_mode or "C", "hourly_rate": e.hourly_rate, "hourly_rate_standard": e.hourly_rate_standard, "email": e.user.email if e.user else f"{e.personal_nr.lower()}@seda24.de", "is_active": e.is_active, "work_days_profile": e.work_days_profile} for e in employees]
+    return [{"id": e.id, "personal_nr": e.personal_nr, "name": f"{e.first_name} {e.last_name}", "first_name": e.first_name, "last_name": e.last_name, "tracking_mode": e.tracking_mode or "C", "category": e.tracking_mode or "C", "hourly_rate": e.hourly_rate, "hourly_rate_standard": e.hourly_rate_standard, "email": e.user.email if e.user else f"{e.personal_nr.lower()}@seda24.de", "is_active": e.is_active, "work_days_profile": e.work_days_profile, "enforce_min_duration": e.enforce_min_duration or False} for e in employees]
 
 @router.put("/update-category")
-def update_category(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def update_category(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     emp = db.query(Employee).filter(Employee.id == data["employee_id"]).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
@@ -438,7 +438,7 @@ def update_category(data: dict, db: Session = Depends(get_db), admin = Depends(v
 
 
 @router.put("/employees/{employee_id}/work-days-profile")
-def update_work_days_profile(employee_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def update_work_days_profile(employee_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Arbeitstagsprofil setzen. Erwartet {"work_days_profile": "0,1,2,3,4"} (Python: 0=Mo..6=So)."""
     emp = db.query(Employee).filter(Employee.id == employee_id).first()
     if not emp:
@@ -464,7 +464,7 @@ def get_all_schedules(
     start_date: str = None,
     end_date: str = None,
     db: Session = Depends(get_db), 
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Hole alle Schedules, optional gefiltert nach Datum"""
     query = db.query(Schedule)
@@ -496,7 +496,7 @@ def get_all_schedules(
     return result
 
 @router.post("/schedules")
-def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Erstelle neue Schedule mit Datum"""
     from datetime import time
     
@@ -542,6 +542,17 @@ def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(v
     db.commit()
     db.refresh(schedule)
 
+    from app.services.booking_service import log_audit
+    emp = db.query(Employee).filter(Employee.id == data["employee_id"]).first()
+    emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(data["employee_id"])
+    obj = db.query(Object).filter(Object.id == data["object_id"]).first()
+    obj_name = obj.name if obj else str(data["object_id"])
+    log_audit(db, admin.id, data["employee_id"], 'schedule_created',
+        entity_type='schedule', entity_id=schedule.id,
+        new_value={"datum": str(schedule_date), "zeit": f"{data['start_time']}-{data['end_time']}", "stunden": hours_diff, "objekt": obj_name, "status": data.get("status", "normal")},
+        details=f"Dienstplan: {emp_name}, {schedule_date.strftime('%d.%m.%Y') if schedule_date else '?'}, {data['start_time']}-{data['end_time']}, {obj_name}")
+    db.commit()
+
     # Auto-Reset: Monatsbestaetigung zuruecksetzen falls MA schon bestaetigt hat
     if schedule_date:
         check_and_reset_confirmation(db, data["employee_id"], schedule_date)
@@ -549,14 +560,16 @@ def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(v
     return {"status": "ok", "id": schedule.id}
 
 @router.put("/schedules/{schedule_id}")
-def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Update Schedule mit Datum"""
     from datetime import time
     
     schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
     if not schedule:
         raise HTTPException(status_code=404)
-    
+
+    old_schedule = {"datum": str(schedule.date), "zeit": f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}", "objekt_id": schedule.object_id, "status": schedule.status}
+
     # Update date if provided
     if "date" in data:
         schedule.date = datetime.strptime(data["date"], "%Y-%m-%d").date()
@@ -594,12 +607,21 @@ def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db),
         schedule.employee_id = data["employee_id"]
     if "status" in data:
         schedule.status = data["status"]
-    
+
+    from app.services.booking_service import log_audit
+    emp = db.query(Employee).filter(Employee.id == schedule.employee_id).first()
+    emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(schedule.employee_id)
+    new_schedule = {"datum": str(schedule.date), "zeit": f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}", "objekt_id": schedule.object_id, "status": schedule.status}
+    log_audit(db, admin.id, schedule.employee_id, 'schedule_updated',
+        entity_type='schedule', entity_id=schedule_id,
+        old_value=old_schedule, new_value=new_schedule,
+        details=f"Dienstplan geaendert: {emp_name}, {schedule.date}")
+
     db.commit()
     return {"status": "ok"}
 
 @router.delete("/schedules/{schedule_id}")
-def delete_schedule(schedule_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def delete_schedule(schedule_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
     if not schedule:
         raise HTTPException(status_code=404)
@@ -616,13 +638,23 @@ def delete_schedule(schedule_id: int, db: Session = Depends(get_db), admin = Dep
             partner.original_end_time = None
             partner.partner_schedule_id = None
 
+    from app.services.booking_service import log_audit
+    emp = db.query(Employee).filter(Employee.id == schedule.employee_id).first()
+    emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(schedule.employee_id)
+    obj = db.query(Object).filter(Object.id == schedule.object_id).first() if schedule.object_id else None
+    obj_name = obj.name if obj else '?'
+    log_audit(db, admin.id, schedule.employee_id, 'schedule_deleted',
+        entity_type='schedule', entity_id=schedule_id,
+        old_value={"datum": str(schedule.date), "zeit": f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}", "objekt": obj_name, "status": schedule.status},
+        details=f"Dienstplan geloescht: {emp_name}, {schedule.date}, {obj_name}")
+
     db.delete(schedule)
     db.commit()
     return {"status": "ok"}
 
 
 @router.post("/schedules/split-shift")
-def split_shift(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def split_shift(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Schicht teilen: Partner-MA hinzufuegen, Stunden halbieren."""
     schedule_id = data.get("schedule_id")
     partner_employee_id = data.get("partner_employee_id")
@@ -702,7 +734,7 @@ def split_shift(data: dict, db: Session = Depends(get_db), admin = Depends(verif
 
 
 @router.post("/schedules/unsplit-shift")
-def unsplit_shift(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def unsplit_shift(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Schicht-Teilung aufheben: Partner entfernen, Stunden wiederherstellen."""
     schedule_id = data.get("schedule_id")
 
@@ -742,7 +774,7 @@ def get_week_schedule(
     week_start: str = None,
     week_offset: int = Query(0, description="Wochen-Offset (0=aktuelle Woche)"),
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Hole Wochenplan für ein bestimmtes Datum"""
     
@@ -875,7 +907,7 @@ def get_week_schedule(
 def copy_week_schedule(
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Kopiere eine komplette Woche in eine neue Woche"""
     source_week = datetime.fromisoformat(data["source_week"].split('T')[0]).date()
@@ -938,7 +970,7 @@ def copy_week_schedule(
 def bulk_update_schedules(
     updates: List[dict],
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Mehrere Schichten auf einmal aktualisieren"""
     results = []
@@ -1018,7 +1050,7 @@ def bulk_update_schedules(
 def create_replacement(
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Erstelle Vertretung für Urlaub/Krankheit"""
     original_schedule_id = data.get('original_schedule_id')
@@ -1089,7 +1121,7 @@ def create_replacement(
 def quick_assign_schedule(
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Schnellzuweisung: Mitarbeiter zu Objekt für bestimmtes Datum"""
     employee_id = data.get('employee_id')
@@ -1161,7 +1193,7 @@ def get_month_schedule(
     month: int = Query(..., ge=1, le=12),
     year: int = Query(..., ge=2024, le=2030),
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Hole Monatsplan fuer einen bestimmten Monat."""
     import calendar
@@ -1268,7 +1300,7 @@ def get_month_schedule(
 def copy_shift_to_week(
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Kopiert eine Schicht auf alle Werktage derselben Woche."""
     schedule_id = data.get('schedule_id')
@@ -1336,7 +1368,7 @@ def copy_shift_to_week(
 def repeat_shift(
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Wiederholt eine Schicht woechentlich bis zum Enddatum."""
     schedule_id = data.get('schedule_id')
@@ -1406,7 +1438,7 @@ def repeat_shift(
 def check_schedule_conflicts(
     week_start: str = None,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Prüfe auf Konflikte im Dienstplan"""
     
@@ -1469,7 +1501,7 @@ def check_schedule_conflicts(
 # ===== RESTLICHE ENDPOINTS BLEIBEN UNVERÄNDERT =====
 
 @router.post("/employees")
-def create_employee(employee_data: dict, db: Session = Depends(get_db)):
+def create_employee(employee_data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     # Neuen User erstellen
     user = User(
         email=employee_data.get('email'),
@@ -1490,12 +1522,18 @@ def create_employee(employee_data: dict, db: Session = Depends(get_db)):
         is_active=True
     )
     db.add(employee)
+    db.flush()
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, employee.id, 'employee_created',
+        entity_type='employee', entity_id=employee.id,
+        new_value={"name": f"{employee.first_name} {employee.last_name}", "personal_nr": employee.personal_nr, "email": user.email, "stundensatz": employee.hourly_rate},
+        details=f"Mitarbeiter angelegt: {employee.first_name} {employee.last_name} ({employee.personal_nr})")
     db.commit()
     return {"status": "success", "message": "Mitarbeiter erstellt"}
 
 
 @router.post("/employees/{employee_id:int}/reset-password")
-def reset_employee_password(employee_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def reset_employee_password(employee_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Admin setzt Passwort eines MA auf 'seda2026' zurueck."""
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
     if not employee:
@@ -1507,6 +1545,10 @@ def reset_employee_password(employee_id: int, db: Session = Depends(get_db), adm
     temp_password = "seda2026"
     user.password_hash = get_password_hash(temp_password)
     user.must_change_password = True
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, employee.id, 'password_reset',
+        entity_type='user', entity_id=user.id,
+        details=f"Passwort zurueckgesetzt: {employee.first_name} {employee.last_name} ({employee.personal_nr})")
     db.commit()
 
     return {
@@ -1517,10 +1559,11 @@ def reset_employee_password(employee_id: int, db: Session = Depends(get_db), adm
 
 
 @router.put("/employees/{employee_id:int}")
-def update_employee_by_id(employee_id: int, employee_data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def update_employee_by_id(employee_id: int, employee_data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
+    old_hourly_rate = employee.hourly_rate
     if 'first_name' in employee_data:
         employee.first_name = employee_data['first_name']
     if 'last_name' in employee_data:
@@ -1537,20 +1580,37 @@ def update_employee_by_id(employee_id: int, employee_data: dict, db: Session = D
         employee.employment_type = employee_data['employment_type']
     if 'gps_required' in employee_data:
         employee.gps_required = bool(employee_data['gps_required'])
+    if 'enforce_min_duration' in employee_data:
+        employee.enforce_min_duration = bool(employee_data['enforce_min_duration'])
     if 'is_active' in employee_data:
         employee.is_active = bool(employee_data['is_active'])
         if employee.user:
             employee.user.is_active = bool(employee_data['is_active'])
     if 'email' in employee_data and employee.user:
         employee.user.email = employee_data['email']
+    from app.services.booking_service import log_audit
+    if 'hourly_rate' in employee_data and old_hourly_rate != employee.hourly_rate:
+        log_audit(db, admin.id, employee.id, 'hourly_rate_changed',
+            entity_type='employee', entity_id=employee.id,
+            old_value={"stundensatz": old_hourly_rate},
+            new_value={"stundensatz": employee.hourly_rate},
+            details=f"Stundensatz geaendert: {employee.first_name} {employee.last_name}, {old_hourly_rate} -> {employee.hourly_rate} EUR")
+    changed = {k: employee_data[k] for k in employee_data if k != 'hourly_rate'}
+    if changed:
+        log_audit(db, admin.id, employee.id, 'employee_updated',
+            entity_type='employee', entity_id=employee.id,
+            old_value={"name": f"{employee.first_name} {employee.last_name}"},
+            new_value=changed,
+            details=f"Mitarbeiter geaendert: {employee.first_name} {employee.last_name} ({employee.personal_nr}), Felder: {', '.join(changed.keys())}")
     db.commit()
     return {"status": "success", "message": "Mitarbeiter aktualisiert"}
 
 @router.put("/employees/{personal_nr}")
-def update_employee(personal_nr: str, employee_data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def update_employee(personal_nr: str, employee_data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     employee = db.query(Employee).filter(Employee.personal_nr == personal_nr).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
+    old_hourly_rate = employee.hourly_rate
     if 'first_name' in employee_data:
         employee.first_name = employee_data['first_name']
     if 'last_name' in employee_data:
@@ -1567,18 +1627,34 @@ def update_employee(personal_nr: str, employee_data: dict, db: Session = Depends
         employee.employment_type = employee_data['employment_type']
     if 'gps_required' in employee_data:
         employee.gps_required = bool(employee_data['gps_required'])
+    if 'enforce_min_duration' in employee_data:
+        employee.enforce_min_duration = bool(employee_data['enforce_min_duration'])
     if 'is_active' in employee_data:
         employee.is_active = bool(employee_data['is_active'])
         if employee.user:
             employee.user.is_active = bool(employee_data['is_active'])
     if 'email' in employee_data and employee.user:
         employee.user.email = employee_data['email']
+    from app.services.booking_service import log_audit
+    if 'hourly_rate' in employee_data and old_hourly_rate != employee.hourly_rate:
+        log_audit(db, admin.id, employee.id, 'hourly_rate_changed',
+            entity_type='employee', entity_id=employee.id,
+            old_value={"stundensatz": old_hourly_rate},
+            new_value={"stundensatz": employee.hourly_rate},
+            details=f"Stundensatz geaendert: {employee.first_name} {employee.last_name}, {old_hourly_rate} -> {employee.hourly_rate} EUR")
+    changed = {k: employee_data[k] for k in employee_data if k != 'hourly_rate'}
+    if changed:
+        log_audit(db, admin.id, employee.id, 'employee_updated',
+            entity_type='employee', entity_id=employee.id,
+            old_value={"name": f"{employee.first_name} {employee.last_name}"},
+            new_value=changed,
+            details=f"Mitarbeiter geaendert: {employee.first_name} {employee.last_name} ({employee.personal_nr}), Felder: {', '.join(changed.keys())}")
     db.commit()
     return {"status": "success", "message": "Mitarbeiter aktualisiert"}
 
 # OBJEKT-VERWALTUNG
 @router.get("/objects")
-def get_all_objects(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_all_objects(db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Alle Objekte mit Kundennamen abrufen"""
     objects = db.query(Object).filter(Object.is_active == True).all()
     result = []
@@ -1596,7 +1672,7 @@ def get_all_objects(db: Session = Depends(get_db), admin = Depends(verify_admin)
     return result
 
 @router.post("/objects")
-def create_object(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def create_object(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Neues Objekt anlegen"""
     new_object = Object(
         name=data["name"],
@@ -1607,11 +1683,17 @@ def create_object(data: dict, db: Session = Depends(get_db), admin = Depends(ver
         is_active=True
     )
     db.add(new_object)
+    db.flush()
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, None, 'object_created',
+        entity_type='object', entity_id=new_object.id,
+        new_value={"name": new_object.name, "adresse": new_object.address or "", "kunde_id": new_object.customer_id},
+        details=f"Objekt angelegt: {new_object.name}")
     db.commit()
     return {"status": "ok", "id": new_object.id}
 
 @router.put("/objects/{object_id}")
-def update_object(object_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def update_object(object_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Objekt bearbeiten"""
     obj = db.query(Object).filter(Object.id == object_id).first()
     if not obj:
@@ -1623,12 +1705,18 @@ def update_object(object_id: int, data: dict, db: Session = Depends(get_db), adm
         obj.address = data["address"]
     if "cleaning_type" in data:
         obj.cleaning_type = data["cleaning_type"]
-    
+    if "is_active" in data:
+        obj.is_active = data["is_active"]
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, None, 'object_updated',
+        entity_type='object', entity_id=obj.id,
+        new_value=data,
+        details=f"Objekt geaendert: {obj.name}, Felder: {', '.join(data.keys())}")
     db.commit()
     return {"status": "ok"}
 
 @router.get("/customers")
-def get_all_customers(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_all_customers(db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Alle Kunden abrufen inkl. Jahresumsatz."""
     from sqlalchemy import func
     current_year = datetime.now().year
@@ -1664,7 +1752,7 @@ def get_all_customers(db: Session = Depends(get_db), admin = Depends(verify_admi
 
 
 @router.post("/customers")
-def create_customer(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def create_customer(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Neuen Kunden anlegen."""
     name = data.get('name', '').strip()
     if not name:
@@ -1688,12 +1776,17 @@ def create_customer(data: dict, db: Session = Depends(get_db), admin = Depends(v
             is_active=True,
         )
         db.add(obj)
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, None, 'customer_created',
+        entity_type='customer', entity_id=customer.id,
+        new_value={"name": customer.name},
+        details=f"Kunde angelegt: {customer.name}")
     db.commit()
     return {"id": customer.id, "name": customer.name, "status": "created"}
 
 
 @router.put("/customers/{customer_id}")
-def update_customer(customer_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def update_customer(customer_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Kunden aktualisieren (Name, Adresse, is_active)."""
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
@@ -1712,6 +1805,11 @@ def update_customer(customer_id: int, data: dict, db: Session = Depends(get_db),
                 Object.customer_id == customer_id,
                 Object.id != 999,  # Urlaub-Objekt nicht anfassen
             ).update({"is_active": False})
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, None, 'customer_updated',
+        entity_type='customer', entity_id=customer.id,
+        new_value=data,
+        details=f"Kunde geaendert: {customer.name}, Felder: {', '.join(data.keys())}")
     db.commit()
     return {"status": "ok", "id": customer.id}
 
@@ -1720,7 +1818,7 @@ def update_customer(customer_id: int, data: dict, db: Session = Depends(get_db),
 def get_objects_for_display(
     include_special: bool = Query(False),
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Objekte fuer AdminDashboard Anzeige. Filtert Urlaub/Krank-Objekte raus."""
     query = db.query(Object).filter(Object.is_active == True)
@@ -1742,7 +1840,7 @@ def get_objects_for_display(
     ]
 
 @router.get("/objects/{object_id}/standard-times")
-def get_object_standard_times(object_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_object_standard_times(object_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Sollstunden pro Wochentag fuer ein Objekt abrufen."""
     entries = db.query(ObjectStandardTime).filter(
         ObjectStandardTime.object_id == object_id
@@ -1757,7 +1855,7 @@ def get_object_standard_times(object_id: int, db: Session = Depends(get_db), adm
 
 
 @router.put("/objects/{object_id}/standard-times")
-async def set_object_standard_times(object_id: int, request: Request, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+async def set_object_standard_times(object_id: int, request: Request, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Sollstunden pro Wochentag fuer ein Objekt setzen. Loescht alte und erstellt neue."""
     data = await request.json()
     # Objekt pruefen
@@ -1798,7 +1896,7 @@ async def set_object_standard_times(object_id: int, request: Request, db: Sessio
 
 
 @router.put("/objects/{object_id}")
-def update_object(object_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def update_object(object_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Objekt aktualisieren (Name, Adresse, is_active)."""
     obj = db.query(Object).filter(Object.id == object_id).first()
     if not obj:
@@ -1814,12 +1912,12 @@ def update_object(object_id: int, data: dict, db: Session = Depends(get_db), adm
 
 
 @router.get("/test-objects")
-def get_test_objects(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_test_objects(db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """Test-Endpoint für Objekte"""
     objects = db.query(Object).all()
     return [{"id": o.id, "name": o.name, "address": o.address} for o in objects]
 @router.get("/bookings/all")
-def get_all_bookings(db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def get_all_bookings(db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     from app.models.models import TimeEntry, Employee, Object, VacationEntitlement, BreakEntry
     entries = db.query(TimeEntry).order_by(TimeEntry.check_in.desc()).limit(1000).all()
     result = []
@@ -1887,14 +1985,18 @@ def get_all_bookings(db: Session = Depends(get_db), admin = Depends(verify_admin
     return result
 
 @router.put("/bookings/{booking_id}")
-def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    from app.models.models import TimeEntry
+def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
+    from app.models.models import TimeEntry, Employee
     from datetime import datetime
     
     entry = db.query(TimeEntry).filter(TimeEntry.id == booking_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Buchung nicht gefunden")
-    
+
+    emp = db.query(Employee).filter(Employee.id == entry.employee_id).first()
+    emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(entry.employee_id)
+    old_vals = {"datum": entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?', "stundensatz": entry.hourly_rate, "stunden": entry.billed_hours}
+
     # Update Felder
     if 'check_in' in data:
         entry.check_in = datetime.fromisoformat(data['check_in'].replace('Z', '+00:00'))
@@ -1929,12 +2031,19 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
             "UPDATE km_daily_entries SET date = :new_date WHERE time_entry_id = :te_id"
         ), {"new_date": new_date, "te_id": booking_id})
 
+    from app.services.booking_service import log_audit
+    new_vals = {"datum": entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?', "stundensatz": entry.hourly_rate, "stunden": entry.billed_hours}
+    log_audit(db, admin.id, entry.employee_id, 'booking_updated',
+        entity_type='time_entry', entity_id=booking_id,
+        old_value=old_vals, new_value=new_vals,
+        details=f"Buchung geaendert: {emp_name}, ID {booking_id}")
+
     db.commit()
     return {"status": "ok", "message": "Buchung aktualisiert"}
 
 @router.delete("/bookings/{booking_id}")
-def delete_booking(booking_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    from app.models.models import TimeEntry
+def delete_booking(booking_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
+    from app.models.models import TimeEntry, Employee, Object
     from sqlalchemy import text
 
     entry = db.query(TimeEntry).filter(TimeEntry.id == booking_id).first()
@@ -1972,13 +2081,23 @@ def delete_booking(booking_id: int, db: Session = Depends(get_db), admin = Depen
     # Break-Einträge mitlöschen (Foreign Key auf time_entries)
     db.execute(text("DELETE FROM break_entries WHERE time_entry_id = :tid"), {"tid": booking_id})
 
+    from app.services.booking_service import log_audit
+    emp = db.query(Employee).filter(Employee.id == entry.employee_id).first()
+    emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(entry.employee_id)
+    obj = db.query(Object).filter(Object.id == entry.object_id).first() if entry.object_id else None
+    obj_name = obj.name if obj else (entry.custom_object_name or '?')
+    log_audit(db, admin.id, entry.employee_id, 'booking_deleted',
+        entity_type='time_entry', entity_id=booking_id,
+        old_value={"datum": entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?', "stunden": entry.billed_hours, "stundensatz": entry.hourly_rate, "objekt": obj_name},
+        details=f"Buchung geloescht: {emp_name}, {entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?'}, {entry.billed_hours}h, {obj_name}")
+
     db.delete(entry)
     db.commit()
     return {"status": "ok", "km_deleted": km_deleted}
 
 @router.post("/bookings/bulk-delete")
-def bulk_delete_bookings(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
-    from app.models.models import TimeEntry
+def bulk_delete_bookings(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
+    from app.models.models import TimeEntry, Employee
     from sqlalchemy import text
 
     ids = data.get('ids', [])
@@ -2017,12 +2136,21 @@ def bulk_delete_bookings(data: dict, db: Session = Depends(get_db), admin = Depe
     # Break-Einträge mitlöschen (Foreign Key auf time_entries)
     db.execute(text("DELETE FROM break_entries WHERE time_entry_id IN :ids"), {"ids": tuple(ids)})
 
+    from app.services.booking_service import log_audit
+    for entry in entries:
+        emp = db.query(Employee).filter(Employee.id == entry.employee_id).first()
+        emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(entry.employee_id)
+        log_audit(db, admin.id, entry.employee_id, 'booking_deleted',
+            entity_type='time_entry', entity_id=entry.id,
+            old_value={"datum": entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?', "stunden": entry.billed_hours, "stundensatz": entry.hourly_rate},
+            details=f"Buchung geloescht (Bulk): {emp_name}, {entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?'}, {entry.billed_hours}h")
+
     deleted = db.query(TimeEntry).filter(TimeEntry.id.in_(ids)).delete(synchronize_session=False)
     db.commit()
     return {"deleted": deleted}
 
 @router.post("/bookings/manual")
-def create_manual_booking(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def create_manual_booking(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     from app.models.models import TimeEntry, Employee, Object
     from datetime import datetime
     
@@ -2093,10 +2221,20 @@ def create_manual_booking(data: dict, db: Session = Depends(get_db), admin = Dep
     db.commit()
     db.refresh(entry)
 
+    from app.services.booking_service import log_audit
+    emp = db.query(Employee).filter(Employee.id == data['employee_id']).first()
+    emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(data['employee_id'])
+    obj_name = custom_object_name or (obj.name if data.get('object_id') and obj else '?')
+    log_audit(db, admin.id, data['employee_id'], 'booking_created',
+        entity_type='time_entry', entity_id=entry.id,
+        new_value={"datum": entry.check_in.strftime('%d.%m.%Y'), "zeit": f"{data.get('check_in_time','?')}-{data.get('check_out_time','?')}", "stunden": entry.billed_hours, "stundensatz": hourly_rate, "objekt": obj_name, "typ": service_type},
+        details=f"Buchung erstellt: {emp_name}, {entry.check_in.strftime('%d.%m.%Y')}, {entry.billed_hours}h, {obj_name}")
+    db.commit()
+
     return {"status": "ok", "message": "Buchung erstellt", "id": entry.id, "vacation_rate_used": hourly_rate if (service_type == 'Urlaub' or data.get('object_id') == 999) else None}
 
 @router.post("/km/manual")
-def create_manual_km(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+def create_manual_km(data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin_or_objektleiter)):
     """KM-Eintrag manuell erstellen (nach manueller Buchung)"""
     from sqlalchemy import text
 
@@ -2192,7 +2330,7 @@ class BulkPDFRequest(BaseModel):
 def generate_zeitnachweis_pdf(
     request: PDFRequest,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Generiert Zeitnachweis-PDF für einen Mitarbeiter"""
     try:
@@ -2219,7 +2357,7 @@ def generate_zeitnachweis_pdf(
 def generate_kilometer_pdf(
     request: PDFRequest,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Generiert Kilometer-PDF für einen Mitarbeiter"""
     try:
@@ -2245,7 +2383,7 @@ def generate_kilometer_pdf(
 def generate_komplett_pdf(
     request: PDFRequest,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Generiert Zeitnachweis + Kilometer als ZIP"""
     try:
@@ -2291,7 +2429,7 @@ def generate_komplett_pdf(
 def generate_bulk_pdfs(
     request: BulkPDFRequest,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Generiert PDFs für mehrere Mitarbeiter als ZIP"""
     try:
@@ -2337,7 +2475,7 @@ def generate_bulk_pdfs(
 @router.get("/employees-for-pdf")
 def get_employees_for_pdf(
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Gibt Liste aller Mitarbeiter für PDF-Dropdown zurück"""
     from app.models.models import Employee
@@ -2357,7 +2495,7 @@ def get_employees_for_pdf(
 @router.get("/km-journal/all")
 def get_all_km_entries(
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Holt alle KM-Einträge für Journal"""
     from sqlalchemy import text
@@ -2387,7 +2525,7 @@ def get_all_km_entries(
 def add_km_entry(
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Fuegt manuellen KM-Eintrag hinzu mit auto Laengste-Fahrt-Berechnung."""
     from sqlalchemy import text
@@ -2426,6 +2564,11 @@ def add_km_entry(
                 WHERE id = :id
             """), {"longest": is_longest, "id": entry[0]})
 
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, emp_id, 'km_entry_created',
+        entity_type='km_daily_entries', entity_id=None,
+        new_value={"datum": booking_date, "km": distance_km, "objekt_id": data.get("object_id")},
+        details=f"KM-Eintrag angelegt: {distance_km} km am {booking_date}")
     db.commit()
     return {"status": "ok", "message": f"{distance_km} km eingetragen"}
 
@@ -2433,12 +2576,18 @@ def add_km_entry(
 def delete_km_entry(
     entry_id: int,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Löscht KM-Eintrag"""
     from sqlalchemy import text
-    
+    old = db.execute(text("SELECT employee_id, date, distance_km FROM km_daily_entries WHERE id = :id"), {"id": entry_id}).fetchone()
     db.execute(text("DELETE FROM km_daily_entries WHERE id = :id"), {"id": entry_id})
+    from app.services.booking_service import log_audit
+    if old:
+        log_audit(db, admin.id, old[0], 'km_entry_deleted',
+            entity_type='km_daily_entries', entity_id=entry_id,
+            old_value={"datum": str(old[1]), "km": float(old[2])},
+            details=f"KM-Eintrag geloescht: {old[2]} km am {old[1]}")
     db.commit()
     return {"status": "ok"}
 
@@ -2446,7 +2595,7 @@ def delete_km_entry(
 def bulk_delete_km_entries(
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Löscht mehrere KM-Einträge auf einmal"""
     from sqlalchemy import text
@@ -2455,6 +2604,11 @@ def bulk_delete_km_entries(
     if not ids:
         return {"status": "ok", "deleted": 0}
 
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, None, 'km_entries_bulk_deleted',
+        entity_type='km_daily_entries',
+        old_value={"anzahl": len(ids), "ids": ids},
+        details=f"KM-Eintraege geloescht: {len(ids)} Stueck")
     db.execute(text("DELETE FROM km_daily_entries WHERE id = ANY(:ids)"), {"ids": ids})
     db.commit()
     return {"status": "ok", "deleted": len(ids)}
@@ -2604,7 +2758,7 @@ def update_km_entry(
     distance_km: float = Query(...),
     date: str = Query(None),
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """KM-Eintrag bearbeiten (KM + optional Datum)"""
     from sqlalchemy import text
@@ -2631,6 +2785,11 @@ def update_km_entry(
             WHERE id = :id
         """), {"id": entry_id, "km": distance_km, "amount": round(distance_km * 0.30, 2)})
 
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, None, 'km_entry_updated',
+        entity_type='km_daily_entries', entity_id=entry_id,
+        new_value={"km": distance_km, "datum": date} if date else {"km": distance_km},
+        details=f"KM-Eintrag geaendert: {distance_km} km" + (f", Datum: {date}" if date else ""))
     db.commit()
     return {"message": "KM aktualisiert", "new_km": distance_km, "new_amount": round(distance_km * 0.30, 2)}
 
@@ -2640,7 +2799,7 @@ def get_schedule_for_booking(
     object_id: int,
     date: str,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Lädt Dienstplan-Daten für manuelle Buchung"""
     from datetime import datetime
@@ -3082,6 +3241,42 @@ def zeitkonto_abschliessen(
     }
 
 
+@router.get("/auth-log")
+def get_auth_log(
+    limit: int = 200,
+    admin = Depends(verify_admin),
+    db: Session = Depends(get_db)
+):
+    """Login-Protokoll aus auth.log lesen"""
+    import os as _os, re as _re
+    log_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))), "logs", "auth.log")
+    if not _os.path.exists(log_path):
+        return []
+    entries = []
+    pattern = _re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ (\w+) .+?: Login (erfolgreich|fehlgeschlagen): (.+)$')
+    with open(log_path, 'r') as f:
+        for line in f:
+            m = pattern.match(line.strip())
+            if not m:
+                continue
+            timestamp, level, result, details = m.groups()
+            info = {}
+            for part in details.split(', '):
+                if '=' in part:
+                    k, v = part.split('=', 1)
+                    info[k] = v
+            entries.append({
+                "timestamp": timestamp,
+                "success": result == "erfolgreich",
+                "email": info.get("email", ""),
+                "name": info.get("name", ""),
+                "personal_nr": info.get("personal_nr", ""),
+                "role": info.get("role", ""),
+                "ip": info.get("ip", ""),
+            })
+    return entries[-limit:][::-1]
+
+
 # ========== V3.0 ENDPOINTS ==========
 
 @router.get("/audit-log")
@@ -3089,13 +3284,15 @@ def get_audit_log(
     start_date: str = None,
     end_date: str = None,
     employee_id: int = None,
+    user_id: int = None,
     action: str = None,
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Audit-Log mit Filtern."""
+    import json as _json
     from app.models.models import AuditLog
     query = db.query(AuditLog)
 
@@ -3113,10 +3310,28 @@ def get_audit_log(
             pass
     if employee_id:
         query = query.filter(AuditLog.employee_id == employee_id)
+    if user_id:
+        query = query.filter(AuditLog.user_id == user_id)
     if action:
         query = query.filter(AuditLog.action.ilike(f"%{action}%"))
 
     logs = query.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()
+
+    # User-Cache fuer Performance
+    user_cache = {}
+    def get_user_info(uid):
+        if uid is None:
+            return None, None
+        if uid not in user_cache:
+            u = db.query(User).filter(User.id == uid).first()
+            if u:
+                emp = db.query(Employee).filter(Employee.user_id == u.id).first()
+                name = f"{emp.first_name} {emp.last_name}" if emp else u.email
+                role = u.role.value if hasattr(u.role, 'value') else str(u.role)
+                user_cache[uid] = (name, role)
+            else:
+                user_cache[uid] = (None, None)
+        return user_cache[uid]
 
     result = []
     for log in logs:
@@ -3125,15 +3340,35 @@ def get_audit_log(
             emp = db.query(Employee).filter(Employee.id == log.employee_id).first()
             emp_name = f"{emp.first_name} {emp.last_name}" if emp else None
 
+        changed_by_name, changed_by_role = get_user_info(log.user_id)
+
+        # old_value / new_value parsen
+        old_val = None
+        new_val = None
+        try:
+            if log.old_value:
+                old_val = _json.loads(log.old_value)
+        except Exception:
+            old_val = log.old_value
+        try:
+            if log.new_value:
+                new_val = _json.loads(log.new_value)
+        except Exception:
+            new_val = log.new_value
+
         result.append({
             "id": log.id,
             "action": log.action,
             "employee_id": log.employee_id,
             "employee_name": emp_name,
+            "user_id": log.user_id,
+            "changed_by": changed_by_name,
+            "changed_by_role": changed_by_role,
             "entity_type": log.entity_type,
             "entity_id": log.entity_id,
+            "old_value": old_val,
+            "new_value": new_val,
             "details": log.details,
-            "ip_address": log.ip_address,
             "created_at": log.created_at.isoformat() if log.created_at else None,
         })
 
@@ -3145,7 +3380,7 @@ def mark_employee_sick(
     employee_id: int,
     data: dict,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """S3: Admin markiert MA als krank. Schichten werden auf 'krank' gesetzt."""
     from app.models.models import AuditLog
@@ -3203,7 +3438,7 @@ def mark_employee_sick(
 @router.get("/open-items")
 def get_open_items(
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Alle offenen Punkte fuer den Admin."""
     from app.models.models import PushNotification, CorrectionRequest, MonthlyConfirmation, ShiftChangeRequest
@@ -3373,7 +3608,7 @@ def resolve_open_item(
     item_id: int,
     data: dict,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Offenen Punkt als erledigt markieren."""
     from app.models.models import PushNotification, CorrectionRequest, AuditLog as AuditLogModel
@@ -3446,7 +3681,7 @@ def resend_monthly_confirmation(
     employee_id: int,
     data: dict = None,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Monatsbestaetigung erneut senden nach Admin-Korrektur."""
     from app.models.models import MonthlyConfirmation as MC, KmDailyEntry
@@ -3529,7 +3764,7 @@ def resend_monthly_confirmation(
 @router.get("/open-items/resolved")
 def get_resolved_items(
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Erledigte offene Punkte (letzte 7 Tage)."""
     from app.models.models import PushNotification, CorrectionRequest, ShiftChangeRequest
@@ -3594,7 +3829,7 @@ def get_resolved_items(
 @router.get("/assignments")
 def get_all_assignments(
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Alle Employee-Object-Assignments."""
     from app.models.models import EmployeeObjectAssignment
@@ -3626,7 +3861,7 @@ def get_all_assignments(
 def create_assignment(
     data: dict,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Neue Zuweisung erstellen."""
     from app.models.models import EmployeeObjectAssignment
@@ -3650,7 +3885,7 @@ def update_assignment(
     assignment_id: int,
     data: dict,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Zuweisung aendern."""
     from app.models.models import EmployeeObjectAssignment
@@ -3734,7 +3969,7 @@ def update_push_settings(
 def get_shift_requests(
     status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Alle Schichtaenderungsanfragen (optional nach Status filtern)."""
     q = db.query(ShiftChangeRequest).order_by(ShiftChangeRequest.created_at.desc())
@@ -3771,7 +4006,7 @@ def process_shift_request(
     request_id: int,
     data: dict,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Schichtaenderungsanfrage genehmigen/ablehnen."""
     sr = db.query(ShiftChangeRequest).filter(ShiftChangeRequest.id == request_id).first()
@@ -3840,7 +4075,7 @@ def cleanup_test_data(
 def get_sick_notes(
     status: str = None,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Alle Krankmeldungen (Admin)."""
     from app.models.models import SickNote
@@ -3874,7 +4109,7 @@ def get_sick_notes(
 def create_sick_note(
     data: dict,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Admin erstellt Krankmeldung manuell."""
     from app.models.models import SickNote
@@ -3924,7 +4159,7 @@ def update_sick_note(
     note_id: int,
     data: dict,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Krankmeldung bestaetigen, ablehnen, stornieren oder Daten aendern."""
     from app.models.models import SickNote, TimeEntry
@@ -4044,7 +4279,7 @@ def _revert_sick_note(db: Session, note):
 def delete_sick_note(
     note_id: int,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """Krankmeldung komplett loeschen."""
     from app.models.models import SickNote
@@ -4070,7 +4305,7 @@ def delete_sick_note(
 def get_sick_note_photo(
     note_id: int,
     db: Session = Depends(get_db),
-    admin: User = Depends(verify_admin)
+    admin: User = Depends(verify_admin_or_objektleiter)
 ):
     """AU-Foto herunterladen."""
     from app.models.models import SickNote
@@ -5598,7 +5833,7 @@ def lexware_export(
 def get_pending_bookings(
     status_filter: str = "offen",
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Alle ausstehenden Buchungen fuer Admin-Genehmigung."""
     query = """
@@ -5684,7 +5919,7 @@ def get_pending_bookings(
 @router.get("/pending-bookings/count")
 def get_pending_bookings_count(
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Anzahl offener Genehmigungen fuer Badge."""
     result = db.execute(text(
@@ -5698,7 +5933,7 @@ def approve_pending_booking(
     booking_id: int,
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Buchung genehmigen: Erstellt echten TimeEntry + optional KM."""
     import random
@@ -5808,6 +6043,23 @@ def approve_pending_booking(
         except Exception as e:
             print(f"KM-Berechnung fehlgeschlagen: {e}")
     else:
+        # Prüfe auf bestehende Buchungen am selben Tag
+        force = data.get("force", False)
+        existing_entries = db.execute(text("""
+            SELECT id, check_in, check_out, billed_hours FROM time_entries
+            WHERE employee_id = :emp_id AND object_id = :obj_id AND DATE(check_in) = :dt
+        """), {"emp_id": pb.employee_id, "obj_id": pb.object_id, "dt": pb.date}).fetchall()
+
+        if existing_entries and not force:
+            details = "; ".join([
+                f"{e.check_in.strftime('%H:%M') if hasattr(e.check_in, 'strftime') else str(e.check_in)[:5]}-"
+                f"{e.check_out.strftime('%H:%M') if e.check_out and hasattr(e.check_out, 'strftime') else (str(e.check_out)[:5] if e.check_out else 'offen')} "
+                f"({e.billed_hours}h)"
+                for e in existing_entries
+            ])
+            raise HTTPException(status_code=409,
+                detail=f"Fuer diesen Tag existiert bereits eine Buchung: {details}. Trotzdem eintragen?")
+
         # Bestehende Logik: neue TimeEntry erstellen
         te_result = db.execute(text("""
             INSERT INTO time_entries
@@ -5874,6 +6126,12 @@ def approve_pending_booking(
         "admin_id": admin.id,
     })
 
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, pb.employee_id, 'booking_approved',
+        entity_type='pending_booking', entity_id=booking_id,
+        new_value={"datum": str(pb.date), "stunden": approved_hours, "stundensatz": hourly_rate, "typ": service_type},
+        details=f"Selbstbuchung genehmigt: ID {booking_id}, {approved_hours}h, {hourly_rate} EUR/h")
+
     db.commit()
 
     # Telegram-Benachrichtigung an MA
@@ -5917,7 +6175,7 @@ def reject_pending_booking(
     booking_id: int,
     data: dict,
     db: Session = Depends(get_db),
-    admin = Depends(verify_admin)
+    admin = Depends(verify_admin_or_objektleiter)
 ):
     """Buchung ablehnen."""
     pb = db.execute(text(
@@ -5940,6 +6198,12 @@ def reject_pending_booking(
         "notes": admin_notes,
         "admin_id": admin.id,
     })
+
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, pb.employee_id, 'booking_rejected',
+        entity_type='pending_booking', entity_id=booking_id,
+        details=f"Selbstbuchung abgelehnt: ID {booking_id}, Grund: {admin_notes}")
+
     db.commit()
 
     # Telegram-Benachrichtigung an MA
@@ -5967,3 +6231,90 @@ def reject_pending_booking(
         print(f"Telegram-Benachrichtigung (reject) fehlgeschlagen: {e}")
 
     return {"status": "ok", "message": "Rückfrage gestellt"}
+
+
+# ─── Telegram-Log ────────────────────────────────────────────────────────────
+
+@router.get("/telegram-log")
+def get_telegram_log(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    employee_id: Optional[int] = None,
+    notification_type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = Query(default=200, le=1000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    admin=Depends(verify_admin)
+):
+    query = db.query(PushNotification, Employee).join(
+        Employee, PushNotification.employee_id == Employee.id
+    )
+
+    if date_from:
+        query = query.filter(PushNotification.created_at >= datetime.fromisoformat(date_from))
+    if date_to:
+        dt_to = datetime.fromisoformat(date_to)
+        # Bis Ende des Tages
+        if dt_to.hour == 0 and dt_to.minute == 0:
+            dt_to = dt_to.replace(hour=23, minute=59, second=59)
+        query = query.filter(PushNotification.created_at <= dt_to)
+    if employee_id:
+        query = query.filter(PushNotification.employee_id == employee_id)
+    if notification_type:
+        query = query.filter(PushNotification.notification_type == notification_type)
+    if status:
+        if status == "responded":
+            query = query.filter(PushNotification.response_status.isnot(None))
+        else:
+            query = query.filter(PushNotification.status == status)
+
+    total = query.count()
+    rows = query.order_by(PushNotification.created_at.desc()).offset(offset).limit(limit).all()
+
+    results = []
+    for pn, emp in rows:
+        results.append({
+            "id": pn.id,
+            "created_at": pn.created_at.isoformat() if pn.created_at else None,
+            "employee_name": f"{emp.first_name} {emp.last_name}",
+            "personal_nr": emp.personal_nr,
+            "employee_id": emp.id,
+            "notification_type": pn.notification_type,
+            "title": pn.title,
+            "body": pn.body,
+            "channel": pn.channel,
+            "status": pn.status,
+            "response_status": pn.response_status,
+            "response_data": pn.response_data,
+            "sent_at": pn.sent_at.isoformat() if pn.sent_at else None,
+            "responded_at": pn.responded_at.isoformat() if pn.responded_at else None,
+            "schedule_id": pn.schedule_id,
+        })
+
+    return {"total": total, "items": results}
+
+
+@router.get("/telegram-log/stats")
+def get_telegram_log_stats(
+    db: Session = Depends(get_db),
+    admin=Depends(verify_admin)
+):
+    since = datetime.now() - timedelta(days=7)
+    base = db.query(PushNotification).filter(PushNotification.created_at >= since)
+
+    total_7d = base.count()
+    sent = base.filter(PushNotification.status == "sent").count()
+    failed = base.filter(PushNotification.status == "failed").count()
+    no_chat_id = base.filter(PushNotification.status == "no_chat_id").count()
+    expired = base.filter(PushNotification.status == "expired").count()
+    responded = base.filter(PushNotification.response_status.isnot(None)).count()
+
+    return {
+        "total_7d": total_7d,
+        "sent": sent,
+        "failed": failed,
+        "no_chat_id": no_chat_id,
+        "expired": expired,
+        "responded": responded,
+    }
