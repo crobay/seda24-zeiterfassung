@@ -168,6 +168,7 @@ const Dashboard = () => {
   };
   const [loadingCategory, setLoadingCategory] = useState(true);
   const [hasCAssignments, setHasCAssignments] = useState(false);
+  const [dataLoadFailed, setDataLoadFailed] = useState(false);
   const [employeeTachoData, setEmployeeTachoData] = useState(null);
     
   const [isPaused, setIsPaused] = useState(false);
@@ -338,23 +339,43 @@ const Dashboard = () => {
       setColleagues([]);
     }
   };
+    setLoadingCategory(true);
+    // FIX 1b: /my-category mit 3 Versuchen, 2s Abstand
+    let category = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await axios.get(`${API_URL}/employees/my-category`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        category = response.data;
+        break;
+      } catch (error) {
+        console.error(`my-category Versuch ${attempt}/3 fehlgeschlagen:`, error);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+    // FIX 1a: zweite, unabhaengige Quelle fuer aktive C-Zuweisungen
+    let cObjCount = 0, cObjOk = false;
     try {
-      setLoadingCategory(true);
-      const response = await axios.get(`${API_URL}/employees/my-category`, {
+      const cRes = await axios.get(`${API_URL}/time-entries/my-c-objects`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      setEmployeeCategory(response.data.tracking_mode || 'C');
-      setEmployeeData(response.data);
-      setHasCAssignments(response.data.has_c_assignments || false);
-      console.log('Mitarbeiter-Kategorie:', response.data.tracking_mode);
-      console.log("Kategorie von Backend:", response.data);
-    } catch (error) {
-      console.error('Fehler beim Abrufen der Kategorie:', error);
-      setEmployeeCategory('C');
-    } finally {
-      setLoadingCategory(false);
+      cObjCount = (cRes.data || []).length;
+      cObjOk = true;
+    } catch (e) {
+      console.error('my-c-objects fehlgeschlagen:', e);
     }
+    if (category) {
+      setEmployeeCategory(category.tracking_mode || 'C');
+      setEmployeeData(category);
+    } else {
+      setEmployeeCategory('C');
+    }
+    // hasCAssignments aus BEIDEN Quellen (ODER): ein toter Call knipst die Uhr nicht aus
+    setHasCAssignments((category && category.has_c_assignments) || cObjCount > 0);
+    // FIX 1c: Datenfehler nur wenn BEIDE Quellen scheitern
+    setDataLoadFailed(!category && !cObjOk);
+    setLoadingCategory(false);
   };
 
   const loadScheduledObjects = async () => {
@@ -1128,6 +1149,25 @@ const Dashboard = () => {
     );
   }
 
+  // FIX 1c: Beide Datenquellen tot, aber es gibt heute eine Schicht -> klare Fehlerbox statt leerer Seite
+  if (dataLoadFailed && todayShifts.length > 0) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: '#1e3a5f' }}>
+        <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: 16, padding: 28, maxWidth: 380, width: '100%', textAlign: 'center', color: '#9a3412' }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
+          <div style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 8 }}>Daten konnten nicht geladen werden.</div>
+          <div style={{ fontSize: 15, marginBottom: 18, lineHeight: 1.5 }}>
+            Bitte App schließen und neu öffnen. Wenn es weiter nicht geht, melde dich bei Drazen.
+          </div>
+          <button onClick={() => { fetchEmployeeCategory(); loadTodayShifts(); }}
+            style={{ width: '100%', padding: 14, border: 'none', borderRadius: 10, background: '#f97316', color: '#fff', fontSize: 16, fontWeight: 'bold', cursor: 'pointer' }}>
+            Erneut versuchen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (employeeCategory === 'A') {
     return (
       <div className="min-h-screen" style={{ backgroundColor: '#1e3a5f' }}>
@@ -1269,7 +1309,9 @@ const Dashboard = () => {
 
 
   // KATEGORIE B: Schicht-Uebersicht + Push-Bestaetigung
-  if (employeeCategory === 'B') {
+  // FIX 2: Objektbezogene C-Zuweisung hat Vorrang vor Stammdaten-tracking_mode.
+  // B-Ansicht nur noch OHNE aktive C-Zuweisung; B+C faellt in die Stempel-(C-)Ansicht durch.
+  if (employeeCategory === 'B' && !hasCAssignments) {
     const openShifts = todayShifts.filter(s => s.status !== 'confirmed');
     return (
       <div className="min-h-screen" style={{ backgroundColor: '#1e3a5f' }}>
@@ -1704,7 +1746,7 @@ const Dashboard = () => {
 
             {/* Bie2 Stempeluhr fuer C-Zuweisungen */}
             {hasCAssignments && activeTab === 'stempeluhr' && (
-              <Bie2Stempeluhr token={token} onStatusChange={() => { fetchTodayHours(); fetchWeekHours(); fetchMonthHours(); }} onLogout={handleLogout} />
+              <Bie2Stempeluhr token={token} shiftsToday={todayShifts} onStatusChange={() => { fetchTodayHours(); fetchWeekHours(); fetchMonthHours(); }} onLogout={handleLogout} />
             )}
           </div>
 
@@ -1974,7 +2016,7 @@ const Dashboard = () => {
                     <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#1e3a5f' }}>{currentTime.toLocaleTimeString('de-DE')}</div>
                     <div style={{ fontSize: '15px', color: '#666' }}>{currentTime.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
                   </div>
-                  <Bie2Stempeluhr token={token} onStatusChange={() => { fetchTodayHours(); fetchWeekHours(); fetchMonthHours(); }} onLogout={handleLogout} />
+                  <Bie2Stempeluhr token={token} shiftsToday={todayShifts} onStatusChange={() => { fetchTodayHours(); fetchWeekHours(); fetchMonthHours(); }} onLogout={handleLogout} />
                 </>
               ) : (
                 <>

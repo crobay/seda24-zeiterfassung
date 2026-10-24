@@ -66,7 +66,7 @@ function saveOfflineState(state) {
 
 // ==================== Komponente ====================
 
-const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
+const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) => {
   const [cObjects, setCObjects] = useState([]);
   const [selectedObject, setSelectedObject] = useState(null);
   const [isWorking, setIsWorking] = useState(false);
@@ -81,6 +81,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
   const [error, setError] = useState(null);
   const [timerDisplay, setTimerDisplay] = useState('00:00:00');
   const [actionLoading, setActionLoading] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
 
   // Heute gebucht (NUR server-bestaetigte Eintraege)
   const [todayEntries, setTodayEntries] = useState([]);
@@ -214,6 +215,12 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
     }, 30000);
     return () => clearInterval(interval);
   }, [triggerSync]);
+
+  // FIX 3: Sekundentakt, damit der KOMMEN-Button genau zum Schichtbeginn aktiv wird
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   // ==================== Optimistic UI Update ====================
 
@@ -673,6 +680,19 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
 
   const currentObjectName = cObjects.find(o => o.id === (currentObjectId || selectedObject))?.name || '';
 
+  // FIX 3: KOMMEN erst ab geplantem Schichtbeginn (sonst ausgegraut + Hinweis). Ohne Dienstplan: aktiv.
+  void nowTick; // Re-Render-Trigger pro Sekunde
+  const _shiftStartObj = (shiftsToday || []).find(
+    s => s.object_id === (currentObjectId || selectedObject) && s.start_time
+  );
+  let beforeShiftStart = false, shiftStartHM = '';
+  if (_shiftStartObj && _shiftStartObj.start_time) {
+    const [sh, sm] = String(_shiftStartObj.start_time).split(':').map(Number);
+    const _startDt = new Date(); _startDt.setHours(sh, sm, 0, 0);
+    beforeShiftStart = new Date() < _startDt;
+    shiftStartHM = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
+  }
+
   return (
     <div style={{ marginTop: '16px' }}>
       {/* Header */}
@@ -875,13 +895,13 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
                 onClick={handleCheckIn}
-                disabled={actionLoading}
+                disabled={actionLoading || beforeShiftStart}
                 style={{
                   flex: 1, padding: '16px',
-                  background: actionLoading ? '#86efac' : '#16a34a',
+                  background: (actionLoading || beforeShiftStart) ? '#9ca3af' : '#16a34a',
                   color: 'white', fontSize: '18px', fontWeight: 'bold',
                   borderRadius: '12px', border: 'none',
-                  cursor: actionLoading ? 'wait' : 'pointer',
+                  cursor: beforeShiftStart ? 'not-allowed' : (actionLoading ? 'wait' : 'pointer'),
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px'
                 }}
               >
@@ -916,6 +936,12 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout }) => {
                 <Square size={22} /> GEHEN
               </button>
             </div>
+
+            {beforeShiftStart && (
+              <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '13px', color: '#6b7280' }}>
+                Einstempeln ab {shiftStartHM} möglich
+              </div>
+            )}
 
             <div style={{ textAlign: 'center', marginTop: '10px' }}>
               <button
