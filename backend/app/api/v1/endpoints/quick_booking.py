@@ -5,6 +5,7 @@ import random
 from app.db.database import get_db
 from app.models.models import Employee, Schedule, TimeEntry, Object
 from app.core.deps import get_current_user
+from app.api.v1.endpoints.time_entries import resolve_rate_and_service
 
 router = APIRouter()
 
@@ -48,6 +49,11 @@ async def quick_booking(
     check_in_time = datetime.combine(today, schedule.start_time) - timedelta(minutes=variation_start)
     check_out_time = datetime.combine(today, schedule.end_time) + timedelta(minutes=variation_end)
     
+    # Stundensatz bestimmen: Zuweisung hat Vorrang, sonst Standard
+    obj = db.query(Object).filter(Object.id == object_id).first()
+    obj_name = obj.name if obj and obj.name else ""
+    hourly_rate, service_type = resolve_rate_and_service(employee, object_id, obj_name, db)
+
     # Erstelle Zeiteintrag
     time_entry = TimeEntry(
         employee_id=employee.id,
@@ -55,20 +61,24 @@ async def quick_booking(
         check_in=check_in_time,
         check_out=check_out_time,
         is_manual_entry=True,
-        notes="War da - Kategorie B"
+        notes="War da - Kategorie B",
+        hourly_rate=hourly_rate
     )
-    
+
     db.add(time_entry)
-    
+
     # Falls mit Partner
     if with_partner and partner_id:
+        partner = db.query(Employee).filter(Employee.id == partner_id).first()
+        partner_rate, partner_service = resolve_rate_and_service(partner, object_id, obj_name, db) if partner else (hourly_rate, service_type)
         partner_entry = TimeEntry(
             employee_id=partner_id,
             object_id=object_id,
             check_in=check_in_time,
             check_out=check_out_time,
             is_manual_entry=True,
-            notes=f"War da - Partner von {employee.first_name}"
+            notes=f"War da - Partner von {employee.first_name}",
+            hourly_rate=partner_rate
         )
         db.add(partner_entry)
     

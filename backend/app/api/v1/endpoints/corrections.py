@@ -150,7 +150,7 @@ def process_correction(
     correction.status = update.status
     correction.admin_response = update.admin_response
     correction.processed_by = current_user.id
-    correction.processed_at = datetime.utcnow()
+    correction.processed_at = datetime.now()
     
     # Wenn genehmigt, führe die Änderung durch
     if update.status == "approved":

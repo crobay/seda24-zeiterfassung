@@ -48,12 +48,54 @@ def get_scheduled_end(employee_id: int, check_in: datetime, db) -> datetime:
 
 BIE2_OBJECT_ID = 20  # Lidl Neu Bie2
 
-def check_min_duration_bie2(employee_id: int, object_id: int, check_in_time: datetime, now: datetime, db):
-    """Prueft Mindest-Stempeldauer fuer Bie2 (object_id=20).
-    Gibt None zurueck wenn OK, sonst HTTPException mit Restzeit.
-    Nur wenn ein Dienstplan-Eintrag fuer diesen Tag + MA + Objekt existiert.
+def check_start_not_before_schedule_bie2(employee_id: int, object_id: int, stamp_time: datetime, db):
+    """KOMMEN-Sperre fuer Bie2 (object_id=20): Einstempeln vor dem geplanten
+    Schichtbeginn wird blockiert (keine Toleranz). Gibt None zurueck wenn OK,
+    sonst HTTPException. Nur wenn ein Dienstplan-Eintrag existiert UND
+    enforce_min_duration beim Mitarbeiter gesetzt ist. Ohne Dienstplan: keine Sperre.
     """
     if object_id != BIE2_OBJECT_ID:
+        return None
+
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee or not employee.enforce_min_duration:
+        return None
+
+    today = stamp_time.date()
+    schedule = db.query(Schedule).filter(
+        Schedule.employee_id == employee_id,
+        Schedule.object_id == object_id,
+        Schedule.date == today,
+        Schedule.start_time != None,
+    ).first()
+
+    if not schedule:
+        return None  # Kein Dienstplan → keine Sperre
+
+    scheduled_start = datetime.combine(today, schedule.start_time)
+    if stamp_time < scheduled_start:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Deine Schicht beginnt um {schedule.start_time.strftime('%H:%M')} - du kannst erst dann einstempeln."
+        )
+
+    return None
+
+
+def check_min_duration_bie2(employee_id: int, object_id: int, check_in_time: datetime, now: datetime, db):
+    """Prueft fruehestmoegliches Ausstempeln fuer Bie2 (object_id=20).
+    Ausstempeln erlaubt, sobald 80% der geplanten Dauer seit dem Kommen-Stempel
+    verstrichen sind (z.B. 3,5 Std -> ab 2 Std 48 Min). Gibt None zurueck wenn
+    OK, sonst HTTPException mit Restzeit.
+    Nur wenn ein Dienstplan-Eintrag fuer diesen Tag + MA + Objekt existiert
+    UND enforce_min_duration beim Mitarbeiter gesetzt ist.
+    """
+    if object_id != BIE2_OBJECT_ID:
+        return None
+
+    # Nur pruefen wenn enforce_min_duration beim MA gesetzt ist
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee or not employee.enforce_min_duration:
         return None
 
     today = check_in_time.date()
@@ -68,28 +110,101 @@ def check_min_duration_bie2(employee_id: int, object_id: int, check_in_time: dat
     if not schedule:
         return None  # Kein Dienstplan → keine Einschraenkung
 
-    # Geplante Dauer berechnen (end_time - start_time)
+    # Ausstempeln ist erlaubt, sobald 80% der geplanten Dauer seit dem Kommen-
+    # Stempel verstrichen sind. Beispiel Plan 3,5 Std -> ab 2 Std 48 Min.
     from datetime import datetime as dt
+    MIN_FRACTION = 0.8
     start_dt = dt.combine(today, schedule.start_time)
     end_dt = dt.combine(today, schedule.end_time)
+    if schedule.end_time < schedule.start_time:
+        end_dt += timedelta(days=1)  # Schicht ueber Mitternacht
     planned_seconds = (end_dt - start_dt).total_seconds()
     if planned_seconds <= 0:
-        return None  # Ungueltig → keine Einschraenkung
+        return None  # Ungueltiger Dienstplan → keine Einschraenkung
 
-    # Tatsaechliche Dauer seit Kommen
+    required_seconds = planned_seconds * MIN_FRACTION
     actual_seconds = (now - check_in_time).total_seconds()
-
-    if actual_seconds < planned_seconds:
-        remaining_seconds = planned_seconds - actual_seconds
-        remaining_min = math.ceil(remaining_seconds / 60)
-        planned_hours = planned_seconds / 3600
-        planned_str = f"{planned_hours:.1f}".replace('.', ',')
+    if actual_seconds < required_seconds:
+        remaining_min = math.ceil((required_seconds - actual_seconds) / 60)
+        req_h = int(required_seconds // 3600)
+        req_m = int(round((required_seconds % 3600) / 60))
         raise HTTPException(
             status_code=422,
-            detail=f"Noch nicht möglich zu gehen – noch {remaining_min} Min bis zur Mindestarbeitszeit ({planned_str} Std)."
+            detail=f"Noch nicht möglich zu gehen – erst nach 80% der geplanten Dauer "
+                   f"({req_h} Std {req_m:02d} Min seit Kommen), noch {remaining_min} Min."
         )
 
     return None
+
+
+def cap_billed_hours_bie2(employee_id: int, object_id: int, entry, billed_hours: float, db):
+    """Begrenzt billed_hours auf die geplante Dienstplan-Dauer fuer MA mit enforce_min_duration.
+    Bei >5min Ueberschreitung: cap_decision_needed=True, MA muss im Frontend entscheiden.
+    Bei <=5min: automatisch kappen, nur Hinweis.
+    """
+    if object_id != BIE2_OBJECT_ID:
+        return {"billed_hours": billed_hours, "capped": False}
+
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee or not employee.enforce_min_duration:
+        return {"billed_hours": billed_hours, "capped": False}
+
+    today = entry.check_in.date()
+    schedule = db.query(Schedule).filter(
+        Schedule.employee_id == employee_id,
+        Schedule.object_id == object_id,
+        Schedule.date == today,
+        Schedule.start_time != None,
+        Schedule.end_time != None
+    ).first()
+
+    if not schedule:
+        return {"billed_hours": billed_hours, "capped": False}
+
+    start_dt = datetime.combine(today, schedule.start_time)
+    end_dt = datetime.combine(today, schedule.end_time)
+    planned_seconds = (end_dt - start_dt).total_seconds()
+    if planned_seconds <= 0:
+        return {"billed_hours": billed_hours, "capped": False}
+
+    planned_hours = round(planned_seconds / 3600, 4)
+
+    if billed_hours <= planned_hours:
+        return {"billed_hours": billed_hours, "capped": False}
+
+    excess_hours = billed_hours - planned_hours
+    excess_minutes = round(excess_hours * 60)
+
+    planned_h = int(planned_hours)
+    planned_m = round((planned_hours - planned_h) * 60)
+    sched_str = f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}"
+
+    result = {
+        "billed_hours": planned_hours,
+        "capped": True,
+        "excess_minutes": excess_minutes,
+        "planned_hours": planned_hours,
+        "original_hours": billed_hours,
+        "schedule_str": sched_str,
+        "planned_h": planned_h,
+        "planned_m": planned_m,
+    }
+
+    if excess_minutes > 5:
+        # MA muss entscheiden — notes markieren fuer Crash-Recovery
+        entry.notes = (entry.notes or "") + f" [CAP_PENDING:{excess_minutes}:{planned_hours}:{sched_str}]"
+        result["cap_decision_needed"] = True
+        result["message"] = (
+            f"Du bist {excess_minutes} Minuten ueber deiner Schichtzeit ({sched_str})."
+        )
+    else:
+        # <=5min: automatisch kappen, nur Hinweis
+        result["cap_decision_needed"] = False
+        result["message"] = (
+            f"Gebucht: {planned_h} Std {planned_m:02d} Min (laut Dienstplan)."
+        )
+
+    return result
 
 
 def calculate_billed_hours_bie2(check_in_time, check_out_time, breaks_list):
@@ -380,6 +495,9 @@ async def check_in(
             detail="Du bist bereits eingestempelt. Bitte zuerst GEHEN drücken."
         )
 
+    # KOMMEN-Sperre: Einstempeln vor geplantem Schichtbeginn blockieren (Bie2)
+    check_start_not_before_schedule_bie2(employee.id, target_object_id, stamp_time, db)
+
     # Alte offene Einträge schließen (nur bei Nicht-C-Zuweisungen)
     for entry in old_entries:
         entry.check_out = stamp_time
@@ -572,12 +690,168 @@ def check_out(
             f"Netto={calc['netto_minutes']}min Pflichtpause={calc['pflichtpause_abzug']}min "
             f"Gerundet={calc['rounded_minutes']}min Abrechnung={calc['billed_hours']}h{offline_tag}")
 
+    # ========== Obergrenze: billed_hours auf Dienstplan begrenzen ==========
+    cap_message = None
+    cap = {"capped": False}
+    if active_entry.billed_hours and active_entry.billed_hours > 0:
+        try:
+            cap = cap_billed_hours_bie2(employee.id, active_entry.object_id, active_entry, active_entry.billed_hours, db)
+            if cap["capped"]:
+                active_entry.billed_hours = cap["billed_hours"]
+                cap_message = cap.get("message")
+                log_bie2("CAP", f"{employee.first_name} {employee.last_name}",
+                    db.query(Object).filter(Object.id == active_entry.object_id).first().name if active_entry.object_id else "?",
+                    f"Original={cap['original_hours']:.2f}h Gekappt={cap['billed_hours']:.2f}h "
+                    f"Ueberschreitung={cap['excess_minutes']}min")
+        except Exception as cap_err:
+            log_bie2("CAP_ERROR", f"{employee.first_name} {employee.last_name}",
+                str(active_entry.object_id), f"Capping fehlgeschlagen: {cap_err}")
+
     db.commit()
     # Tachometer aktualisieren
     update_total_hours(employee.id, db)
     db.refresh(active_entry)
 
-    return active_entry
+    # Response mit optionaler Meldung
+    response = {
+        "id": active_entry.id,
+        "employee_id": active_entry.employee_id,
+        "object_id": active_entry.object_id,
+        "check_in": active_entry.check_in.isoformat() if active_entry.check_in else None,
+        "check_out": active_entry.check_out.isoformat() if active_entry.check_out else None,
+        "gps_lat": active_entry.gps_lat,
+        "gps_lng": active_entry.gps_lng,
+        "is_manual_entry": active_entry.is_manual_entry,
+        "created_at": active_entry.created_at.isoformat() if active_entry.created_at else None,
+        "billed_hours": active_entry.billed_hours,
+        "service_type": active_entry.service_type,
+        "hourly_rate": active_entry.hourly_rate,
+        "notes": active_entry.notes,
+    }
+    if cap_message:
+        response["cap_message"] = cap_message
+    if cap and cap.get("cap_decision_needed"):
+        response["cap_decision_needed"] = True
+        response["cap_excess_minutes"] = cap["excess_minutes"]
+        response["cap_schedule_str"] = cap.get("schedule_str", "")
+        response["cap_planned_h"] = cap.get("planned_h", 0)
+        response["cap_planned_m"] = cap.get("planned_m", 0)
+    return response
+
+
+@router.get("/pending-cap")
+def get_pending_cap(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Prueft ob eine offene Cap-Entscheidung fuer diesen MA existiert (Crash-Recovery)."""
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    if not employee:
+        return {"pending": False}
+    entry = db.query(TimeEntry).filter(
+        TimeEntry.employee_id == employee.id,
+        TimeEntry.notes.like('%[CAP_PENDING:%'),
+        TimeEntry.check_out != None,
+    ).order_by(TimeEntry.id.desc()).first()
+    if not entry:
+        return {"pending": False}
+    # Parse CAP_PENDING marker: [CAP_PENDING:30:3.5:13:00-16:30]
+    import re
+    m = re.search(r'\[CAP_PENDING:(\d+):([\d.]+):([^\]]+)\]', entry.notes or "")
+    if not m:
+        return {"pending": False}
+    return {
+        "pending": True,
+        "entry_id": entry.id,
+        "excess_minutes": int(m.group(1)),
+        "planned_hours": float(m.group(2)),
+        "schedule_str": m.group(3),
+    }
+
+
+@router.post("/{entry_id}/cap-decision")
+def cap_decision(
+    entry_id: int,
+    data: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """MA entscheidet ueber Mehrzeit: accept_cap oder request_overtime."""
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
+
+    entry = db.query(TimeEntry).filter(
+        TimeEntry.id == entry_id,
+        TimeEntry.employee_id == employee.id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+
+    # CAP_PENDING auslesen
+    import re
+    m = re.search(r'\[CAP_PENDING:(\d+):([\d.]+):([^\]]+)\]', entry.notes or "")
+    if not m:
+        raise HTTPException(status_code=400, detail="Keine offene Cap-Entscheidung")
+
+    excess_minutes = int(m.group(1))
+    planned_hours = float(m.group(2))
+    sched_str = m.group(3)
+
+    choice = data.get("choice")  # "accept_cap" oder "request_overtime"
+    reason = data.get("reason", "")
+
+    # CAP_PENDING aus notes entfernen
+    entry.notes = re.sub(r'\s*\[CAP_PENDING:[^\]]+\]', '', entry.notes or "").strip() or None
+
+    if choice == "request_overtime":
+        if not reason or len(reason.strip()) < 10:
+            raise HTTPException(status_code=400, detail="Bitte Grund angeben (mind. 10 Zeichen)")
+        # Pending-Booking erstellen
+        excess_hours = excess_minutes / 60.0
+        from sqlalchemy import text as sa_text
+        schedule = db.query(Schedule).filter(
+            Schedule.employee_id == employee.id,
+            Schedule.object_id == entry.object_id,
+            Schedule.date == entry.check_in.date(),
+        ).first()
+        db.execute(sa_text("""
+            INSERT INTO pending_bookings
+                (employee_id, object_id, date, start_time, end_time,
+                 service_type, requested_hours, status, notes, hourly_rate,
+                 created_at, reason, related_time_entry_id)
+            VALUES
+                (:emp_id, :obj_id, :date, :start, :end,
+                 :stype, :hours, 'offen', :notes, :rate,
+                 NOW(), :reason, :te_id)
+        """), {
+            "emp_id": employee.id,
+            "obj_id": entry.object_id,
+            "date": entry.check_in.date(),
+            "start": schedule.start_time if schedule else None,
+            "end": schedule.end_time if schedule else None,
+            "stype": entry.service_type or "Reinigung",
+            "hours": round(excess_hours, 2),
+            "notes": f"Mehrzeit {excess_minutes} Min ({sched_str}): {reason.strip()}",
+            "rate": entry.hourly_rate or employee.hourly_rate or 0,
+            "reason": "mehrzeit_dienstplan",
+            "te_id": entry.id,
+        })
+        # Telegram an Admin
+        try:
+            from app.services.telegram_bot import notify_admin
+            emp_name = f"{employee.first_name} {employee.last_name}"
+            datum = entry.check_in.strftime("%d.%m.%Y")
+            notify_admin(
+                f"<b>Mehrzeit-Anfrage</b>\n"
+                f"{emp_name} ({employee.personal_nr})\n"
+                f"Datum: {datum}, Schicht: {sched_str}\n"
+                f"Mehrzeit: {excess_minutes} Min\n"
+                f"Grund: {reason.strip()}"
+            )
+        except Exception:
+            pass  # Telegram-Fehler soll nicht blockieren
+
+    db.commit()
+    return {"status": "ok", "choice": choice}
+
 
 @router.post("/switch-object", response_model=TimeEntryResponse)
 def switch_object(
@@ -848,6 +1122,10 @@ def war_anwesend_booking(
     obj_name = obj.name if obj else ""
     hourly_rate, service_type = resolve_rate_and_service(employee, object_id, obj_name, db)
 
+    # schedule_id aus Request oder DB-Lookup
+    req_schedule_id = data.get("schedule_id")
+    final_schedule_id = req_schedule_id or (schedule.id if schedule else None)
+
     time_entry = TimeEntry(
         employee_id=employee.id,
         object_id=object_id,
@@ -857,6 +1135,7 @@ def war_anwesend_booking(
         service_type=service_type,
         hourly_rate=hourly_rate,
         is_manual_entry=True,
+        schedule_id=final_schedule_id,
         notes=f"War anwesend (Kategorie B) - {service_type}"
     )
 
@@ -866,6 +1145,12 @@ def war_anwesend_booking(
     if colleague_id:
         colleague = db.query(Employee).filter(Employee.id == colleague_id).first()
         colleague_rate, colleague_service = resolve_rate_and_service(colleague, object_id, obj_name, db) if colleague else (hourly_rate, service_type)
+        # Schedule des Kollegen für dieses Objekt + Tag
+        colleague_schedule = db.query(Schedule).filter(
+            Schedule.employee_id == colleague_id,
+            Schedule.object_id == object_id,
+            Schedule.date == datetime.now().date()
+        ).first()
         colleague_entry = TimeEntry(
             employee_id=colleague_id,
             object_id=object_id,
@@ -875,6 +1160,7 @@ def war_anwesend_booking(
             service_type=colleague_service,
             hourly_rate=colleague_rate,
             is_manual_entry=True,
+            schedule_id=colleague_schedule.id if colleague_schedule else None,
             notes=f"Zu zweit mit {employee.first_name} {employee.last_name} - {colleague_service}"
         )
         db.add(colleague_entry)
@@ -1236,6 +1522,14 @@ def get_my_shifts_today(
         now = datetime.now().time()
         shift_ended = bool(s.end_time and now >= s.end_time)
 
+        # Prüfe ob dieses Objekt eine aktive C-Zuweisung hat (Bie2-Stempeluhr)
+        c_assignment = db.query(EmployeeObjectAssignment).filter(
+            EmployeeObjectAssignment.employee_id == employee.id,
+            EmployeeObjectAssignment.object_id == s.object_id,
+            EmployeeObjectAssignment.tracking_category == 'C',
+            EmployeeObjectAssignment.is_active == True,
+        ).first()
+
         result.append({
             "schedule_id": s.id,
             "object_id": s.object_id,
@@ -1249,6 +1543,7 @@ def get_my_shifts_today(
             "time_entry_id": time_entry.id if time_entry else None,
             "push_id": (push_open.id if push_open else None) or (push_declined.id if push_declined else None),
             "service_type": time_entry.service_type if time_entry and hasattr(time_entry, 'service_type') else None,
+            "has_c_assignment": bool(c_assignment),
         })
 
     return result
@@ -1932,6 +2227,21 @@ def catch_up_booking(
             raise HTTPException(status_code=400, detail=f"Maximale Dauer ist 12 Stunden. Dein Nachtrag ergibt {requested_hours:.1f}h — bitte Zeiten pruefen.")
 
         label = "Kommen vergessen" if catch_up_type == "kommen_vergessen" else "Beides vergessen"
+
+        # Duplikat-Schutz: identische Anfrage innerhalb 60s abweisen
+        recent_dup = db.execute(text("""
+            SELECT id FROM pending_bookings
+            WHERE employee_id = :emp_id AND object_id = :obj_id AND date = :dt
+              AND start_time = :st AND end_time = :et AND status = 'offen'
+              AND created_at > datetime('now', '-60 seconds')
+        """), {
+            "emp_id": employee.id, "obj_id": object_id,
+            "dt": dt_in.date(),
+            "st": dt_in.strftime("%H:%M"),
+            "et": dt_out.strftime("%H:%M"),
+        }).fetchone()
+        if recent_dup:
+            raise HTTPException(status_code=400, detail="Diese Anfrage wurde bereits eingereicht.")
 
         # In pending_bookings eintragen -> Admin muss genehmigen
         p_rate, p_service = resolve_rate_and_service(employee, object_id, obj_name, db)
