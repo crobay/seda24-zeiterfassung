@@ -100,6 +100,7 @@ class Object(Base):
     start_time = Column(Time)
     end_time = Column(Time)
     monthly_amount_netto = Column(Float, nullable=True)
+    ip_prefix = Column(String(32), nullable=True)  # Netz-Erkennung: Praefix der Objekt-Standleitung
     created_at = Column(DateTime, default=datetime.now)
 
     customer = relationship("Customer", back_populates="objects")
@@ -128,6 +129,7 @@ class TimeEntry(Base):
     client_id = Column(String(36), nullable=True)
     overdue_notified = Column(Boolean, default=False)
     server_received_at = Column(DateTime, nullable=True)
+    client_ip = Column(String(45), nullable=True)  # erkannte Client-IP beim Stempeln (Journal)
     created_at = Column(DateTime, default=datetime.now)
 
     employee = relationship("Employee", back_populates="time_entries")

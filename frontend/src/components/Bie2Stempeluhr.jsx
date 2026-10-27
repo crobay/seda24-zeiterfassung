@@ -94,6 +94,9 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   const [syncMessage, setSyncMessage] = useState(null);
   const syncingRef = useRef(false);
 
+  // Netz-Erkennung: kommt der Request aus dem Objektnetz (Lidl-WLAN) oder Mobilfunk?
+  const [netStatus, setNetStatus] = useState(null); // { at_object, client_ip, object_name }
+
   // Quick-Gehen (ohne Kommen)
   const [showQuickGehen, setShowQuickGehen] = useState(false);
   const [quickGehenKommenZeit, setQuickGehenKommenZeit] = useState('');
@@ -111,6 +114,28 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   const [catchupLoading, setCatchupLoading] = useState(false);
   const [catchupMessage, setCatchupMessage] = useState(null);
   const [catchupReason, setCatchupReason] = useState('');
+
+  // Netz-Status pollen: sagt ob wir ueber das Objektnetz (Lidl-WLAN) kommen
+  useEffect(() => {
+    let cancelled = false;
+    const objId = currentObjectId || selectedObject || 20;
+    const fetchNet = async () => {
+      if (!navigator.onLine) { if (!cancelled) setNetStatus(null); return; }
+      try {
+        const res = await axios.get(`${API_URL}/time-entries/network-status`, {
+          params: { object_id: objId },
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 8000,
+        });
+        if (!cancelled) setNetStatus(res.data);
+      } catch (e) {
+        if (!cancelled) setNetStatus(null); // unbekannt -> Balken nicht anzeigen
+      }
+    };
+    fetchNet();
+    const iv = setInterval(fetchNet, 30000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [token, isOnline, selectedObject, currentObjectId]);
   const [myCatchups, setMyCatchups] = useState([]);
 
   // Overdue-Warnung
@@ -695,6 +720,29 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
 
   return (
     <div style={{ marginTop: '16px' }}>
+      {/* Netz-Anzeige: Lidl-WLAN (gruen) vs. Mobilfunk (orange) */}
+      {netStatus && (
+        netStatus.at_object ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            background: '#dcfce7', color: '#166534', border: '1px solid #86efac',
+            borderRadius: '10px', padding: '8px 12px', marginBottom: '8px',
+            fontSize: '13px', fontWeight: 600
+          }}>
+            <Wifi size={16} /> Lidl-WLAN
+          </div>
+        ) : (
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: '8px',
+            background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74',
+            borderRadius: '10px', padding: '8px 12px', marginBottom: '8px',
+            fontSize: '13px', fontWeight: 600
+          }}>
+            <WifiOff size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+            <span>Kein Lidl-WLAN, Verbindung über Mobilfunk. Im Putzraum ins WLAN welcome@lidl wechseln und die Lidl-Seite im Browser bestätigen.</span>
+          </div>
+        )
+      )}
       {/* Header */}
       <div style={{
         background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',

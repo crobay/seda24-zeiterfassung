@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from datetime import time
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
@@ -15,6 +15,25 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.services.bie2_logger import log_bie2
 
 router = APIRouter()
+
+
+def get_client_ip(request: Request):
+    """Echte Client-IP hinter Plesk/nginx (2 Proxy-Hops).
+
+    request.client.host ist immer 127.0.0.1. Die echte IP steht in
+    X-Forwarded-For als erste (komma-getrennte) Adresse; der interne Hop
+    (z.B. 81.169.181.6) haengt dahinter. Belegt per Live-Test 27.10.2026.
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    xri = request.headers.get("x-real-ip")
+    if xri and xri.strip():
+        return xri.strip()
+    return request.client.host if request.client else None
+
 
 # ========== Bie2 Hilfsfunktionen ==========
 
@@ -431,19 +450,44 @@ def resolve_rate_and_service(employee, object_id, object_name, db):
     service = custom_service if custom_service is not None else get_service_type_for_object(object_name)
     return rate, service
 
+@router.get("/network-status")
+def network_status(
+    request: Request,
+    object_id: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Sagt dem Frontend, ob der Request aus dem Objektnetz kommt.
+
+    Logik: erkannte Client-IP beginnt mit objects.ip_prefix des Objekts.
+    """
+    client_ip = get_client_ip(request)
+    obj = db.query(Object).filter(Object.id == object_id).first()
+    prefix = (obj.ip_prefix or "").strip() if obj else ""
+    at_object = bool(prefix and client_ip and client_ip.startswith(prefix))
+    return {
+        "at_object": at_object,
+        "client_ip": client_ip,
+        "object_id": object_id,
+        "object_name": obj.name if obj else None,
+    }
+
+
 @router.post("/check-in")
 async def awr_anwesend(
     object_data: dict,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Kategorie B - War anwesend Button"""
     # Rufe einfach check_in auf
-    return await check_in(object_data, db, current_user)
+    return await check_in(object_data, db, current_user, client_ip=get_client_ip(request))
 async def check_in(
     data: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    client_ip: str = None
 ):
     # Employee finden oder erstellen
     employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
@@ -513,6 +557,7 @@ async def check_in(
             object_id=object_id,
             check_in=stamp_time,
             client_id=client_id,
+            client_ip=client_ip,
             server_received_at=datetime.now()
         )
         db.add(time_entry)
@@ -563,6 +608,7 @@ async def check_in(
 
 @router.post("/check-out")
 def check_out(
+    request: Request,
     data: dict = Body(default={}),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -613,6 +659,7 @@ def check_out(
     # Setze check_out Zeit
     active_entry.check_out = stamp_time
     active_entry.server_received_at = datetime.now()
+    active_entry.client_ip = get_client_ip(request)
 
     # hourly_rate + service_type aus Zuweisung (Vorrang) oder Stammblatt setzen
     obj = db.query(Object).filter(Object.id == active_entry.object_id).first()
