@@ -1,19 +1,26 @@
 #!/bin/bash
-echo "Stoppe ALLE Services..."
-pkill -9 -f uvicorn
-pkill -9 -f "npm run dev"
+# Startet das Zeiterfassung-Backend ueber systemd neu.
+# Kein pkill/nohup mehr - der Dienst laeuft als systemd-Unit zeiterfassung-backend.
+# HTTPS/SSL (Plesk/nginx) wird NICHT angefasst.
+# Hinweis: ggf. mit sudo ausfuehren (systemctl braucht Root-Rechte).
 
-sleep 2
+SERVICE=zeiterfassung-backend
 
-echo "Starte Backend auf Port 8001..."
-cd /var/www/vhosts/seda.de/app.seda.de/zeiterfassung/backend
-source venv/bin/activate
-nohup uvicorn app.main:app --host 0.0.0.0 --port 8001 > backend.log 2>&1 &
-
-echo "Starte Frontend..."
-cd /var/www/vhosts/seda.de/app.seda.de/zeiterfassung/frontend
-nohup npm run dev > frontend.log 2>&1 &
+echo "Starte $SERVICE neu (systemd)..."
+systemctl restart "$SERVICE"
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo "FEHLER: 'systemctl restart $SERVICE' lieferte Exit-Code $rc (Rechte? bitte mit sudo ausfuehren)."
+fi
 
 sleep 3
-echo "Services laufen. Backend: 8001, Frontend: 5173"
-netstat -tlpn | grep -E "8001|5173"
+
+if systemctl is-active --quiet "$SERVICE"; then
+    echo "OK: $SERVICE ist sauber oben (active)."
+    systemctl --no-pager -n 3 status "$SERVICE" | sed -n '1,3p'
+    exit 0
+else
+    echo "FEHLER: $SERVICE ist NICHT aktiv!"
+    systemctl --no-pager -n 15 status "$SERVICE"
+    exit 1
+fi
