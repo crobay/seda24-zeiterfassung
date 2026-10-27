@@ -464,7 +464,12 @@ def network_status(
     client_ip = get_client_ip(request)
     obj = db.query(Object).filter(Object.id == object_id).first()
     prefix = (obj.ip_prefix or "").strip() if obj else ""
-    at_object = bool(prefix and client_ip and client_ip.startswith(prefix))
+    # Kein ip_prefix am Objekt -> keine Netz-Aussage (None) -> Frontend zeigt KEINEN Balken
+    # (weder gruen noch orange). Nur Objekte mit hinterlegtem Prefix (z.B. Bie2) bekommen ihn.
+    if not prefix:
+        at_object = None
+    else:
+        at_object = bool(client_ip and client_ip.startswith(prefix))
     return {
         "at_object": at_object,
         "client_ip": client_ip,

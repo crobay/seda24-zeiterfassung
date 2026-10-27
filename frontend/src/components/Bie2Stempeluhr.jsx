@@ -133,7 +133,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       }
     };
     fetchNet();
-    const iv = setInterval(fetchNet, 30000);
+    const iv = setInterval(fetchNet, 10000);
     return () => { cancelled = true; clearInterval(iv); };
   }, [token, isOnline, selectedObject, currentObjectId]);
   const [myCatchups, setMyCatchups] = useState([]);
@@ -721,7 +721,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   return (
     <div style={{ marginTop: '16px' }}>
       {/* Netz-Anzeige: Lidl-WLAN (gruen) vs. Mobilfunk (orange) */}
-      {netStatus && (
+      {netStatus && netStatus.at_object != null && (
         netStatus.at_object ? (
           <div style={{
             display: 'flex', alignItems: 'center', gap: '8px',
