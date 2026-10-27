@@ -1183,7 +1183,7 @@ const Dashboard = () => {
                   {employeeData?.name || 'Mitarbeiter'}
                 </div>
                 <div style={{ color: '#e2e8f0', fontSize: '12px' }}>
-                  Pers.Nr: {employeeData?.personal_nr || '-'}
+                  {employeeData?.personal_nr ? ('Pers.Nr: ' + employeeData.personal_nr) : ''}
                 </div>
               </div>
               <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -1327,7 +1327,7 @@ const Dashboard = () => {
                   {employeeData?.name || 'Mitarbeiter'}
                 </div>
                 <div style={{ color: '#e2e8f0', fontSize: '12px' }}>
-                  Pers.Nr: {employeeData?.personal_nr || '-'}
+                  {employeeData?.personal_nr ? ('Pers.Nr: ' + employeeData.personal_nr) : ''}
                 </div>
               </div>
               <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -1987,7 +1987,7 @@ const Dashboard = () => {
                 {employeeData?.name || 'Mitarbeiter'}
               </div>
               <div style={{ color: '#e2e8f0', fontSize: '12px' }}>
-                Pers.Nr: {employeeData?.personal_nr || '-'}
+                {employeeData?.personal_nr ? ('Pers.Nr: ' + employeeData.personal_nr) : ''}
               </div>
             </div>
             <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
