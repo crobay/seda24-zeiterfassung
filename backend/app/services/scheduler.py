@@ -818,6 +818,62 @@ def finalize_due_vacation_rates(db=None, commit=True):
             db.close()
 
 
+def _job_last_run(db, job_name):
+    from sqlalchemy import text
+    row = db.execute(text("SELECT last_run_at FROM job_runs WHERE job_name = :n"), {"n": job_name}).fetchone()
+    return row[0] if row else None
+
+
+def _mark_job_run(db, job_name, when):
+    from sqlalchemy import text
+    db.execute(text("""
+        INSERT INTO job_runs (job_name, last_run_at) VALUES (:n, :t)
+        ON CONFLICT (job_name) DO UPDATE SET last_run_at = EXCLUDED.last_run_at
+    """), {"n": job_name, "t": when})
+
+
+def run_due_catchup_jobs():
+    """Nachhol-Verhalten fuer enge Cron-Jobs (MemoryJobStore verliert sie bei Neustart).
+    Haengt am 15-Min-Job check_overdue_entries - KEIN eigener APScheduler-Job.
+
+    Je Job max. 1x pro Periode: laeuft nur, wenn der letzte faellige Cron-Termin vorbei
+    ist UND seit diesem Termin noch nicht gelaufen (job_runs.last_run_at). Holt damit einen
+    wegen Neustart verpassten Termin nach, ohne je doppelt zu laufen.
+    """
+    now = datetime.now()
+    db = SessionLocal()
+    try:
+        # --- Wochen-Job: update_vacation_rates_weekly, faellig Sonntag 02:00 ---
+        days_since_sun = (now.weekday() - 6) % 7          # Mo=0..So=6
+        last_sun = (now - timedelta(days=days_since_sun)).replace(hour=2, minute=0, second=0, microsecond=0)
+        if last_sun > now:
+            last_sun -= timedelta(days=7)
+        lr = _job_last_run(db, 'update_vacation_rates_weekly')
+        if lr is None or lr < last_sun:
+            logger.info(f"run_due_catchup_jobs: hole update_vacation_rates_weekly nach (faellig seit {last_sun})")
+            update_vacation_rates_weekly()                # eigene Session + commit
+            _mark_job_run(db, 'update_vacation_rates_weekly', now)
+            db.commit()
+
+        # --- Monats-Job: auto_fill_monthly_revenues, faellig 1. des Monats 06:00 ---
+        first_this = now.replace(day=1, hour=6, minute=0, second=0, microsecond=0)
+        if first_this > now:
+            last_first = (now.replace(day=1) - timedelta(days=1)).replace(day=1, hour=6, minute=0, second=0, microsecond=0)
+        else:
+            last_first = first_this
+        lr2 = _job_last_run(db, 'auto_fill_monthly_revenues')
+        if lr2 is None or lr2 < last_first:
+            logger.info(f"run_due_catchup_jobs: hole auto_fill_monthly_revenues nach (faellig seit {last_first})")
+            auto_fill_monthly_revenues()
+            _mark_job_run(db, 'auto_fill_monthly_revenues', now)
+            db.commit()
+    except Exception as ex:
+        logger.error(f"run_due_catchup_jobs Fehler: {ex}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
+
+
 def notify_pending_approvals():
     """Job 10: Telegram-Benachrichtigung an Admin bei offenen Genehmigungen."""
     from sqlalchemy import text
@@ -870,6 +926,13 @@ def check_overdue_entries():
         finalize_due_vacation_rates()
     except Exception as _e:
         logger.error(f"finalize_due_vacation_rates (Hook) Fehler: {_e}", exc_info=True)
+
+    # Verpasste enge Cron-Jobs nachholen (Wochen-/Monats-Job). Idempotent via job_runs,
+    # kein eigener APScheduler-Job. Fehler duerfen die Ueberfaelligkeitspruefung nicht blockieren.
+    try:
+        run_due_catchup_jobs()
+    except Exception as _e:
+        logger.error(f"run_due_catchup_jobs (Hook) Fehler: {_e}", exc_info=True)
 
     db = SessionLocal()
     try:
