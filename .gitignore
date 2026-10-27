@@ -26,6 +26,8 @@ backend.log
 *.bak
 *_backup*
 *.sql
+# Ausnahme: unsere versionierten Migrations-/Rollback-Skripte (keine DB-Dumps)
+!backend/scripts/*.sql
 
 # Node
 node_modules/
