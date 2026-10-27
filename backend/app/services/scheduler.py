@@ -14,6 +14,13 @@ from app.services import push_service
 
 logger = logging.getLogger(__name__)
 
+# --- TEMPORAERE TEST-AUSNAHME (2026-10-21) ---------------------------------
+# auto_book_category_a ueberspringt diese Employee-IDs (Manuell-Stempel-Test).
+# Zum Entfernen: Liste leeren -> AUTO_BOOK_SKIP_EMPLOYEE_IDS = set()
+# Enthaelt: 4 = D0002 Ruzica Sertic
+AUTO_BOOK_SKIP_EMPLOYEE_IDS = {4}
+# ---------------------------------------------------------------------------
+
 scheduler = BackgroundScheduler()
 
 
@@ -346,6 +353,9 @@ def auto_book_category_a():
         ).all()
 
         for sched in schedules:
+            if sched.employee_id in AUTO_BOOK_SKIP_EMPLOYEE_IDS:
+                logger.info(f"auto_book_category_a: Employee {sched.employee_id} per TEST-SKIP-Liste uebersprungen")
+                continue
             if not sched.end_time:
                 continue
 
@@ -722,6 +732,92 @@ def update_vacation_rates_weekly():
         db.close()
 
 
+def _vacation_rate_for(db, employee_id, ref_date):
+    """§ 11 BUrlG: Ø-Verdienst pro Arbeitstag im 13-Wochen-Fenster
+    [ref_date-91d, ref_date). Identische Formel wie update_vacation_rates_weekly."""
+    from sqlalchemy import func as sqlfunc
+    start_date = ref_date - timedelta(days=91)
+    entries = db.query(TimeEntry).filter(
+        TimeEntry.employee_id == employee_id,
+        TimeEntry.object_id != 999,
+        sqlfunc.date(TimeEntry.check_in) >= start_date,
+        sqlfunc.date(TimeEntry.check_in) < ref_date,
+        TimeEntry.check_out != None,
+    ).all()
+    daily = {}
+    for e in entries:
+        d = e.check_in.date()
+        daily[d] = daily.get(d, 0) + (e.billed_hours or 0) * float(e.hourly_rate or 0)
+    worked_days = len(daily)
+    if worked_days == 0:
+        return 0.0
+    return round(sum(daily.values()) / worked_days, 2)
+
+
+def finalize_due_vacation_rates(db=None, commit=True):
+    """Bestimmt den Urlaubstagessatz FAELLIGER Urlaubstage (Urlaubsbeginn erreicht), die
+    noch den Provisorik-Marker tragen (hourly_rate < 0). § 11 BUrlG: ein Satz je Antrag,
+    13-Wochen-Fenster bis zum ERSTEN Urlaubstag des Antrags, ausgewertet erst wenn dieser
+    erreicht ist (nicht am Genehmigungstag).
+
+    HARTE GARANTIE: Es werden ausschliesslich Zeilen mit hourly_rate < 0 angefasst.
+    Alle bereits bewerteten Urlaubstage (Satz >= 0, inkl. aller Altdaten) bleiben
+    unveraendert. Idempotent -> mehrfaches Aufrufen ist gefahrlos.
+
+    Haengt am 15-Min-Job check_overdue_entries (kein eigener APScheduler-Job) und ist
+    zusaetzlich mit db=... / commit=False manuell bzw. als Trockenlauf anstossbar.
+    """
+    import re
+    own = db is None
+    if own:
+        db = SessionLocal()
+    try:
+        today = date.today()
+        offen = db.query(TimeEntry).filter(
+            TimeEntry.object_id == 999,
+            TimeEntry.service_type == 'Urlaub',
+            TimeEntry.hourly_rate < 0,
+        ).all()
+        # Je Antrag gruppieren (#<id> aus notes; Fallback: eigene Zeile)
+        gruppen = {}
+        for e in offen:
+            m = re.search(r'#(\d+)', e.notes or '')
+            key = (e.employee_id, m.group(1) if m else f"row{e.id}")
+            gruppen.setdefault(key, []).append(e)
+        geaendert = 0
+        for (emp_id, _), rows in gruppen.items():
+            start = min(r.check_in.date() for r in rows)
+            if start > today:
+                continue  # Urlaubsbeginn noch nicht erreicht -> warten (richtiger Zeitpunkt)
+            rate = _vacation_rate_for(db, emp_id, start)
+            if rate <= 0:
+                # Fallback: Referenzwert aus vacation_entitlements des Urlaubsjahres
+                from app.models.models import VacationEntitlement
+                ent = db.query(VacationEntitlement).filter(
+                    VacationEntitlement.employee_id == emp_id,
+                    VacationEntitlement.year == start.year,
+                ).first()
+                rate = round(ent.vacation_rate, 2) if ent and ent.vacation_rate and ent.vacation_rate > 0 else 0.0
+            if rate <= 0:
+                continue  # keine Datenbasis -> Marker bleibt, naechster Lauf versucht erneut
+            for r in rows:
+                r.hourly_rate = rate
+                r.notes = (r.notes or "") + f" | Satz {rate:.2f}EUR am {today.isoformat()} bestimmt"
+                geaendert += 1
+        if commit:
+            db.commit()
+        logger.info(f"finalize_due_vacation_rates: {geaendert} faellige Urlaubstage bewertet")
+        return geaendert
+    except Exception as ex:
+        logger.error(f"finalize_due_vacation_rates Fehler: {ex}", exc_info=True)
+        if commit:
+            db.rollback()
+        raise
+    finally:
+        if own:
+            db.close()
+
+
 def notify_pending_approvals():
     """Job 10: Telegram-Benachrichtigung an Admin bei offenen Genehmigungen."""
     from sqlalchemy import text
@@ -767,6 +863,14 @@ def check_overdue_entries():
     Job 11: Alle 15 Min - Prueft offene Stempel gegen Schichtende.
     60+ Min ueberfaellig → Telegram an Admin (einmalig).
     """
+    # Faellige Urlaubstage bewerten (idempotent, eigene Session, nur hourly_rate < 0).
+    # Haengt hier, damit KEIN eigener APScheduler-Job noetig ist (MemoryJobStore verliert
+    # Jobs bei Neustart). Fehler duerfen die Ueberfaelligkeitspruefung nicht blockieren.
+    try:
+        finalize_due_vacation_rates()
+    except Exception as _e:
+        logger.error(f"finalize_due_vacation_rates (Hook) Fehler: {_e}", exc_info=True)
+
     db = SessionLocal()
     try:
         now = datetime.now()
@@ -789,16 +893,61 @@ def check_overdue_entries():
                 emp_name = f"{employee.first_name} {employee.last_name}" if employee else f"ID {entry.employee_id}"
                 personal_nr = employee.personal_nr if employee else "?"
 
+                # --- Admin-Benachrichtigung ---
+                admin_msg = (f"⚠️ Ueberfaellig: {emp_name} ({personal_nr}) ist seit "
+                             f"{entry.check_in.strftime('%d.%m. %H:%M')} eingestempelt. "
+                             f"Schichtende war {scheduled_end.strftime('%H:%M')}. Bitte pruefen.")
+                pn_status_admin = 'sent'
+                pn_error_admin = None
                 try:
                     from app.services.telegram_bot import notify_admin
-                    notify_admin(
-                        f"⚠️ Ueberfaellig: {emp_name} ({personal_nr}) ist seit "
-                        f"{entry.check_in.strftime('%d.%m. %H:%M')} eingestempelt. "
-                        f"Schichtende war {scheduled_end.strftime('%H:%M')}. Bitte pruefen."
-                    )
+                    notify_admin(admin_msg)
                     notified_count += 1
                 except Exception as tg_err:
                     logger.error(f"check_overdue_entries: Telegram-Fehler fuer {emp_name}: {tg_err}")
+                    pn_status_admin = 'failed'
+                    pn_error_admin = str(tg_err)[:500]
+
+                pn_admin = PushNotification(
+                    employee_id=entry.employee_id,
+                    notification_type='overdue_admin',
+                    title='Ueberfaellige Stempelung (Admin)',
+                    body=admin_msg,
+                    channel='telegram',
+                    status=pn_status_admin,
+                    response_data=pn_error_admin,
+                    sent_at=now if pn_status_admin == 'sent' else None,
+                )
+                db.add(pn_admin)
+
+                # --- MA-Benachrichtigung ---
+                ma_msg = (f"Hallo {employee.first_name if employee else ''}, du bist seit "
+                          f"{entry.check_in.strftime('%H:%M')} eingestempelt, "
+                          f"deine Schicht war bis {scheduled_end.strftime('%H:%M')} geplant. "
+                          f"Falls du schon gegangen bist: kurz die App oeffnen, "
+                          f"dann wird deine Zeit uebertragen. https://app.seda.de")
+                pn_status_ma = 'no_chat_id'
+                pn_error_ma = None
+                if employee and getattr(employee, 'telegram_chat_id', None):
+                    try:
+                        from app.services.telegram_bot import send_message_sync
+                        send_message_sync(employee.telegram_chat_id, ma_msg)
+                        pn_status_ma = 'sent'
+                    except Exception as tg_err:
+                        pn_status_ma = 'failed'
+                        pn_error_ma = str(tg_err)[:500]
+
+                pn_ma = PushNotification(
+                    employee_id=entry.employee_id,
+                    notification_type='overdue_ma',
+                    title='Ueberfaellige Stempelung',
+                    body=ma_msg,
+                    channel='telegram',
+                    status=pn_status_ma,
+                    response_data=pn_error_ma,
+                    sent_at=now if pn_status_ma == 'sent' else None,
+                )
+                db.add(pn_ma)
 
                 entry.overdue_notified = True
 
@@ -818,8 +967,9 @@ def check_overdue_entries():
 def check_missing_stamps():
     """
     Job 12: Alle 15 Min - Prueft ob Kat-C-Mitarbeiter laut Dienstplan eingeteilt sind,
-    aber noch keine Stempelung vorliegt (>1h nach Schichtbeginn).
-    Meldet fehlende Stempel per Telegram an Admin.
+    aber noch keine Stempelung vorliegt.
+    30 Min nach Schichtbeginn: MA per Telegram benachrichtigen (einmalig).
+    60 Min nach Schichtbeginn: Admin per Telegram benachrichtigen (einmalig).
     Nachtruhe: 21:00-06:00.
     """
     from sqlalchemy import text
@@ -830,11 +980,10 @@ def check_missing_stamps():
             return
 
         today = now.date()
+        changed = False
 
-        rows = db.execute(text("""
-            SELECT s.id, s.employee_id, s.object_id, s.start_time, s.end_time,
-                   e.first_name, e.last_name, e.personal_nr,
-                   o.name as object_name
+        # Gemeinsame Bedingungen (ohne Zeitfenster und ohne notified-Flag)
+        base_sql = """
             FROM schedules s
             JOIN employees e ON e.id = s.employee_id AND e.is_active = TRUE
             JOIN objects o ON o.id = s.object_id
@@ -845,10 +994,8 @@ def check_missing_stamps():
                  AND eoa.tracking_category = 'C'
             WHERE s.date = :today
               AND s.object_id = 20
-              AND s.no_stamp_notified = FALSE
               AND s.start_time IS NOT NULL
               AND s.status NOT IN ('krankheit', 'urlaub', 'abwesend')
-              AND (CAST(:today AS TIMESTAMP) + s.start_time + INTERVAL '1 hour') <= :now_ts
               AND NOT EXISTS (
                   SELECT 1 FROM time_entries te
                   WHERE te.employee_id = s.employee_id
@@ -867,28 +1014,105 @@ def check_missing_stamps():
                     AND sn.status = 'confirmed'
                     AND :today BETWEEN sn.start_date AND sn.end_date
               )
+        """
+
+        # --- Durchlauf 1: MA-Benachrichtigung (30 Min nach Schichtbeginn) ---
+        ma_rows = db.execute(text("""
+            SELECT s.id, s.employee_id, s.object_id, s.start_time, s.end_time,
+                   e.first_name, e.last_name, e.personal_nr,
+                   o.name as object_name, e.telegram_chat_id
+        """ + base_sql + """
+              AND s.no_stamp_ma_notified = FALSE
+              AND (CAST(:today AS TIMESTAMP) + s.start_time + INTERVAL '30 minutes') <= :now_ts
         """), {"today": today, "now_ts": now}).fetchall()
 
-        for row in rows:
+        for row in ma_rows:
+            von = row.start_time.strftime('%H:%M') if row.start_time else '?'
+            msg_body = (f"Hallo {row.first_name}, laut Plan hast du heute um {von} "
+                        f"bei {row.object_name} angefangen - bei uns ist aber noch kein "
+                        f"Kommen angekommen. Falls du schon da bist: kurz die App "
+                        f"oeffnen und stempeln. https://app.seda.de")
+            pn_status = 'no_chat_id'
+            pn_error = None
+            if getattr(row, 'telegram_chat_id', None):
+                try:
+                    from app.services.telegram_bot import send_message_sync
+                    send_message_sync(row.telegram_chat_id, msg_body)
+                    pn_status = 'sent'
+                except Exception as tg_err:
+                    logger.error(f"check_missing_stamps: MA-Telegram-Fehler: {tg_err}")
+                    pn_status = 'failed'
+                    pn_error = str(tg_err)[:500]
+
+            pn = PushNotification(
+                employee_id=row.employee_id,
+                notification_type='missing_stamp_ma',
+                title='Fehlende Stempelung',
+                body=msg_body,
+                channel='telegram',
+                status=pn_status,
+                response_data=pn_error,
+                schedule_id=row.id,
+                sent_at=now if pn_status == 'sent' else None,
+            )
+            db.add(pn)
+
+            db.execute(text("UPDATE schedules SET no_stamp_ma_notified = TRUE WHERE id = :sid"),
+                       {"sid": row.id})
+            changed = True
+
+        if ma_rows:
+            logger.info(f"check_missing_stamps: {len(ma_rows)} MA-Benachrichtigungen gesendet (30 Min)")
+
+        # --- Durchlauf 2: Admin-Benachrichtigung (60 Min nach Schichtbeginn) ---
+        admin_rows = db.execute(text("""
+            SELECT s.id, s.employee_id, s.object_id, s.start_time, s.end_time,
+                   e.first_name, e.last_name, e.personal_nr,
+                   o.name as object_name
+        """ + base_sql + """
+              AND s.no_stamp_notified = FALSE
+              AND (CAST(:today AS TIMESTAMP) + s.start_time + INTERVAL '1 hour') <= :now_ts
+        """), {"today": today, "now_ts": now}).fetchall()
+
+        for row in admin_rows:
             von = row.start_time.strftime('%H:%M') if row.start_time else '?'
             bis = row.end_time.strftime('%H:%M') if row.end_time else '?'
+            msg_body = (f"Fuer {row.first_name} {row.last_name} ({row.personal_nr}) "
+                        f"liegt heute noch keine Stempelung vor "
+                        f"(geplant {von}-{bis}, {row.object_name}). "
+                        f"Moeglicherweise offline gestempelt und noch nicht uebertragen.")
+            pn_status = 'sent'
+            pn_error = None
             try:
                 from app.services.telegram_bot import notify_admin
-                notify_admin(
-                    f"Fuer {row.first_name} {row.last_name} ({row.personal_nr}) "
-                    f"liegt heute noch keine Stempelung vor "
-                    f"(geplant {von}-{bis}, {row.object_name}). "
-                    f"Moeglicherweise offline gestempelt und noch nicht uebertragen."
-                )
+                notify_admin(msg_body)
             except Exception as tg_err:
-                logger.error(f"check_missing_stamps: Telegram-Fehler: {tg_err}")
+                logger.error(f"check_missing_stamps: Admin-Telegram-Fehler: {tg_err}")
+                pn_status = 'failed'
+                pn_error = str(tg_err)[:500]
+
+            pn = PushNotification(
+                employee_id=row.employee_id,
+                notification_type='missing_stamp_admin',
+                title='Fehlende Stempelung (Admin)',
+                body=msg_body,
+                channel='telegram',
+                status=pn_status,
+                response_data=pn_error,
+                schedule_id=row.id,
+                sent_at=now if pn_status == 'sent' else None,
+            )
+            db.add(pn)
 
             db.execute(text("UPDATE schedules SET no_stamp_notified = TRUE WHERE id = :sid"),
                        {"sid": row.id})
+            changed = True
 
-        if rows:
+        if admin_rows:
+            logger.info(f"check_missing_stamps: {len(admin_rows)} Admin-Benachrichtigungen gesendet (60 Min)")
+
+        if changed:
             db.commit()
-            logger.info(f"check_missing_stamps: {len(rows)} fehlende Stempel gemeldet")
 
     except Exception as e:
         logger.error(f"Fehler in check_missing_stamps: {e}", exc_info=True)

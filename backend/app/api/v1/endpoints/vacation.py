@@ -1114,18 +1114,15 @@ def _create_vacation_schedules(db: Session, req: VacationRequest, emp: Employee)
 
     object_id = typical_schedule.object_id if typical_schedule else None
 
-    # § 11 BUrlG: Urlaubssatz berechnen am ERSTEN Tag des Urlaubszeitraums
-    # Fuer alle Tage am Stueck den gleichen Satz verwenden
-    calc = _calc_vacation_rate(db, emp.id, ref_date=req.start_date)
-    fixed_rate = calc['vacation_rate'] if calc['worked_days'] > 0 else 0
-
-    # Fallback: vacation_entitlements Wert nehmen wenn keine Arbeitsdaten
-    if fixed_rate == 0:
-        ent = db.query(VacationEntitlement).filter(
-            VacationEntitlement.employee_id == emp.id,
-            VacationEntitlement.year == req.start_date.year,
-        ).first()
-        fixed_rate = ent.vacation_rate if ent and ent.vacation_rate else 0
+    # § 11 BUrlG: Der Urlaubstagessatz wird NICHT mehr bei der Genehmigung eingefroren.
+    # Das 13-Wochen-Fenster [Urlaubsbeginn-91d, Urlaubsbeginn) liegt bei Vorausgenehmigung
+    # noch in der Zukunft und waere unvollstaendig. Die Urlaubszeilen werden daher
+    # provisorisch mit dem Marker -1 angelegt ("Satz offen") und erst dann korrekt
+    # bewertet, wenn der Urlaubsbeginn erreicht ist -> finalize_due_vacation_rates()
+    # in scheduler.py (haengt idempotent am 15-Min-Job check_overdue_entries).
+    # -1 wird gewaehlt, weil der Spalten-Default (15.50) bei None greift und 0 bereits
+    # als Altwert vorkommt; kein bestehender Urlaubstag hat einen negativen Satz.
+    PROVISIONAL_RATE = -1.0
 
     # Existierende Schedules im Zeitraum auf 'urlaub' setzen
     existing = db.query(Schedule).filter(
@@ -1181,9 +1178,9 @@ def _create_vacation_schedules(db: Session, req: VacationRequest, emp: Employee)
                 entry_service = 'Abwesenheit'
                 entry_notes = f"Abwesenheit (unbezahlt) - Antrag #{req.id}"
             else:
-                entry_rate = fixed_rate
+                entry_rate = PROVISIONAL_RATE  # Satz offen, wird am Urlaubsbeginn bestimmt
                 entry_service = 'Urlaub'
-                entry_notes = f"Urlaubstag - Urlaubsantrag #{req.id} - Tagessatz {fixed_rate:.2f}€ fixiert"
+                entry_notes = f"Urlaubstag - Urlaubsantrag #{req.id} - Satz offen (wird am Urlaubsbeginn bestimmt)"
             entry = TimeEntry(
                 employee_id=emp.id,
                 object_id=999,
