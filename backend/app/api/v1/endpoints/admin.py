@@ -135,12 +135,12 @@ def _audit_sentence(action, old, new, actor, subject, details):
     if a in ('schedule_updated', 'schedule_split', 'schedule_unsplit'):
         datum = n.get('datum') or o.get('datum') or '?'
         chg = _fmt_sched_change(o, n)
-        return (f"{actor} hat die Schicht am {datum} {chg} geaendert" if chg
-                else f"{actor} hat die Schicht von {subject} am {datum} geaendert")
+        return (f"{actor} hat die Schicht am {datum} {chg} geändert" if chg
+                else f"{actor} hat die Schicht von {subject} am {datum} geändert")
     if a in ('schedule_created', 'schedule_copied', 'schedule_repeated', 'schedule_replacement'):
-        return f"{actor} hat eine Schicht fuer {subject} am {n.get('datum','?')} {n.get('zeit') or ''}".rstrip() + " angelegt"
+        return f"{actor} hat eine Schicht für {subject} am {n.get('datum','?')} {n.get('zeit') or ''}".rstrip() + " angelegt"
     if a == 'schedule_deleted':
-        return f"{actor} hat die Schicht von {subject} am {o.get('datum','?')} {o.get('zeit') or ''}".rstrip() + " geloescht"
+        return f"{actor} hat die Schicht von {subject} am {o.get('datum','?')} {o.get('zeit') or ''}".rstrip() + " gelöscht"
     if a == 'booking_updated':
         teile = []
         for key, label in (('kommen', 'Kommen'), ('gehen', 'Gehen'), ('stunden', 'Stunden'),
@@ -148,27 +148,27 @@ def _audit_sentence(action, old, new, actor, subject, details):
             if o.get(key) != n.get(key):
                 teile.append(f"{label} {o.get(key)} auf {n.get(key)}")
         detail = "; ".join(teile)
-        return f"{actor} hat die Buchung von {subject} am {n.get('datum') or o.get('datum') or '?'} geaendert" + (f" ({detail})" if detail else "")
+        return f"{actor} hat die Buchung von {subject} am {n.get('datum') or o.get('datum') or '?'} geändert" + (f" ({detail})" if detail else "")
     if a == 'booking_created':
-        return f"{actor} hat eine Buchung fuer {subject} am {n.get('datum','?')} angelegt"
+        return f"{actor} hat eine Buchung für {subject} am {n.get('datum','?')} angelegt"
     if a == 'booking_deleted':
-        return f"{actor} hat eine Buchung von {subject} geloescht"
+        return f"{actor} hat eine Buchung von {subject} gelöscht"
     if a == 'booking_approved':
         extra = f" (vorher {o.get('stunden')}h auf {n.get('stunden')}h)" if o.get('stunden') is not None else ""
         return f"{actor} hat eine Selbstbuchung von {subject} eingetragen{extra}"
     if a == 'booking_rejected':
-        return f"{actor} hat eine Rueckfrage zur Buchung von {subject} gestellt"
+        return f"{actor} hat eine Rückfrage zur Buchung von {subject} gestellt"
     if a == 'booking_closed_silently':
         return f"{actor} hat einen Antrag von {subject} still erledigt"
     labels = {
-        'hourly_rate_changed': 'hat den Stundenlohn geaendert',
-        'password_reset': 'hat das Passwort zurueckgesetzt',
+        'hourly_rate_changed': 'hat den Stundenlohn geändert',
+        'password_reset': 'hat das Passwort zurückgesetzt',
         'employee_created': 'hat einen Mitarbeiter angelegt',
-        'employee_updated': 'hat Mitarbeiterdaten geaendert',
+        'employee_updated': 'hat Mitarbeiterdaten geändert',
         'object_created': 'hat ein Objekt angelegt',
-        'object_updated': 'hat ein Objekt geaendert',
+        'object_updated': 'hat ein Objekt geändert',
         'customer_created': 'hat einen Kunden angelegt',
-        'customer_updated': 'hat einen Kunden geaendert',
+        'customer_updated': 'hat einen Kunden geändert',
     }
     if a in labels:
         suffix = f" ({subject})" if subject and subject != '—' else ""
@@ -177,7 +177,7 @@ def _audit_sentence(action, old, new, actor, subject, details):
 
 
 def check_and_reset_confirmation(db, employee_id: int, schedule_date):
-    """Prueft ob eine Monatsbestaetigung zurueckgesetzt werden muss,
+    """Prueft ob eine Monatsbestaetigung zurückgesetzt werden muss,
     wenn eine neue Schicht nach Bestaetigung angelegt wird."""
     from app.models.models import MonthlyConfirmation, PushNotification
     conf = db.query(MonthlyConfirmation).filter(
@@ -705,7 +705,7 @@ def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db),
     log_audit(db, admin.id, schedule.employee_id, 'schedule_updated',
         entity_type='schedule', entity_id=schedule_id,
         old_value=old_schedule, new_value=new_schedule,
-        details=f"Dienstplan geaendert: {emp_name}, {schedule.date}")
+        details=f"Dienstplan geändert: {emp_name}, {schedule.date}")
 
     db.commit()
     return {"status": "ok"}
@@ -736,7 +736,7 @@ def delete_schedule(schedule_id: int, db: Session = Depends(get_db), admin = Dep
     log_audit(db, admin.id, schedule.employee_id, 'schedule_deleted',
         entity_type='schedule', entity_id=schedule_id,
         old_value={"datum": str(schedule.date), "zeit": f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}", "objekt": obj_name, "status": schedule.status},
-        details=f"Dienstplan geloescht: {emp_name}, {schedule.date}, {obj_name}")
+        details=f"Dienstplan gelöscht: {emp_name}, {schedule.date}, {obj_name}")
 
     db.delete(schedule)
     db.commit()
@@ -1151,7 +1151,7 @@ def bulk_update_schedules(
         else:
             new_end = schedule.end_time
 
-        # Overlap-Check (nur wenn zeitrelevante Felder geaendert werden)
+        # Overlap-Check (nur wenn zeitrelevante Felder geändert werden)
         time_relevant = any(k in update for k in ('date', 'employee_id', 'start_time', 'end_time'))
         if time_relevant and new_date and new_start and new_end:
             overlap_msg = check_schedule_overlap(db, new_emp, new_date, new_start, new_end, schedule_id)
@@ -1197,7 +1197,7 @@ def bulk_update_schedules(
             'schedule_created' if is_new else 'schedule_updated',
             entity_type='schedule', entity_id=schedule.id,
             old_value=old_snap, new_value=_sched_snap(schedule),
-            details='Schicht angelegt' if is_new else 'Schicht geaendert')
+            details='Schicht angelegt' if is_new else 'Schicht geändert')
 
         results.append({'id': schedule.id, 'status': 'updated'})
 
@@ -1277,7 +1277,7 @@ def create_replacement(
     log_audit(db, admin.id, replacement.employee_id, 'schedule_replacement',
         entity_type='schedule', entity_id=replacement.id,
         new_value=_sched_snap(replacement),
-        details=f'Vertretung angelegt fuer MA {original.employee_id}')
+        details=f'Vertretung angelegt für MA {original.employee_id}')
 
     db.commit()
 
@@ -1362,7 +1362,7 @@ def quick_assign_schedule(
         'schedule_updated' if existing else 'schedule_created',
         entity_type='schedule', entity_id=sched_obj.id,
         old_value=old_snap, new_value=_sched_snap(sched_obj),
-        details='Schicht per Schnellzuweisung ' + ('geaendert' if existing else 'angelegt'))
+        details='Schicht per Schnellzuweisung ' + ('geändert' if existing else 'angelegt'))
 
     db.commit()
 
@@ -1557,7 +1557,7 @@ def repeat_shift(
     db: Session = Depends(get_db),
     admin = Depends(verify_admin_or_objektleiter)
 ):
-    """Wiederholt eine Schicht woechentlich bis zum Enddatum."""
+    """Wiederholt eine Schicht wöchentlich bis zum Enddatum."""
     schedule_id = data.get('schedule_id')
     until_date_str = data.get('until_date')
 
@@ -1619,7 +1619,7 @@ def repeat_shift(
         log_audit(db, admin.id, new_schedule.employee_id, 'schedule_repeated',
             entity_type='schedule', entity_id=new_schedule.id,
             new_value=_sched_snap(new_schedule),
-            details='Schicht woechentlich wiederholt')
+            details='Schicht wöchentlich wiederholt')
         created += 1
         current_date += timedelta(weeks=1)
 
@@ -1741,12 +1741,12 @@ def reset_employee_password(employee_id: int, db: Session = Depends(get_db), adm
     from app.services.booking_service import log_audit
     log_audit(db, admin.id, employee.id, 'password_reset',
         entity_type='user', entity_id=user.id,
-        details=f"Passwort zurueckgesetzt: {employee.first_name} {employee.last_name} ({employee.personal_nr})")
+        details=f"Passwort zurückgesetzt: {employee.first_name} {employee.last_name} ({employee.personal_nr})")
     db.commit()
 
     return {
         "status": "ok",
-        "message": f"Passwort fuer {employee.first_name} {employee.last_name} zurueckgesetzt",
+        "message": f"Passwort fuer {employee.first_name} {employee.last_name} zurückgesetzt",
         "temp_password": temp_password
     }
 
@@ -1787,14 +1787,14 @@ def update_employee_by_id(employee_id: int, employee_data: dict, db: Session = D
             entity_type='employee', entity_id=employee.id,
             old_value={"stundensatz": old_hourly_rate},
             new_value={"stundensatz": employee.hourly_rate},
-            details=f"Stundensatz geaendert: {employee.first_name} {employee.last_name}, {old_hourly_rate} -> {employee.hourly_rate} EUR")
+            details=f"Stundensatz geändert: {employee.first_name} {employee.last_name}, {old_hourly_rate} -> {employee.hourly_rate} EUR")
     changed = {k: employee_data[k] for k in employee_data if k != 'hourly_rate'}
     if changed:
         log_audit(db, admin.id, employee.id, 'employee_updated',
             entity_type='employee', entity_id=employee.id,
             old_value={"name": f"{employee.first_name} {employee.last_name}"},
             new_value=changed,
-            details=f"Mitarbeiter geaendert: {employee.first_name} {employee.last_name} ({employee.personal_nr}), Felder: {', '.join(changed.keys())}")
+            details=f"Mitarbeiter geändert: {employee.first_name} {employee.last_name} ({employee.personal_nr}), Felder: {', '.join(changed.keys())}")
     db.commit()
     return {"status": "success", "message": "Mitarbeiter aktualisiert"}
 
@@ -1834,14 +1834,14 @@ def update_employee(personal_nr: str, employee_data: dict, db: Session = Depends
             entity_type='employee', entity_id=employee.id,
             old_value={"stundensatz": old_hourly_rate},
             new_value={"stundensatz": employee.hourly_rate},
-            details=f"Stundensatz geaendert: {employee.first_name} {employee.last_name}, {old_hourly_rate} -> {employee.hourly_rate} EUR")
+            details=f"Stundensatz geändert: {employee.first_name} {employee.last_name}, {old_hourly_rate} -> {employee.hourly_rate} EUR")
     changed = {k: employee_data[k] for k in employee_data if k != 'hourly_rate'}
     if changed:
         log_audit(db, admin.id, employee.id, 'employee_updated',
             entity_type='employee', entity_id=employee.id,
             old_value={"name": f"{employee.first_name} {employee.last_name}"},
             new_value=changed,
-            details=f"Mitarbeiter geaendert: {employee.first_name} {employee.last_name} ({employee.personal_nr}), Felder: {', '.join(changed.keys())}")
+            details=f"Mitarbeiter geändert: {employee.first_name} {employee.last_name} ({employee.personal_nr}), Felder: {', '.join(changed.keys())}")
     db.commit()
     return {"status": "success", "message": "Mitarbeiter aktualisiert"}
 
@@ -1904,7 +1904,7 @@ def update_object(object_id: int, data: dict, db: Session = Depends(get_db), adm
     log_audit(db, admin.id, None, 'object_updated',
         entity_type='object', entity_id=obj.id,
         new_value=data,
-        details=f"Objekt geaendert: {obj.name}, Felder: {', '.join(data.keys())}")
+        details=f"Objekt geändert: {obj.name}, Felder: {', '.join(data.keys())}")
     db.commit()
     return {"status": "ok"}
 
@@ -2002,7 +2002,7 @@ def update_customer(customer_id: int, data: dict, db: Session = Depends(get_db),
     log_audit(db, admin.id, None, 'customer_updated',
         entity_type='customer', entity_id=customer.id,
         new_value=data,
-        details=f"Kunde geaendert: {customer.name}, Felder: {', '.join(data.keys())}")
+        details=f"Kunde geändert: {customer.name}, Felder: {', '.join(data.keys())}")
     db.commit()
     return {"status": "ok", "id": customer.id}
 
@@ -2208,7 +2208,7 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
     if 'billed_hours' in data:
         entry.billed_hours = data['billed_hours']
     elif 'check_in' in data and 'check_out' in data:
-        # billed_hours automatisch neu berechnen wenn Zeiten geaendert
+        # billed_hours automatisch neu berechnen wenn Zeiten geändert
         # aber kein expliziter billed_hours-Wert mitgeschickt wurde
         try:
             ci = datetime.fromisoformat(data['check_in'].replace('Z', '+00:00'))
@@ -2229,7 +2229,7 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
     log_audit(db, admin.id, entry.employee_id, 'booking_updated',
         entity_type='time_entry', entity_id=booking_id,
         old_value=old_vals, new_value=new_vals,
-        details=f"Buchung geaendert: {emp_name}, ID {booking_id}")
+        details=f"Buchung geändert: {emp_name}, ID {booking_id}")
 
     db.commit()
     return {"status": "ok", "message": "Buchung aktualisiert"}
@@ -2282,7 +2282,7 @@ def delete_booking(booking_id: int, db: Session = Depends(get_db), admin = Depen
     log_audit(db, admin.id, entry.employee_id, 'booking_deleted',
         entity_type='time_entry', entity_id=booking_id,
         old_value={"datum": entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?', "stunden": entry.billed_hours, "stundensatz": entry.hourly_rate, "objekt": obj_name},
-        details=f"Buchung geloescht: {emp_name}, {entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?'}, {entry.billed_hours}h, {obj_name}")
+        details=f"Buchung gelöscht: {emp_name}, {entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?'}, {entry.billed_hours}h, {obj_name}")
 
     db.delete(entry)
     db.commit()
@@ -2336,7 +2336,7 @@ def bulk_delete_bookings(data: dict, db: Session = Depends(get_db), admin = Depe
         log_audit(db, admin.id, entry.employee_id, 'booking_deleted',
             entity_type='time_entry', entity_id=entry.id,
             old_value={"datum": entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?', "stunden": entry.billed_hours, "stundensatz": entry.hourly_rate},
-            details=f"Buchung geloescht (Bulk): {emp_name}, {entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?'}, {entry.billed_hours}h")
+            details=f"Buchung gelöscht (Bulk): {emp_name}, {entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?'}, {entry.billed_hours}h")
 
     deleted = db.query(TimeEntry).filter(TimeEntry.id.in_(ids)).delete(synchronize_session=False)
     db.commit()
@@ -2780,7 +2780,7 @@ def delete_km_entry(
         log_audit(db, admin.id, old[0], 'km_entry_deleted',
             entity_type='km_daily_entries', entity_id=entry_id,
             old_value={"datum": str(old[1]), "km": float(old[2])},
-            details=f"KM-Eintrag geloescht: {old[2]} km am {old[1]}")
+            details=f"KM-Eintrag gelöscht: {old[2]} km am {old[1]}")
     db.commit()
     return {"status": "ok"}
 
@@ -2801,7 +2801,7 @@ def bulk_delete_km_entries(
     log_audit(db, admin.id, None, 'km_entries_bulk_deleted',
         entity_type='km_daily_entries',
         old_value={"anzahl": len(ids), "ids": ids},
-        details=f"KM-Eintraege geloescht: {len(ids)} Stueck")
+        details=f"KM-Eintraege gelöscht: {len(ids)} Stück")
     db.execute(text("DELETE FROM km_daily_entries WHERE id = ANY(:ids)"), {"ids": ids})
     db.commit()
     return {"status": "ok", "deleted": len(ids)}
@@ -2982,7 +2982,7 @@ def update_km_entry(
     log_audit(db, admin.id, None, 'km_entry_updated',
         entity_type='km_daily_entries', entity_id=entry_id,
         new_value={"km": distance_km, "datum": date} if date else {"km": distance_km},
-        details=f"KM-Eintrag geaendert: {distance_km} km" + (f", Datum: {date}" if date else ""))
+        details=f"KM-Eintrag geändert: {distance_km} km" + (f", Datum: {date}" if date else ""))
     db.commit()
     return {"message": "KM aktualisiert", "new_km": distance_km, "new_amount": round(distance_km * 0.30, 2)}
 
@@ -4415,7 +4415,7 @@ def update_sick_note(
         log_audit(
             db, admin.id, note.employee_id, 'sick_note_edited',
             'sick_note', note.id,
-            details=f"Datum geaendert: {old_start}-{old_end} -> {parsed_start}-{parsed_end}"
+            details=f"Datum geändert: {old_start}-{old_end} -> {parsed_start}-{parsed_end}"
         )
 
     # Status-Aenderung
@@ -4505,7 +4505,7 @@ def delete_sick_note(
     from app.services.booking_service import log_audit
     log_audit(db, admin.id, note.employee_id, 'sick_note_deleted',
         'sick_note', note.id,
-        details=f"Krankmeldung geloescht: {emp_name}, {note.start_date} bis {note.end_date}")
+        details=f"Krankmeldung gelöscht: {emp_name}, {note.start_date} bis {note.end_date}")
     db.delete(note)
     db.commit()
     return {"status": "ok"}
