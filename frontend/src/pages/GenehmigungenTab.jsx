@@ -78,6 +78,21 @@ const GenehmigungenTab = ({ showToast }) => {
     }
   };
 
+  const handleClose = async (id) => {
+    if (!window.confirm(
+      'Diesen Antrag STILL erledigen?\n\nDer Mitarbeiter wird NICHT benachrichtigt (kein Telegram, keine Mail).\n' +
+      'Der Eintrag verschwindet aus der offenen Liste, bleibt aber in der Historie.'
+    )) return;
+    const data = editData[id];
+    try {
+      await api.post(`/admin/pending-bookings/${id}/close`, { admin_notes: data?.admin_notes || '' });
+      showToast('Still erledigt (ohne Benachrichtigung)', 'info');
+      loadBookings();
+    } catch (e) {
+      showToast(e.response?.data?.detail || 'Fehler', 'error');
+    }
+  };
+
   const updateEdit = (id, field, value) => {
     setEditData(prev => ({
       ...prev,
@@ -101,17 +116,20 @@ const GenehmigungenTab = ({ showToast }) => {
       'offen': 'bg-yellow-100 text-yellow-800',
       'genehmigt': 'bg-green-100 text-green-800',
       'abgelehnt': 'bg-orange-100 text-orange-800',
+      'erledigt': 'bg-gray-100 text-gray-600',
     };
     const labels = {
       'offen': 'Offen',
       'genehmigt': 'Eingetragen',
       'abgelehnt': 'Rückfrage',
+      'erledigt': 'Erledigt',
     };
     return (
       <span className={`px-2 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1 ${styles[status] || ''}`}>
         {status === 'offen' && <Clock size={16} />}
         {status === 'genehmigt' && <CheckCircle size={16} />}
         {status === 'abgelehnt' && <XCircle size={16} />}
+        {status === 'erledigt' && <Clock size={16} />}
         {labels[status] || status}
       </span>
     );
@@ -129,6 +147,7 @@ const GenehmigungenTab = ({ showToast }) => {
           <option value="offen">Offen</option>
           <option value="genehmigt">Eingetragen</option>
           <option value="abgelehnt">Rückfrage</option>
+          <option value="erledigt">Erledigt</option>
           <option value="alle">Alle</option>
         </select>
       </div>
@@ -147,6 +166,14 @@ const GenehmigungenTab = ({ showToast }) => {
             const isExpanded = expandedId === b.id;
             const kmAmount = b.km_distance ? (b.km_distance * 0.30).toFixed(2) : null;
             const brutto = ((ed.approved_hours || b.requested_hours) * (ed.hourly_rate || 15)).toFixed(2);
+            const isMehrzeit = b.reason === 'mehrzeit_dienstplan';
+            const shiftDur = (() => {
+              const [sh, sm] = (b.start_time || '0:0').split(':').map(Number);
+              const [eh, em] = (b.end_time || '0:0').split(':').map(Number);
+              const d = (eh * 60 + em) - (sh * 60 + sm);
+              return d > 0 ? d / 60 : 0;
+            })();
+            const projectedTotal = (b.related_billed_hours || 0) + (parseFloat(ed.approved_hours ?? b.requested_hours) || 0);
 
             return (
               <div key={b.id} className="bg-white border rounded-xl shadow-sm overflow-hidden">
@@ -169,7 +196,7 @@ const GenehmigungenTab = ({ showToast }) => {
                     <span className="flex items-center gap-1"><Building size={12} /> {b.object_name}</span>
                     <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(b.date).toLocaleDateString('de-DE')}</span>
                     <span>{b.start_time}-{b.end_time}</span>
-                    <span className="font-bold text-blue-600">{b.requested_hours}h</span>
+                    <span className="font-bold text-blue-600">{isMehrzeit ? `+${b.requested_hours}h Mehrzeit` : `${b.requested_hours}h`}</span>
                     {b.is_driver && b.km_distance && (
                       <span className="flex items-center gap-1 text-green-600"><Car size={12} /> {b.km_distance}km</span>
                     )}
@@ -239,7 +266,7 @@ const GenehmigungenTab = ({ showToast }) => {
                           value={ed.start_time || b.start_time}
                           onChange={(e) => {
                             updateEdit(b.id, 'start_time', e.target.value);
-                            recalcHours(b.id, e.target.value, ed.end_time || b.end_time);
+                            if (!isMehrzeit) recalcHours(b.id, e.target.value, ed.end_time || b.end_time);
                           }}
                           className="w-full p-1.5 border rounded text-sm"
                         />
@@ -251,13 +278,13 @@ const GenehmigungenTab = ({ showToast }) => {
                           value={ed.end_time || b.end_time}
                           onChange={(e) => {
                             updateEdit(b.id, 'end_time', e.target.value);
-                            recalcHours(b.id, ed.start_time || b.start_time, e.target.value);
+                            if (!isMehrzeit) recalcHours(b.id, ed.start_time || b.start_time, e.target.value);
                           }}
                           className="w-full p-1.5 border rounded text-sm"
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-500">Stunden</label>
+                        <label className="text-xs text-gray-500">{isMehrzeit ? 'Mehrzeit (Std.)' : 'Stunden'}</label>
                         <input
                           type="number"
                           step="0.25"
@@ -329,8 +356,27 @@ const GenehmigungenTab = ({ showToast }) => {
 
                     {/* Brutto + KM Vorschau */}
                     <div className="bg-blue-50 rounded-lg p-2 text-sm">
+                      {isMehrzeit && (
+                        <>
+                          <div className="flex justify-between text-gray-600">
+                            <span>Schichtdauer ({b.start_time}–{b.end_time}):</span>
+                            <span>{shiftDur.toFixed(2)} h</span>
+                          </div>
+                          <div className="flex justify-between text-gray-600">
+                            <span>Bisher gebucht:</span>
+                            <span>{b.related_billed_hours != null ? b.related_billed_hours.toFixed(4) : '–'} h</span>
+                          </div>
+                          <div className="flex justify-between text-green-700 font-bold border-t border-blue-200 mt-1 pt-1">
+                            <span>Gesamt nach Eintragen:</span>
+                            <span>{projectedTotal.toFixed(4)} h</span>
+                          </div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">
+                            Mehrzeit (+{ed.approved_hours ?? b.requested_hours} h) wird zur gebuchten Zeit addiert.
+                          </div>
+                        </>
+                      )}
                       <div className="flex justify-between">
-                        <span>Brutto:</span>
+                        <span>{isMehrzeit ? 'Mehrzeit-Betrag:' : 'Brutto:'}</span>
                         <span className="font-bold text-blue-700">{brutto} EUR</span>
                       </div>
                       {b.is_driver && b.km_distance > 0 && (() => {
@@ -376,6 +422,14 @@ const GenehmigungenTab = ({ showToast }) => {
                         <CheckCircle size={16} /> Eintragen
                       </button>
                     </div>
+
+                    {/* Dritter, unauffaelliger Weg: still erledigen ohne Benachrichtigung */}
+                    <button
+                      onClick={() => handleClose(b.id)}
+                      className="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg flex items-center justify-center gap-1"
+                    >
+                      <Clock size={14} /> Still erledigen (ohne Benachrichtigung)
+                    </button>
                   </div>
                 )}
 

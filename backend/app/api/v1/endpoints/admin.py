@@ -5899,6 +5899,7 @@ def get_pending_bookings(
             "catch_up_type": row.catch_up_type if hasattr(row, 'catch_up_type') else None,
             "correction_field": row.correction_field if hasattr(row, 'correction_field') else None,
             "related_time_entry_id": row.related_time_entry_id if hasattr(row, 'related_time_entry_id') else None,
+            "related_billed_hours": None,
             "original_start_time": None,
             "original_end_time": None,
         })
@@ -5912,6 +5913,16 @@ def get_pending_bookings(
             if te_row:
                 b["original_start_time"] = te_row.check_in.strftime("%H:%M") if te_row.check_in else None
                 b["original_end_time"] = te_row.check_out.strftime("%H:%M") if te_row.check_out else None
+
+    # Fuer mehrzeit_dienstplan: aktuelle billed_hours der verknuepften Buchung nachladen
+    # (Frontend zeigt daraus die Gesamtzeit nach dem Eintragen).
+    for b in bookings:
+        if b.get("reason") == "mehrzeit_dienstplan" and b.get("related_time_entry_id"):
+            te = db.execute(text(
+                "SELECT billed_hours FROM time_entries WHERE id = :id"
+            ), {"id": b["related_time_entry_id"]}).fetchone()
+            if te and te.billed_hours is not None:
+                b["related_billed_hours"] = float(te.billed_hours)
 
     return bookings
 
@@ -6010,6 +6021,23 @@ def approve_pending_booking(
 
         time_entry_id = related_id
         # KM NICHT verändern bei Korrekturen
+
+    elif related_id and getattr(pb, 'reason', None) == 'mehrzeit_dienstplan':
+        # MEHRZEIT: genehmigte Stunden ADDIEREN statt ueberschreiben.
+        # Die echte Arbeitszeit (check_in/check_out) der verknuepften Buchung bleibt
+        # unveraendert, nur billed_hours wird um die genehmigte Mehrzeit erhoeht.
+        db.execute(text("""
+            UPDATE time_entries
+            SET billed_hours = COALESCE(billed_hours, 0) + :add_hours,
+                is_manual_entry = true,
+                notes = COALESCE(notes, '') || :note_append
+            WHERE id = :te_id
+        """), {
+            "add_hours": approved_hours,
+            "note_append": f" [MEHRZEIT GENEHMIGT +{approved_hours}h] {admin_notes}".rstrip(),
+            "te_id": related_id,
+        })
+        time_entry_id = related_id
 
     elif related_id:
         # gehen_vergessen: bestehende offene TimeEntry schließen
@@ -6231,6 +6259,43 @@ def reject_pending_booking(
         print(f"Telegram-Benachrichtigung (reject) fehlgeschlagen: {e}")
 
     return {"status": "ok", "message": "Rückfrage gestellt"}
+
+
+@router.post("/pending-bookings/{booking_id}/close")
+def close_pending_booking(
+    booking_id: int,
+    data: dict = None,
+    db: Session = Depends(get_db),
+    admin = Depends(verify_admin_or_objektleiter)
+):
+    """Still erledigen: schliesst einen Antrag OHNE jede Benachrichtigung (kein Telegram,
+    keine Mail). Status 'erledigt' -> verschwindet aus der offenen Liste, bleibt in der
+    Historie. Audit-Log haelt fest, wer wann still geschlossen hat."""
+    pb = db.execute(text(
+        "SELECT * FROM pending_bookings WHERE id = :id"
+    ), {"id": booking_id}).fetchone()
+
+    if not pb:
+        raise HTTPException(status_code=404, detail="Buchung nicht gefunden")
+    if pb.status != 'offen':
+        raise HTTPException(status_code=400, detail="Buchung ist nicht mehr offen")
+
+    admin_notes = (data or {}).get("admin_notes", "")
+
+    db.execute(text("""
+        UPDATE pending_bookings
+        SET status = 'erledigt', admin_notes = :notes, approved_at = NOW(), approved_by = :admin_id
+        WHERE id = :id
+    """), {"id": booking_id, "notes": admin_notes, "admin_id": admin.id})
+
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, pb.employee_id, 'booking_closed_silently',
+        entity_type='pending_booking', entity_id=booking_id,
+        details=f"Antrag still erledigt (ohne Benachrichtigung): ID {booking_id}. {admin_notes}".rstrip())
+
+    db.commit()
+    # BEWUSST keine Telegram-/Mail-Benachrichtigung an den Mitarbeiter.
+    return {"status": "ok", "message": "Still erledigt"}
 
 
 # ─── Telegram-Log ────────────────────────────────────────────────────────────
