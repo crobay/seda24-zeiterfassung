@@ -925,10 +925,20 @@ def copy_week_schedule(
     # Calculate day difference
     day_diff = (target_week - source_week).days
     
-    # Copy each schedule
+    # Copy each schedule - nur ECHTE Dienste (normal/vertretung) werden kopiert.
+    # Urlaub/Krankheit/Abwesend werden NICHT mitkopiert (werden separat/im Voraus
+    # gepflegt). Leerer oder NULL-Status gilt weiterhin als normal.
+    REAL_DUTY = ('normal', 'vertretung')
     copied = 0
+    skipped_exists = 0
+    skipped_vacation = 0
+    skipped_not_real = 0
     for source in source_schedules:
-        
+        src_status = (source.status or '').strip().lower()
+        if src_status and src_status not in REAL_DUTY:
+            skipped_not_real += 1
+            continue
+
         # Check if schedule already exists
         new_date = source.date + timedelta(days=day_diff)
         
@@ -940,30 +950,45 @@ def copy_week_schedule(
             )
         ).first()
         
-        if not existing:
-            # Urlaubs-/Abwesenheits-Check
-            if check_vacation_conflict(db, source.employee_id, new_date):
-                continue
-            new_schedule = Schedule(
-                employee_id=source.employee_id,
-                object_id=source.object_id,
-                date=new_date,
-                weekday=new_date.weekday(),
-                start_time=source.start_time,
-                end_time=source.end_time,
-                planned_hours=source.planned_hours,
-                status=source.status or "normal",
-                is_driver=source.is_driver
-            )
-            db.add(new_schedule)
-            copied += 1
+        if existing:
+            skipped_exists += 1
+            continue
+
+        # Urlaubs-/Abwesenheits-Check am Zieltag
+        if check_vacation_conflict(db, source.employee_id, new_date):
+            skipped_vacation += 1
+            continue
+
+        new_schedule = Schedule(
+            employee_id=source.employee_id,
+            object_id=source.object_id,
+            date=new_date,
+            weekday=new_date.weekday(),
+            start_time=source.start_time,
+            end_time=source.end_time,
+            planned_hours=source.planned_hours,
+            status=source.status or "normal",
+            is_driver=source.is_driver
+        )
+        db.add(new_schedule)
+        copied += 1
     
     db.commit()
     
+    skipped_total = skipped_exists + skipped_vacation + skipped_not_real
     return {
         "status": "ok",
         "copied": copied,
-        "message": f"{copied} Schichten wurden kopiert"
+        "skipped_total": skipped_total,
+        "skipped_exists": skipped_exists,
+        "skipped_vacation": skipped_vacation,
+        "skipped_not_real": skipped_not_real,
+        "message": (
+            f"{copied} Dienste kopiert. "
+            f"Uebersprungen: {skipped_exists} bereits vorhanden, "
+            f"{skipped_vacation} Urlaubskonflikt, "
+            f"{skipped_not_real} kein echter Dienst (Urlaub/Krank/Abwesend)."
+        )
     }
 
 @router.post("/schedules/bulk-update")
