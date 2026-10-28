@@ -33,7 +33,10 @@ app = FastAPI(
 )
 
 # Middleware
-app.add_middleware(AuditMiddleware)
+# AuditMiddleware stillgelegt (2026-10-29): erzeugte nur grobe Zugriffszeilen ohne
+# Benutzer und ohne Inhalt. Nachvollziehbarkeit laeuft jetzt ueber explizite log_audit-
+# Aufrufe in den Endpunkten (mit user_id aus Token + old/new) und die Protokoll-Ansicht.
+# app.add_middleware(AuditMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

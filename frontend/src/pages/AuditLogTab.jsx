@@ -287,8 +287,11 @@ const AuditLogTab = () => {
                       <span className="text-sm font-medium">{log.employee_name}</span>
                     )}
                   </div>
-                  {log.details && (
-                    <p className="text-xs text-gray-600 mt-1">{log.details}</p>
+                  {log.message && (
+                    <p className="text-sm text-gray-900 mt-1">{log.message}</p>
+                  )}
+                  {log.details && log.details !== log.message && (
+                    <p className="text-xs text-gray-500 mt-1">{log.details}</p>
                   )}
                   {/* Wer hat geaendert */}
                   {log.changed_by && (

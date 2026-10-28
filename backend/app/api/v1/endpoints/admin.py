@@ -86,6 +86,96 @@ def check_vacation_conflict(db: Session, employee_id: int, check_date):
     return None
 
 
+def _sched_snap(s):
+    """Lesbarer Schnappschuss einer Schicht fuer das Audit-Log (old_value/new_value)."""
+    if not s:
+        return None
+    return {
+        "datum": s.date.strftime('%d.%m.%Y') if s.date else None,
+        "zeit": (f"{s.start_time.strftime('%H:%M')}-{s.end_time.strftime('%H:%M')}"
+                 if s.start_time and s.end_time else None),
+        "objekt_id": s.object_id,
+        "status": s.status,
+        "employee_id": s.employee_id,
+    }
+
+
+def _booking_snap(e):
+    """Lesbarer Schnappschuss einer Buchung (time_entry) fuer das Audit-Log."""
+    if not e:
+        return None
+    return {
+        "datum": e.check_in.strftime('%d.%m.%Y') if e.check_in else None,
+        "kommen": e.check_in.strftime('%H:%M') if e.check_in else None,
+        "gehen": e.check_out.strftime('%H:%M') if e.check_out else None,
+        "stunden": e.billed_hours,
+        "stundensatz": float(e.hourly_rate) if e.hourly_rate is not None else None,
+        "reinigungsart": e.service_type,
+        "notiz": e.notes,
+    }
+
+
+def _fmt_sched_change(old, new):
+    """Beschreibt Aenderungen zwischen zwei Schicht-Snapshots in Worten."""
+    o, n = old or {}, new or {}
+    teile = []
+    if o.get('zeit') and n.get('zeit') and o['zeit'] != n['zeit']:
+        teile.append(f"von {o['zeit']} auf {n['zeit']}")
+    if o.get('datum') and n.get('datum') and o['datum'] != n['datum']:
+        teile.append(f"Datum {o['datum']} auf {n['datum']}")
+    if o.get('status') and n.get('status') and o['status'] != n['status']:
+        teile.append(f"Status {o['status']} auf {n['status']}")
+    return ", ".join(teile)
+
+
+def _audit_sentence(action, old, new, actor, subject, details):
+    """Formuliert eine Audit-Zeile als lesbaren deutschen Satz (ohne Zeitstempel)."""
+    a = action or ''
+    o, n = old or {}, new or {}
+    if a in ('schedule_updated', 'schedule_split', 'schedule_unsplit'):
+        datum = n.get('datum') or o.get('datum') or '?'
+        chg = _fmt_sched_change(o, n)
+        return (f"{actor} hat die Schicht am {datum} {chg} geaendert" if chg
+                else f"{actor} hat die Schicht von {subject} am {datum} geaendert")
+    if a in ('schedule_created', 'schedule_copied', 'schedule_repeated', 'schedule_replacement'):
+        return f"{actor} hat eine Schicht fuer {subject} am {n.get('datum','?')} {n.get('zeit') or ''}".rstrip() + " angelegt"
+    if a == 'schedule_deleted':
+        return f"{actor} hat die Schicht von {subject} am {o.get('datum','?')} {o.get('zeit') or ''}".rstrip() + " geloescht"
+    if a == 'booking_updated':
+        teile = []
+        for key, label in (('kommen', 'Kommen'), ('gehen', 'Gehen'), ('stunden', 'Stunden'),
+                           ('stundensatz', 'Satz'), ('reinigungsart', 'Reinigungsart'), ('notiz', 'Notiz')):
+            if o.get(key) != n.get(key):
+                teile.append(f"{label} {o.get(key)} auf {n.get(key)}")
+        detail = "; ".join(teile)
+        return f"{actor} hat die Buchung von {subject} am {n.get('datum') or o.get('datum') or '?'} geaendert" + (f" ({detail})" if detail else "")
+    if a == 'booking_created':
+        return f"{actor} hat eine Buchung fuer {subject} am {n.get('datum','?')} angelegt"
+    if a == 'booking_deleted':
+        return f"{actor} hat eine Buchung von {subject} geloescht"
+    if a == 'booking_approved':
+        extra = f" (vorher {o.get('stunden')}h auf {n.get('stunden')}h)" if o.get('stunden') is not None else ""
+        return f"{actor} hat eine Selbstbuchung von {subject} eingetragen{extra}"
+    if a == 'booking_rejected':
+        return f"{actor} hat eine Rueckfrage zur Buchung von {subject} gestellt"
+    if a == 'booking_closed_silently':
+        return f"{actor} hat einen Antrag von {subject} still erledigt"
+    labels = {
+        'hourly_rate_changed': 'hat den Stundenlohn geaendert',
+        'password_reset': 'hat das Passwort zurueckgesetzt',
+        'employee_created': 'hat einen Mitarbeiter angelegt',
+        'employee_updated': 'hat Mitarbeiterdaten geaendert',
+        'object_created': 'hat ein Objekt angelegt',
+        'object_updated': 'hat ein Objekt geaendert',
+        'customer_created': 'hat einen Kunden angelegt',
+        'customer_updated': 'hat einen Kunden geaendert',
+    }
+    if a in labels:
+        suffix = f" ({subject})" if subject and subject != '—' else ""
+        return f"{actor} {labels[a]}{suffix}"
+    return f"{actor}: {details or a}"
+
+
 def check_and_reset_confirmation(db, employee_id: int, schedule_date):
     """Prueft ob eine Monatsbestaetigung zurueckgesetzt werden muss,
     wenn eine neue Schicht nach Bestaetigung angelegt wird."""
@@ -672,6 +762,7 @@ def split_shift(data: dict, db: Session = Depends(get_db), admin = Depends(verif
     if schedule.employee_id == partner_employee_id:
         raise HTTPException(status_code=400, detail="Partner kann nicht der gleiche MA sein")
 
+    old_orig = _sched_snap(schedule)
     original_hours = schedule.planned_hours or 0
     half_hours = round(original_hours / 2, 2)
 
@@ -719,6 +810,16 @@ def split_shift(data: dict, db: Session = Depends(get_db), admin = Depends(verif
     schedule.partner_schedule_id = partner_schedule.id
     partner_schedule.partner_schedule_id = schedule.id
 
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, schedule.employee_id, 'schedule_split',
+        entity_type='schedule', entity_id=schedule.id,
+        old_value=old_orig, new_value=_sched_snap(schedule),
+        details='Schicht geteilt (halbiert)')
+    log_audit(db, admin.id, partner_schedule.employee_id, 'schedule_split',
+        entity_type='schedule', entity_id=partner_schedule.id,
+        new_value=_sched_snap(partner_schedule),
+        details='Partner-Schicht aus Teilung angelegt')
+
     db.commit()
 
     partner_emp = db.query(Employee).filter(Employee.id == partner_employee_id).first()
@@ -749,6 +850,10 @@ def unsplit_shift(data: dict, db: Session = Depends(get_db), admin = Depends(ver
         raise HTTPException(status_code=400, detail="Schicht ist nicht geteilt")
 
     partner = db.query(Schedule).filter(Schedule.id == schedule.partner_schedule_id).first()
+    old_sched = _sched_snap(schedule)
+    partner_snap = _sched_snap(partner)
+    partner_emp_id = partner.employee_id if partner else None
+    partner_id = partner.id if partner else None
 
     # Original-Stunden und end_time wiederherstellen
     if schedule.original_planned_hours is not None:
@@ -763,6 +868,17 @@ def unsplit_shift(data: dict, db: Session = Depends(get_db), admin = Depends(ver
     # Partner loeschen
     if partner:
         db.delete(partner)
+
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, schedule.employee_id, 'schedule_unsplit',
+        entity_type='schedule', entity_id=schedule.id,
+        old_value=old_sched, new_value=_sched_snap(schedule),
+        details='Schicht-Teilung aufgehoben')
+    if partner_snap:
+        log_audit(db, admin.id, partner_emp_id, 'schedule_deleted',
+            entity_type='schedule', entity_id=partner_id,
+            old_value=partner_snap,
+            details='Partner-Schicht bei Aufhebung der Teilung entfernt')
 
     db.commit()
     return {"status": "ok", "message": "Schicht wieder einzeln", "restored_hours": schedule.planned_hours}
@@ -971,6 +1087,12 @@ def copy_week_schedule(
             is_driver=source.is_driver
         )
         db.add(new_schedule)
+        db.flush()
+        from app.services.booking_service import log_audit
+        log_audit(db, admin.id, new_schedule.employee_id, 'schedule_copied',
+            entity_type='schedule', entity_id=new_schedule.id,
+            new_value=_sched_snap(new_schedule),
+            details='Schicht aus Wochenkopie angelegt')
         copied += 1
     
     db.commit()
@@ -1011,6 +1133,9 @@ def bulk_update_schedules(
         else:
             schedule = Schedule()
             db.add(schedule)
+
+        is_new = not schedule_id
+        old_snap = None if is_new else _sched_snap(schedule)
 
         # Felder temporaer berechnen fuer Overlap-Check
         new_date = datetime.strptime(update['date'], "%Y-%m-%d").date() if 'date' in update else schedule.date
@@ -1066,6 +1191,14 @@ def bulk_update_schedules(
         if 'notes' in update:
             schedule.notes = update['notes']
 
+        db.flush()
+        from app.services.booking_service import log_audit
+        log_audit(db, admin.id, schedule.employee_id,
+            'schedule_created' if is_new else 'schedule_updated',
+            entity_type='schedule', entity_id=schedule.id,
+            old_value=old_snap, new_value=_sched_snap(schedule),
+            details='Schicht angelegt' if is_new else 'Schicht geaendert')
+
         results.append({'id': schedule.id, 'status': 'updated'})
 
     db.commit()
@@ -1085,7 +1218,8 @@ def create_replacement(
     original = db.query(Schedule).filter(Schedule.id == original_schedule_id).first()
     if not original:
         raise HTTPException(status_code=404, detail="Original-Schicht nicht gefunden")
-    
+
+    old_orig = _sched_snap(original)
     original.status = reason
 
     # Zeiten: von Original uebernehmen, Fallback auf Objekt-Standardzeiten
@@ -1133,6 +1267,18 @@ def create_replacement(
     )
 
     db.add(replacement)
+    db.flush()
+
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, original.employee_id, 'schedule_updated',
+        entity_type='schedule', entity_id=original.id,
+        old_value=old_orig, new_value=_sched_snap(original),
+        details=f'Original-Schicht auf {reason} gesetzt (Vertretung)')
+    log_audit(db, admin.id, replacement.employee_id, 'schedule_replacement',
+        entity_type='schedule', entity_id=replacement.id,
+        new_value=_sched_snap(replacement),
+        details=f'Vertretung angelegt fuer MA {original.employee_id}')
+
     db.commit()
 
     return {
@@ -1187,6 +1333,7 @@ def quick_assign_schedule(
     if overlap_msg:
         raise HTTPException(status_code=409, detail=overlap_msg)
 
+    old_snap = _sched_snap(existing) if existing else None
     if existing:
         existing.start_time = new_start
         existing.end_time = new_end
@@ -1207,6 +1354,15 @@ def quick_assign_schedule(
         )
         db.add(schedule)
         message = "Schicht erstellt"
+
+    sched_obj = existing if existing else schedule
+    db.flush()
+    from app.services.booking_service import log_audit
+    log_audit(db, admin.id, sched_obj.employee_id,
+        'schedule_updated' if existing else 'schedule_created',
+        entity_type='schedule', entity_id=sched_obj.id,
+        old_value=old_snap, new_value=_sched_snap(sched_obj),
+        details='Schicht per Schnellzuweisung ' + ('geaendert' if existing else 'angelegt'))
 
     db.commit()
 
@@ -1383,6 +1539,12 @@ def copy_shift_to_week(
             notes=source.notes,
         )
         db.add(new_schedule)
+        db.flush()
+        from app.services.booking_service import log_audit
+        log_audit(db, admin.id, new_schedule.employee_id, 'schedule_copied',
+            entity_type='schedule', entity_id=new_schedule.id,
+            new_value=_sched_snap(new_schedule),
+            details='Schicht in Woche kopiert')
         created += 1
 
     db.commit()
@@ -1452,6 +1614,12 @@ def repeat_shift(
             notes=source.notes,
         )
         db.add(new_schedule)
+        db.flush()
+        from app.services.booking_service import log_audit
+        log_audit(db, admin.id, new_schedule.employee_id, 'schedule_repeated',
+            entity_type='schedule', entity_id=new_schedule.id,
+            new_value=_sched_snap(new_schedule),
+            details='Schicht woechentlich wiederholt')
         created += 1
         current_date += timedelta(weeks=1)
 
@@ -2020,7 +2188,7 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
 
     emp = db.query(Employee).filter(Employee.id == entry.employee_id).first()
     emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(entry.employee_id)
-    old_vals = {"datum": entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?', "stundensatz": entry.hourly_rate, "stunden": entry.billed_hours}
+    old_vals = _booking_snap(entry)
 
     # Update Felder
     if 'check_in' in data:
@@ -2057,7 +2225,7 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
         ), {"new_date": new_date, "te_id": booking_id})
 
     from app.services.booking_service import log_audit
-    new_vals = {"datum": entry.check_in.strftime('%d.%m.%Y') if entry.check_in else '?', "stundensatz": entry.hourly_rate, "stunden": entry.billed_hours}
+    new_vals = _booking_snap(entry)
     log_audit(db, admin.id, entry.employee_id, 'booking_updated',
         entity_type='time_entry', entity_id=booking_id,
         old_value=old_vals, new_value=new_vals,
@@ -3340,6 +3508,14 @@ def get_audit_log(
     if action:
         query = query.filter(AuditLog.action.ilike(f"%{action}%"))
 
+    # Alte Middleware-Zeilen (HTTP-Methode als action, ohne Benutzer/Inhalt) ausblenden
+    query = query.filter(
+        ~AuditLog.action.like('POST %'),
+        ~AuditLog.action.like('PUT %'),
+        ~AuditLog.action.like('DELETE %'),
+        ~AuditLog.action.like('PATCH %'),
+    )
+
     logs = query.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()
 
     # User-Cache fuer Performance
@@ -3352,20 +3528,24 @@ def get_audit_log(
             if u:
                 emp = db.query(Employee).filter(Employee.user_id == u.id).first()
                 name = f"{emp.first_name} {emp.last_name}" if emp else u.email
+                pnr = emp.personal_nr if emp else None
                 role = u.role.value if hasattr(u.role, 'value') else str(u.role)
-                user_cache[uid] = (name, role)
+                user_cache[uid] = (name, role, pnr)
             else:
-                user_cache[uid] = (None, None)
+                user_cache[uid] = (None, None, None)
         return user_cache[uid]
 
     result = []
     for log in logs:
         emp_name = None
+        emp_pnr = None
         if log.employee_id:
             emp = db.query(Employee).filter(Employee.id == log.employee_id).first()
-            emp_name = f"{emp.first_name} {emp.last_name}" if emp else None
+            if emp:
+                emp_name = f"{emp.first_name} {emp.last_name}"
+                emp_pnr = emp.personal_nr
 
-        changed_by_name, changed_by_role = get_user_info(log.user_id)
+        changed_by_name, changed_by_role, changed_by_pnr = get_user_info(log.user_id)
 
         # old_value / new_value parsen
         old_val = None
@@ -3381,6 +3561,10 @@ def get_audit_log(
         except Exception:
             new_val = log.new_value
 
+        actor = f"{changed_by_name} {changed_by_pnr}".strip() if changed_by_name else "Unbekannt"
+        subject = f"{emp_name} {emp_pnr}".strip() if emp_name else "—"
+        message = _audit_sentence(log.action, old_val, new_val, actor, subject, log.details)
+
         result.append({
             "id": log.id,
             "action": log.action,
@@ -3394,6 +3578,7 @@ def get_audit_log(
             "old_value": old_val,
             "new_value": new_val,
             "details": log.details,
+            "message": message,
             "created_at": log.created_at.isoformat() if log.created_at else None,
         })
 
@@ -6009,6 +6194,9 @@ def approve_pending_booking(
 
     # Prüfe ob gehen_vergessen oder zeit_korrektur (bestehende TimeEntry bearbeiten)
     related_id = pb.related_time_entry_id if hasattr(pb, 'related_time_entry_id') and pb.related_time_entry_id else None
+    # Alten Zustand der verknuepften Buchung fuer das Audit-Log sichern (vor Aenderung)
+    from app.models.models import TimeEntry as _TE_snap
+    old_te_snap = _booking_snap(db.query(_TE_snap).filter(_TE_snap.id == related_id).first()) if related_id else None
     is_correction = (pb.catch_up_type == 'zeit_korrektur' if hasattr(pb, 'catch_up_type') else False) and related_id
     km_booked = None
     override_km = data.get("override_km")
@@ -6182,6 +6370,7 @@ def approve_pending_booking(
     from app.services.booking_service import log_audit
     log_audit(db, admin.id, pb.employee_id, 'booking_approved',
         entity_type='pending_booking', entity_id=booking_id,
+        old_value=old_te_snap,
         new_value={"datum": str(pb.date), "stunden": approved_hours, "stundensatz": hourly_rate, "typ": service_type},
         details=f"Selbstbuchung genehmigt: ID {booking_id}, {approved_hours}h, {hourly_rate} EUR/h")
 
