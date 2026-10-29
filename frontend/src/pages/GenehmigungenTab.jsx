@@ -257,6 +257,59 @@ const GenehmigungenTab = ({ showToast }) => {
                         </div>
                       </div>
                     )}
+
+                    {/* Mehrzeit-Infokarte: gestempelt vs. Plan + beantragte Mehrzeit + Vorschau */}
+                    {isMehrzeit && (
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-2">
+                        <div className="text-xs font-bold text-orange-800">Mehrzeit-Antrag</div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <div className="text-xs text-gray-500">Gestempelt (tatsächlich)</div>
+                            <div className="font-mono font-bold text-gray-900">
+                              {(b.related_check_in || '?')}–{(b.related_check_out || '?')}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-gray-500">Plan (Dienstplan)</div>
+                            <div className="font-mono text-gray-600">{b.start_time}–{b.end_time}</div>
+                          </div>
+                        </div>
+                        <div className="text-sm">
+                          <span className="text-xs text-gray-500">Beantragte Mehrzeit: </span>
+                          <span className="font-bold text-orange-700">
+                            {Math.round((parseFloat(ed.approved_hours ?? b.requested_hours) || 0) * 60)} Minuten
+                          </span>
+                          <span className="text-xs text-gray-400 ml-1">
+                            ({(parseFloat(ed.approved_hours ?? b.requested_hours) || 0).toFixed(4)} h)
+                          </span>
+                        </div>
+                        {b.notes && (
+                          <div className="text-sm">
+                            <span className="text-xs text-gray-500">Begründung: </span>
+                            <span className="text-gray-800 italic">{b.notes}</span>
+                          </div>
+                        )}
+                        {(() => {
+                          const rate = parseFloat(ed.hourly_rate ?? b.hourly_rate ?? 0) || 0;
+                          const vor = (b.related_billed_hours || 0);
+                          const nach = projectedTotal;
+                          return (
+                            <div className="border-t border-orange-200 pt-2 text-sm">
+                              <div className="text-xs text-gray-500 mb-0.5">Nach dem Eintragen gilt:</div>
+                              <div className="flex justify-between">
+                                <span>Stunden:</span>
+                                <span className="font-bold">{vor.toFixed(4)} h → <span className="text-green-700">{nach.toFixed(4)} h</span></span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Brutto:</span>
+                                <span className="font-bold">{(vor * rate).toFixed(2)} € → <span className="text-green-700">{(nach * rate).toFixed(2)} €</span></span>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
                     {/* Zeiten anpassen */}
                     <div className="grid grid-cols-3 gap-2">
                       <div>
@@ -356,27 +409,8 @@ const GenehmigungenTab = ({ showToast }) => {
 
                     {/* Brutto + KM Vorschau */}
                     <div className="bg-blue-50 rounded-lg p-2 text-sm">
-                      {isMehrzeit && (
-                        <>
-                          <div className="flex justify-between text-gray-600">
-                            <span>Schichtdauer ({b.start_time}–{b.end_time}):</span>
-                            <span>{shiftDur.toFixed(2)} h</span>
-                          </div>
-                          <div className="flex justify-between text-gray-600">
-                            <span>Bisher gebucht:</span>
-                            <span>{b.related_billed_hours != null ? b.related_billed_hours.toFixed(4) : '–'} h</span>
-                          </div>
-                          <div className="flex justify-between text-green-700 font-bold border-t border-blue-200 mt-1 pt-1">
-                            <span>Gesamt nach Eintragen:</span>
-                            <span>{projectedTotal.toFixed(4)} h</span>
-                          </div>
-                          <div className="text-[11px] text-gray-500 mt-0.5">
-                            Mehrzeit (+{ed.approved_hours ?? b.requested_hours} h) wird zur gebuchten Zeit addiert.
-                          </div>
-                        </>
-                      )}
                       <div className="flex justify-between">
-                        <span>{isMehrzeit ? 'Mehrzeit-Betrag:' : 'Brutto:'}</span>
+                        <span>{isMehrzeit ? 'Mehrzeit-Betrag (nur Zuschlag):' : 'Brutto:'}</span>
                         <span className="font-bold text-blue-700">{brutto} EUR</span>
                       </div>
                       {b.is_driver && b.km_distance > 0 && (() => {

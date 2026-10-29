@@ -6110,6 +6110,8 @@ def get_pending_bookings(
             "correction_field": row.correction_field if hasattr(row, 'correction_field') else None,
             "related_time_entry_id": row.related_time_entry_id if hasattr(row, 'related_time_entry_id') else None,
             "related_billed_hours": None,
+            "related_check_in": None,
+            "related_check_out": None,
             "original_start_time": None,
             "original_end_time": None,
         })
@@ -6124,15 +6126,19 @@ def get_pending_bookings(
                 b["original_start_time"] = te_row.check_in.strftime("%H:%M") if te_row.check_in else None
                 b["original_end_time"] = te_row.check_out.strftime("%H:%M") if te_row.check_out else None
 
-    # Fuer mehrzeit_dienstplan: aktuelle billed_hours der verknuepften Buchung nachladen
-    # (Frontend zeigt daraus die Gesamtzeit nach dem Eintragen).
+    # Fuer mehrzeit_dienstplan: aktuelle billed_hours UND die tatsaechlich gestempelten
+    # Zeiten der verknuepften Buchung nachladen (Frontend zeigt gestempelt vs. Plan +
+    # Gesamtzeit nach dem Eintragen). Reine Anzeige-Daten, keine Berechnung.
     for b in bookings:
         if b.get("reason") == "mehrzeit_dienstplan" and b.get("related_time_entry_id"):
             te = db.execute(text(
-                "SELECT billed_hours FROM time_entries WHERE id = :id"
+                "SELECT billed_hours, check_in, check_out FROM time_entries WHERE id = :id"
             ), {"id": b["related_time_entry_id"]}).fetchone()
-            if te and te.billed_hours is not None:
-                b["related_billed_hours"] = float(te.billed_hours)
+            if te:
+                if te.billed_hours is not None:
+                    b["related_billed_hours"] = float(te.billed_hours)
+                b["related_check_in"] = te.check_in.strftime("%H:%M") if te.check_in else None
+                b["related_check_out"] = te.check_out.strftime("%H:%M") if te.check_out else None
 
     return bookings
 

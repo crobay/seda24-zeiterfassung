@@ -647,8 +647,11 @@ import api from '../services/api';
                           ? new Date(booking.check_out).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
                           : 'Offen'}
                         {booking.sync_delay_minutes >= 5 && (
-                          <span className="ml-1 text-xs text-orange-500" title="Offline-Stempel verzögert empfangen">
-                            📶 +{formatDelay(booking.sync_delay_minutes)}
+                          <span
+                            className="ml-1 inline-flex items-center gap-0.5 text-[11px] text-slate-500 border border-slate-300 rounded px-1 whitespace-nowrap align-middle"
+                            title="Offline gestempelt und verspätet an den Server übertragen (Empfang minus Stempelzeit). Das ist KEINE Mehrarbeit und keine Arbeitszeit."
+                          >
+                            🕓 offline, {formatDelay(booking.sync_delay_minutes)} verspätet übertragen
                           </span>
                         )}
                       </td>
@@ -876,8 +879,8 @@ import api from '../services/api';
                       <div>Gestempelt: {new Date(editingBooking.check_out || editingBooking.check_in).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: undefined, hour: '2-digit', minute: '2-digit' })}</div>
                       <div>Empfangen: {new Date(editingBooking.server_received_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: undefined, hour: '2-digit', minute: '2-digit' })}</div>
                       {editingBooking.sync_delay_minutes >= 5 && (
-                        <div className="text-orange-600 font-medium">
-                          Verzögerung: {formatDelay(editingBooking.sync_delay_minutes)}
+                        <div className="text-slate-600 font-medium">
+                          🕓 Offline gestempelt, {formatDelay(editingBooking.sync_delay_minutes)} verspätet übertragen (keine Mehrarbeit)
                         </div>
                       )}
                     </div>
