@@ -2,6 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Clock, User, Building, Calendar, Car, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../services/api';
 
+// Nur-Anzeige: Industriestunden lesbar als "X Std Y Min" (DB/Abrechnung bleiben dezimal)
+const fmtStdMin = (h) => {
+  const totalMin = Math.round((parseFloat(h) || 0) * 60);
+  const std = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  if (std && min) return `${std} Std ${min} Min`;
+  if (std) return `${std} Std`;
+  return `${min} Min`;
+};
+
 const GenehmigungenTab = ({ showToast }) => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -195,8 +205,8 @@ const GenehmigungenTab = ({ showToast }) => {
                   <div className="flex items-center gap-3 text-xs text-gray-600">
                     <span className="flex items-center gap-1"><Building size={12} /> {b.object_name}</span>
                     <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(b.date).toLocaleDateString('de-DE')}</span>
-                    <span>{b.start_time}-{b.end_time}</span>
-                    <span className="font-bold text-blue-600">{isMehrzeit ? `+${b.requested_hours}h Mehrzeit` : `${b.requested_hours}h`}</span>
+                    <span>{isMehrzeit ? `${b.related_check_in || '?'}–${b.related_check_out || '?'}` : `${b.start_time}-${b.end_time}`}</span>
+                    <span className="font-bold text-blue-600">{isMehrzeit ? `+${Math.round((b.requested_hours || 0) * 60)} Min Mehrzeit` : fmtStdMin(b.requested_hours)}</span>
                     {b.is_driver && b.km_distance && (
                       <span className="flex items-center gap-1 text-green-600"><Car size={12} /> {b.km_distance}km</span>
                     )}
@@ -260,33 +270,24 @@ const GenehmigungenTab = ({ showToast }) => {
 
                     {/* Mehrzeit-Infokarte: gestempelt vs. Plan + beantragte Mehrzeit + Vorschau */}
                     {isMehrzeit && (
-                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-2">
-                        <div className="text-xs font-bold text-orange-800">Mehrzeit-Antrag</div>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>
-                            <div className="text-xs text-gray-500">Gestempelt (tatsächlich)</div>
-                            <div className="font-mono font-bold text-gray-900">
-                              {(b.related_check_in || '?')}–{(b.related_check_out || '?')}
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-gray-500">Plan (Dienstplan)</div>
-                            <div className="font-mono text-gray-600">{b.start_time}–{b.end_time}</div>
-                          </div>
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-1.5">
+                        <div className="text-xs font-bold text-orange-800 mb-1">Mehrzeit-Antrag</div>
+                        <div className="flex justify-between gap-2 text-sm">
+                          <span className="text-gray-500">Gestempelt</span>
+                          <span className="font-mono font-bold text-gray-900">{b.related_check_in || '?'}–{b.related_check_out || '?'} Uhr</span>
                         </div>
-                        <div className="text-sm">
-                          <span className="text-xs text-gray-500">Beantragte Mehrzeit: </span>
-                          <span className="font-bold text-orange-700">
-                            {Math.round((parseFloat(ed.approved_hours ?? b.requested_hours) || 0) * 60)} Minuten
-                          </span>
-                          <span className="text-xs text-gray-400 ml-1">
-                            ({(parseFloat(ed.approved_hours ?? b.requested_hours) || 0).toFixed(4)} h)
-                          </span>
+                        <div className="flex justify-between gap-2 text-sm">
+                          <span className="text-gray-500">Plan</span>
+                          <span className="font-mono text-gray-600">{b.start_time}–{b.end_time} Uhr</span>
+                        </div>
+                        <div className="flex justify-between gap-2 text-sm">
+                          <span className="text-gray-500">Beantragte Mehrzeit</span>
+                          <span className="font-bold text-orange-700">{Math.round((parseFloat(ed.approved_hours ?? b.requested_hours) || 0) * 60)} Min</span>
                         </div>
                         {b.notes && (
                           <div className="text-sm">
-                            <span className="text-xs text-gray-500">Begründung: </span>
-                            <span className="text-gray-800 italic">{b.notes}</span>
+                            <div className="text-gray-500">Begründung</div>
+                            <div className="text-gray-800 italic break-words">{b.notes}</div>
                           </div>
                         )}
                         {(() => {
@@ -294,14 +295,14 @@ const GenehmigungenTab = ({ showToast }) => {
                           const vor = (b.related_billed_hours || 0);
                           const nach = projectedTotal;
                           return (
-                            <div className="border-t border-orange-200 pt-2 text-sm">
-                              <div className="text-xs text-gray-500 mb-0.5">Nach dem Eintragen gilt:</div>
-                              <div className="flex justify-between">
-                                <span>Stunden:</span>
-                                <span className="font-bold">{vor.toFixed(4)} h → <span className="text-green-700">{nach.toFixed(4)} h</span></span>
+                            <div className="border-t border-orange-200 pt-2 mt-1 text-sm space-y-0.5">
+                              <div className="text-xs text-gray-500">Nach dem Eintragen gilt:</div>
+                              <div className="flex justify-between gap-2">
+                                <span>Stunden</span>
+                                <span className="font-bold">{fmtStdMin(vor)} → <span className="text-green-700">{fmtStdMin(nach)}</span></span>
                               </div>
-                              <div className="flex justify-between">
-                                <span>Brutto:</span>
+                              <div className="flex justify-between gap-2">
+                                <span>Brutto</span>
                                 <span className="font-bold">{(vor * rate).toFixed(2)} € → <span className="text-green-700">{(nach * rate).toFixed(2)} €</span></span>
                               </div>
                             </div>
@@ -337,14 +338,25 @@ const GenehmigungenTab = ({ showToast }) => {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-500">{isMehrzeit ? 'Mehrzeit (Std.)' : 'Stunden'}</label>
-                        <input
-                          type="number"
-                          step="0.25"
-                          value={ed.approved_hours}
-                          onChange={(e) => updateEdit(b.id, 'approved_hours', e.target.value)}
-                          className="w-full p-1.5 border rounded text-sm"
-                        />
+                        <label className="text-xs text-gray-500">{isMehrzeit ? 'Mehrzeit in Minuten' : 'Stunden'}</label>
+                        {isMehrzeit ? (
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={Math.round((parseFloat(ed.approved_hours ?? b.requested_hours) || 0) * 60)}
+                            onChange={(e) => updateEdit(b.id, 'approved_hours', (parseFloat(e.target.value) || 0) / 60)}
+                            className="w-full p-1.5 border rounded text-sm"
+                          />
+                        ) : (
+                          <input
+                            type="number"
+                            step="0.25"
+                            value={ed.approved_hours}
+                            onChange={(e) => updateEdit(b.id, 'approved_hours', e.target.value)}
+                            className="w-full p-1.5 border rounded text-sm"
+                          />
+                        )}
                       </div>
                     </div>
 
