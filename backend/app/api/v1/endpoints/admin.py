@@ -2670,11 +2670,17 @@ def get_employees_for_pdf(
     db: Session = Depends(get_db),
     admin = Depends(verify_admin_or_objektleiter)
 ):
-    """Gibt Liste aller Mitarbeiter für PDF-Dropdown zurück"""
-    from app.models.models import Employee
-    
-    employees = db.query(Employee).filter(Employee.is_active == True).all()
-    
+    """Gibt Liste der abrechenbaren Mitarbeiter für PDF-Auswahl zurück.
+    Ausgeblendet: inaktive MAs/Logins und Admin-/Chef-Konten (z.B. A0001, D0001)."""
+    from app.models.models import Employee, UserRole
+
+    employees = db.query(Employee).outerjoin(User, User.id == Employee.user_id).filter(
+        Employee.is_active == True,
+        or_(User.id == None, and_(User.is_active == True, User.role != UserRole.ADMIN)),
+        text("COALESCE(employees.employment_type, '') NOT IN ('admin', 'chef')"),  # Spalte nicht im ORM-Modell
+        or_(Employee.personal_nr == None, ~Employee.personal_nr.startswith('A')),
+    ).order_by(Employee.personal_nr).all()
+
     return [
         {
             "id": emp.id,

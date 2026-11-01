@@ -7,8 +7,9 @@ const AbrechnungenTab = () => {
   const [employees, setEmployees] = useState([]);
   const [selectedEmployees, setSelectedEmployees] = useState([]);
   const [selectAll, setSelectAll] = useState(false);
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  // Standard: Vormonat (im Januar -> Dezember des Vorjahres), frei umstellbar
+  const [year, setYear] = useState(() => { const d = new Date(); return d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear(); });
+  const [month, setMonth] = useState(() => { const d = new Date(); return d.getMonth() === 0 ? 12 : d.getMonth(); });
   const [loading, setLoading] = useState(false);
   const [loadingLexware, setLoadingLexware] = useState(false);
   const [message, setMessage] = useState('');
@@ -84,7 +85,8 @@ const AbrechnungenTab = () => {
         const link = document.createElement('a');
         link.href = url;
         const employee = employees.find(e => e.id === empId);
-        const filename = employee ? `SEDA24_${type}_${employee.name.replace(/ /g, '_')}_${month}_${year}.${type === 'komplett' ? 'zip' : 'pdf'}` : `SEDA24_${type}_${month}_${year}.${type === 'komplett' ? 'zip' : 'pdf'}`;
+        const mm = String(month).padStart(2, '0');
+        const filename = employee ? `SEDA24_${type}_${employee.name.replace(/ /g, '_')}_${mm}_${year}.${type === 'komplett' ? 'zip' : 'pdf'}` : `SEDA24_${type}_${mm}_${year}.${type === 'komplett' ? 'zip' : 'pdf'}`;
         link.setAttribute('download', filename);
         document.body.appendChild(link);
         link.click();
@@ -113,7 +115,7 @@ const AbrechnungenTab = () => {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', `SEDA24_Bulk_${selectedEmployees.length}_MA_${month}_${year}.zip`);
+        link.setAttribute('download', `SEDA24_Bulk_${selectedEmployees.length}_MA_${String(month).padStart(2, '0')}_${year}.zip`);
         document.body.appendChild(link);
         link.click();
         link.remove();
