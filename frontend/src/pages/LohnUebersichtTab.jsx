@@ -121,11 +121,12 @@ const LohnUebersichtTab = () => {
     feiertag_hours: (acc.feiertag_hours || 0) + (row.feiertag_hours || 0),
     urlaub_days: (acc.urlaub_days || 0) + (row.urlaub_days || 0),
     urlaub_amount: (acc.urlaub_amount || 0) + (row.urlaub_amount || 0),
+    urlaub_hours: (acc.urlaub_hours || 0) + (row.urlaub_hours || 0),
     km_amount: (acc.km_amount || 0) + (row.km_amount || 0),
     gesamt: (acc.gesamt || 0) + (row.gesamt || 0),
   }), {});
 
-  const colCount = hasZeitkonto ? 16 : 14;
+  const colCount = hasZeitkonto ? 17 : 15;
 
   return (
     <div className="bg-white rounded-lg shadow">
@@ -167,6 +168,7 @@ const LohnUebersichtTab = () => {
               <th className="px-2 py-2 text-right font-semibold border-b whitespace-nowrap bg-red-50">Fei</th>
               <th className="px-2 py-2 text-right font-semibold border-b whitespace-nowrap bg-blue-50">Url.Tage</th>
               <th className="px-2 py-2 text-right font-semibold border-b whitespace-nowrap bg-blue-50">Url.€</th>
+              <th className="px-2 py-2 text-right font-semibold border-b whitespace-nowrap bg-blue-50" title="Url.€ / Stundenlohn, aufgerundet (Lexware Lohnart 0014)">Url.Std</th>
               <th className="px-2 py-2 text-right font-semibold border-b whitespace-nowrap bg-cyan-50">KM €</th>
               <th className="px-2 py-2 text-right font-semibold border-b whitespace-nowrap bg-amber-50">Übertr.</th>
               {hasZeitkonto && <>
@@ -205,6 +207,7 @@ const LohnUebersichtTab = () => {
                     <td className="px-2 py-1.5 border-b text-right bg-red-50/50">{row.feiertag_hours > 0 ? formatHours(row.feiertag_hours) : '-'}</td>
                     <td className="px-2 py-1.5 border-b text-right bg-blue-50/50">{row.urlaub_days > 0 ? row.urlaub_days : '-'}</td>
                     <td className="px-2 py-1.5 border-b text-right bg-blue-50/50 font-medium">{row.urlaub_amount > 0 ? formatEuro(row.urlaub_amount) : '-'}</td>
+                    <td className="px-2 py-1.5 border-b text-right bg-blue-50/50">{row.urlaub_hours > 0 ? formatHours(row.urlaub_hours) : '-'}</td>
                     <td className="px-2 py-1.5 border-b text-right bg-cyan-50/50">{row.km_amount > 0 ? formatEuro(row.km_amount) : '-'}</td>
                     <td className="px-2 py-1.5 border-b text-right bg-amber-50/50">
                       {editingCarryover === row.employee_id ? (
@@ -309,6 +312,7 @@ const LohnUebersichtTab = () => {
                   <td className="px-2 py-2 border-t-2 border-gray-400 text-right">{totals.feiertag_hours > 0 ? formatHours(totals.feiertag_hours) : '-'}</td>
                   <td className="px-2 py-2 border-t-2 border-gray-400 text-right">{totals.urlaub_days > 0 ? totals.urlaub_days : '-'}</td>
                   <td className="px-2 py-2 border-t-2 border-gray-400 text-right">{totals.urlaub_amount > 0 ? formatEuro(totals.urlaub_amount) : '-'}</td>
+                  <td className="px-2 py-2 border-t-2 border-gray-400 text-right">{totals.urlaub_hours > 0 ? formatHours(totals.urlaub_hours) : '-'}</td>
                   <td className="px-2 py-2 border-t-2 border-gray-400 text-right">{totals.km_amount > 0 ? formatEuro(totals.km_amount) : '-'}</td>
                   <td className="px-2 py-2 border-t-2 border-gray-400 text-right">-</td>
                   {hasZeitkonto && <>

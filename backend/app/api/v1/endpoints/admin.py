@@ -3045,6 +3045,25 @@ def get_schedule_for_booking(
 # ============================================================
 from calendar import monthrange
 from app.services.holidays_bw import is_feiertag_bw
+import math
+
+def _urlaub_stunden(urlaub_amount, stundenlohn):
+    """Url.€ / normaler Stundenlohn, immer AUFgerundet auf 2 Nachkommastellen
+    (nie zu wenig bezahlen). round(...,6) faengt Float-Artefakte wie 200.00000000000003 ab."""
+    if not urlaub_amount or not stundenlohn:
+        return 0.0
+    return math.ceil(round(urlaub_amount / stundenlohn * 100, 6)) / 100
+
+
+def _urlaub_betrag(db, employee_id, first_day, last_day):
+    """Urlaubsgeld eines Monats: Summe der Tagessaetze der Urlaubs-TimeEntries."""
+    urlaub_entries = db.query(TimeEntry).filter(
+        TimeEntry.employee_id == employee_id,
+        func.date(TimeEntry.check_in) >= first_day,
+        func.date(TimeEntry.check_in) <= last_day,
+        TimeEntry.service_type == 'Urlaub'
+    ).all()
+    return sum(float(e.hourly_rate) for e in urlaub_entries if e.hourly_rate)
 
 def _berechne_stunden_split(db, employee_id, first_day, last_day):
     """Berechnet normal/sonder/sonntag/nacht/feiertag Stunden aus TimeEntries."""
@@ -3123,13 +3142,7 @@ def get_lohn_uebersicht(
         urlaub_days = len(set(s.date for s in urlaub_schedules))
 
         # Urlaubsgeld aus time_entries berechnen (hourly_rate = Tagessatz bei Urlaub)
-        urlaub_entries = db.query(TimeEntry).filter(
-            TimeEntry.employee_id == emp.id,
-            func.date(TimeEntry.check_in) >= first_day,
-            func.date(TimeEntry.check_in) <= last_day,
-            TimeEntry.service_type == 'Urlaub'
-        ).all()
-        urlaub_amount = sum(float(e.hourly_rate) for e in urlaub_entries if e.hourly_rate)
+        urlaub_amount = _urlaub_betrag(db, emp.id, first_day, last_day)
 
         km_result = db.execute(text(
             "SELECT COALESCE(SUM(amount), 0) FROM km_daily_entries WHERE employee_id = :emp_id AND date >= :first AND date <= :last AND is_billable = true"
@@ -3202,6 +3215,7 @@ def get_lohn_uebersicht(
             "sonntag_hours": round(sonntag_hours, 2), "nacht_hours": round(nacht_hours, 2),
             "feiertag_hours": round(feiertag_hours, 2),
             "urlaub_days": urlaub_days, "urlaub_amount": round(urlaub_amount, 2),
+            "urlaub_hours": _urlaub_stunden(round(urlaub_amount, 2), hourly_rate),
             "km_amount": round(km_amount, 2), "carryover": round(carryover_amount, 2),
             "gesamt": round(gesamt + carryover_amount, 2),
             "zeitkonto_aktiv": getattr(emp, 'zeitkonto_aktiv', False) or False,
@@ -5956,7 +5970,19 @@ def lexware_export(
         ids = [int(x) for x in employee_ids.split(",") if x.strip().isdigit()]
         filtered_zk_emps = [e for e in zeitkonto_emps if e.id in ids]
 
-    if not emp_data and not filtered_zk_emps:
+    # Urlaubsstunden (Lohnart 0014) fuer Stunden-MAs: Url.€ / Stundenlohn, aufgerundet
+    urlaub_emps_q = db.query(Employee).filter(Employee.is_active == True)
+    if employee_ids:
+        urlaub_emps_q = urlaub_emps_q.filter(Employee.id.in_(ids))
+    urlaub_lohnarten = []
+    for u_emp in urlaub_emps_q.order_by(Employee.personal_nr).all():
+        if u_emp.id in zeitkonto_emp_ids:
+            continue
+        u_std = _urlaub_stunden(round(_urlaub_betrag(db, u_emp.id, first_day, last_day), 2), u_emp.hourly_rate or 15.50)
+        if u_std > 0:
+            urlaub_lohnarten.append((u_emp, u_std))
+
+    if not emp_data and not filtered_zk_emps and not urlaub_lohnarten:
         raise HTTPException(status_code=404, detail="Keine Zeiteintraege fuer diesen Monat gefunden")
 
     # ZIP erstellen
@@ -5977,6 +6003,15 @@ def lexware_export(
             )
             filename = f"{info['personal_nr']}_{info['name']}_{month:02d}_{year}.xml"
             zf.writestr(filename, xml_content)
+
+        # Stunden-MAs mit Urlaub: zusaetzliche Lohnarten-Datei (0014 Urlaubsstunden)
+        for u_emp, u_std in urlaub_lohnarten:
+            xml_content = _generate_lexware_lohnarten_xml(
+                u_emp.personal_nr, year, month,
+                [{"lohnart": 14, "bezeichnung": "Urlaubsstunden", "stunden": u_std, "betrag": None}]
+            )
+            fname = f"{u_emp.personal_nr}_{u_emp.first_name}_{u_emp.last_name}_Lohnarten_{month:02d}_{year}.xml"
+            zf.writestr(fname, xml_content)
 
         # Zeitkonto-MAs (Lohnarten-Format)
         for zk_emp in filtered_zk_emps:
@@ -6004,6 +6039,9 @@ def lexware_export(
                 lohnarten.append({"lohnart": 13, "bezeichnung": "Sonntagszuschlag", "stunden": round(sonntag_h, 2), "betrag": None})
             if nacht_h > 0:
                 lohnarten.append({"lohnart": 11, "bezeichnung": "Nachtzuschlag", "stunden": round(nacht_h, 2), "betrag": None})
+            zk_url_std = _urlaub_stunden(round(_urlaub_betrag(db, zk_emp.id, first_day, last_day), 2), zk_emp.hourly_rate or 15.50)
+            if zk_url_std > 0:
+                lohnarten.append({"lohnart": 14, "bezeichnung": "Urlaubsstunden", "stunden": zk_url_std, "betrag": None})
 
             # Vorschuss aus VORMONAT
             prev_m = month - 1
