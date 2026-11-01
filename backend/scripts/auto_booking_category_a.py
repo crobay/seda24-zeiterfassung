@@ -19,10 +19,12 @@ def auto_book_category_a():
     cat_a_employees = db.query(Employee).filter(Employee.tracking_mode == 'A').all()
     
     for emp in cat_a_employees:
-        # Alle Schedules für heute (date-based)
+        # Alle Schedules für heute (date-based) - nur echte Dienste,
+        # krank/urlaub/abwesend nicht buchen (wie App-Scheduler)
         schedules = db.query(Schedule).filter(
             Schedule.employee_id == emp.id,
-            Schedule.date == now.date()
+            Schedule.date == now.date(),
+            Schedule.status.in_(['normal', 'vertretung'])
         ).all()
         
         for schedule in schedules:
