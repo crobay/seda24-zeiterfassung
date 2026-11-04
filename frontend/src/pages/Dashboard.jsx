@@ -49,6 +49,29 @@ const Dashboard = () => {
   const [pwSuccess, setPwSuccess] = useState('');
   const [pwLoading, setPwLoading] = useState(false);
 
+  // Telegram verbinden (Einmal-Code, 15 Min gueltig)
+  const [showTelegramLink, setShowTelegramLink] = useState(false);
+  const [tgLink, setTgLink] = useState(null);
+  const [tgLoading, setTgLoading] = useState(false);
+  const [tgError, setTgError] = useState('');
+
+  const handleTelegramConnect = async () => {
+    setShowTelegramLink(true);
+    setShowMoreMenu(false);
+    setTgLink(null);
+    setTgError('');
+    setTgLoading(true);
+    try {
+      const authToken = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/employees/telegram-link-code`, {},
+        { headers: { 'Authorization': `Bearer ${authToken}` }});
+      setTgLink(res.data);
+    } catch (err) {
+      setTgError(err.response?.data?.detail || 'Code konnte nicht erzeugt werden');
+    }
+    setTgLoading(false);
+  };
+
   // Offene Bestaetigungen
   const [pendingPushes, setPendingPushes] = useState([]);
 
@@ -1000,6 +1023,28 @@ const Dashboard = () => {
                 Passwort ändern
               </button>
 
+              <button
+                onClick={handleTelegramConnect}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  marginTop: '12px',
+                  backgroundColor: '#f8f9fa',
+                  color: '#333',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}
+              >
+                <Send size={24} />
+                Telegram verbinden
+              </button>
+
               <a
                 href="/hilfe/"
                 target="_blank"
@@ -1024,6 +1069,55 @@ const Dashboard = () => {
                 <HelpCircle size={24} />
                 Hilfe & FAQ
               </a>
+            </div>
+          </div>
+        )}
+
+        {/* Telegram verbinden Modal */}
+        {showTelegramLink && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', zIndex: 9999,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px',
+          }} onClick={() => setShowTelegramLink(false)}>
+            <div style={{
+              background: 'white', borderRadius: '16px', width: '100%', maxWidth: '400px',
+              padding: '24px', position: 'relative',
+            }} onClick={e => e.stopPropagation()}>
+              <button onClick={() => setShowTelegramLink(false)} style={{
+                position: 'absolute', top: '12px', right: '12px', background: 'none',
+                border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '4px',
+              }}><CloseIcon size={20} /></button>
+
+              <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px' }}>Telegram verbinden</h3>
+
+              {tgLoading && <p style={{ color: '#6b7280' }}>Code wird erzeugt...</p>}
+              {tgError && <div style={{ background: '#fef2f2', color: '#dc2626', padding: '10px', borderRadius: '8px', marginBottom: '12px', fontSize: '14px' }}>{tgError}</div>}
+
+              {tgLink && (
+                <>
+                  <p style={{ fontSize: '14px', color: '#374151', marginBottom: '16px' }}>
+                    Tippe auf den Knopf. Telegram öffnet den SEDA24-Bot, dort auf <b>Starten</b> tippen.
+                    Der Link ist {tgLink.valid_minutes} Minuten gültig und nur einmal verwendbar.
+                  </p>
+                  <a
+                    href={tgLink.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                      width: '100%', padding: '14px', background: '#229ED9', color: 'white',
+                      borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', textDecoration: 'none',
+                    }}
+                  >
+                    <Send size={20} /> In Telegram öffnen
+                  </a>
+                  <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '12px', textAlign: 'center' }}>
+                    Gültig bis {new Date(tgLink.expires_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}

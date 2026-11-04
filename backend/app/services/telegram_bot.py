@@ -3,7 +3,7 @@ Telegram-Bot fuer SEDA24 V3.0
 Ersetzt Browser-Push fuer Schichtbestaetigungen.
 
 Funktionen:
-- /start <Personalnummer> - Registrierung
+- /start <Code> - Registrierung per Einmal-Code aus der App ("Telegram verbinden")
 - Schichtbestaetigung per InlineKeyboard
 - Erinnerungen (12h, 24h, 48h Auto-Buchung)
 - Monatsbestaetigung
@@ -97,62 +97,87 @@ def notify_admin(text: str, reply_markup=None):
 
 # ========== COMMAND HANDLERS ==========
 
+LINK_HINT_TEXT = "Bitte in der App auf Telegram verbinden tippen."
+
+
+def link_telegram_by_code(code: str, chat_id) -> dict:
+    """Verknuepft eine Telegram-Chat-ID per Einmal-Code aus der App
+    (Tabelle telegram_link_codes, 15 Min gueltig, einmal verwendbar).
+    Gibt {"ok": True, "employee": ...} oder {"ok": False} zurueck."""
+    from sqlalchemy import text
+    from app.services.booking_service import log_audit
+    db = SessionLocal()
+    try:
+        now = datetime.now()
+        # Atomar einloesen: nur unbenutzt und nicht abgelaufen
+        row = db.execute(text(
+            "UPDATE telegram_link_codes SET used_at = :now, used_chat_id = :chat "
+            "WHERE code = :code AND used_at IS NULL AND expires_at > :now "
+            "RETURNING employee_id"
+        ), {"now": now, "chat": str(chat_id), "code": code}).fetchone()
+        if not row:
+            db.rollback()
+            return {"ok": False}
+        employee = db.query(Employee).filter(
+            Employee.id == row[0], Employee.is_active == True
+        ).first()
+        if not employee:
+            db.rollback()
+            return {"ok": False}
+        old_chat = employee.telegram_chat_id
+        employee.telegram_chat_id = str(chat_id)
+        log_audit(db, employee.user_id, employee.id, 'telegram_registration',
+            'employee', employee.id,
+            old_value={"telegram_chat_id": str(old_chat) if old_chat else None},
+            new_value={"telegram_chat_id": str(chat_id)},
+            details=f"Telegram verbunden per Einmal-Code aus der App: "
+                    f"{employee.personal_nr} -> chat_id {chat_id}")
+        db.commit()
+        return {"ok": True, "first_name": employee.first_name,
+                "personal_nr": employee.personal_nr}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /start D0001 - Registrierung per Personalnummer.
-    Speichert telegram_chat_id in employees.
+    /start <code> - Verknuepfung nur per Einmal-Code aus der App
+    ("Telegram verbinden"). /start ohne Code oder mit Personalnummer
+    verknuepft NICHT mehr (sonst koennte jeder fremde Konten uebernehmen).
     """
     chat_id = update.effective_chat.id
 
     if not context.args:
-        await update.message.reply_text(
-            "Willkommen bei SEDA24!\n\n"
-            "Bitte registriere dich mit deiner Personalnummer:\n"
-            "/start D0001\n\n"
-            "(Ersetze D0001 durch deine Personalnummer)"
-        )
+        await update.message.reply_text(LINK_HINT_TEXT)
         return
 
-    personal_nr = context.args[0].strip().upper()
+    code = context.args[0].strip()
 
-    db = SessionLocal()
     try:
-        employee = db.query(Employee).filter(
-            Employee.personal_nr == personal_nr,
-            Employee.is_active == True,
-        ).first()
-
-        if not employee:
-            await update.message.reply_text(
-                f"Personalnummer {personal_nr} nicht gefunden.\n"
-                "Bitte pruefe die Nummer und versuche es erneut."
-            )
-            return
-
-        # Chat-ID speichern (als String, da varchar-Spalte)
-        employee.telegram_chat_id = str(chat_id)
-        from app.services.booking_service import log_audit
-        log_audit(db, None, employee.id, 'telegram_registration',
-            'employee', employee.id,
-            details=f"Telegram registriert: {personal_nr} -> chat_id {chat_id}")
-        db.commit()
-
-        await update.message.reply_text(
-            f"Willkommen bei SEDA24! \U0001f44b\n\n"
-            f"Hallo {employee.first_name}, du bist jetzt verbunden ({personal_nr}).\n\n"
-            f"So funktioniert es:\n"
-            f"\u2705 Nach jeder Schicht bekommst du hier eine Nachricht\n"
-            f"\u2705 Ein Tipp auf 'Ja' und deine Stunden sind gebucht\n"
-            f"\u2705 Das war's - einfacher geht's nicht!\n\n"
-            f"Bei Fragen wende dich an die Verwaltung."
-        )
-        logger.info(f"Telegram registriert: {personal_nr} -> chat_id {chat_id}")
-
+        result = link_telegram_by_code(code, chat_id)
     except Exception as e:
         logger.error(f"Fehler bei /start: {e}")
         await update.message.reply_text("Fehler bei der Registrierung. Bitte spaeter erneut versuchen.")
-    finally:
-        db.close()
+        return
+
+    if not result["ok"]:
+        logger.info(f"Telegram /start ohne gueltigen Code abgelehnt (chat_id {chat_id})")
+        await update.message.reply_text(LINK_HINT_TEXT)
+        return
+
+    await update.message.reply_text(
+        f"Willkommen bei SEDA24! \U0001f44b\n\n"
+        f"Hallo {result['first_name']}, du bist jetzt verbunden ({result['personal_nr']}).\n\n"
+        f"So funktioniert es:\n"
+        f"\u2705 Nach jeder Schicht bekommst du hier eine Nachricht\n"
+        f"\u2705 Ein Tipp auf 'Ja' und deine Stunden sind gebucht\n"
+        f"\u2705 Das war's - einfacher geht's nicht!\n\n"
+        f"Bei Fragen wende dich an die Verwaltung."
+    )
+    logger.info(f"Telegram registriert per Code: {result['personal_nr']} -> chat_id {chat_id}")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -168,7 +193,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not employee:
             await update.message.reply_text(
                 "Du bist noch nicht registriert.\n"
-                "Nutze /start <Personalnummer>"
+                "Bitte in der App auf Telegram verbinden tippen."
             )
             return
 
@@ -214,7 +239,7 @@ async def cmd_urlaub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         employee = db.query(Employee).filter(Employee.telegram_chat_id == str(chat_id)).first()
         if not employee:
-            await update.message.reply_text("Du bist noch nicht registriert. Nutze /start <Personalnummer>")
+            await update.message.reply_text("Du bist noch nicht registriert. Bitte in der App auf Telegram verbinden tippen.")
             return
 
         from app.models.models import VacationEntitlement
@@ -1535,7 +1560,7 @@ async def cmd_krank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         employee = db.query(Employee).filter(Employee.telegram_chat_id == str(chat_id)).first()
         if not employee:
-            await update.message.reply_text("Du bist noch nicht registriert. Nutze /start <Personalnummer>")
+            await update.message.reply_text("Du bist noch nicht registriert. Bitte in der App auf Telegram verbinden tippen.")
             return
 
         today = date.today()
@@ -1804,7 +1829,7 @@ async def cmd_nachricht(update: Update, context: ContextTypes.DEFAULT_TYPE):
         employee = db.query(Employee).filter(Employee.telegram_chat_id == str(chat_id)).first()
         if not employee:
             await update.message.reply_text(
-                "\u26a0\ufe0f Du bist nicht registriert. Nutze /start <Personalnummer>"
+                "\u26a0\ufe0f Du bist nicht registriert. Bitte in der App auf Telegram verbinden tippen."
             )
             return
 

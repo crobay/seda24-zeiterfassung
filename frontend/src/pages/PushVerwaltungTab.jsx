@@ -174,9 +174,9 @@ const PushVerwaltungTab = () => {
         <Info size={18} className="inline mr-2" />
         <strong>Telegram-Bot Anleitung:</strong>
         <ul className="mt-2 space-y-1 ml-6 list-disc">
-          <li>Mitarbeiter oeffnet Telegram und sucht nach dem SEDA24-Bot</li>
-          <li>Sendet <code className="bg-blue-100 px-1 rounded">/start PERSONALNUMMER</code> (z.B. /start D0001)</li>
-          <li>Bot verknuepft automatisch das Telegram-Konto</li>
+          <li>Mitarbeiter tippt in der App unter "Mehr" auf "Telegram verbinden"</li>
+          <li>Die App oeffnet den SEDA24-Bot mit einem Einmal-Code (15 Min gueltig), dort auf "Starten" tippen</li>
+          <li>Bot verknuepft das Telegram-Konto (/start mit Personalnummer geht nicht mehr)</li>
           <li>Kat-B MAs erhalten Schichtbestaetigungen per Telegram</li>
           <li>Alle MAs erhalten Monatsbestaetigungen</li>
         </ul>

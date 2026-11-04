@@ -53,3 +53,49 @@ def get_my_colleagues_today(
 ):
     """Kollegen-Feature deaktiviert für v1.0"""
     return []
+
+
+TELEGRAM_BOT_USERNAME = "seda24zeitbot"
+TELEGRAM_LINK_CODE_MINUTES = 15
+_LINK_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+
+
+@router.post("/telegram-link-code")
+def create_telegram_link_code(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Einmal-Code fuer die Telegram-Verknuepfung (15 Min gueltig, einmal verwendbar).
+    Der Bot verknuepft nur per /start <code> - nicht mehr per Personalnummer."""
+    import secrets
+    from datetime import datetime, timedelta
+    from fastapi import HTTPException
+
+    emp = db.execute(
+        text("SELECT id FROM employees WHERE user_id = :uid AND is_active = true"),
+        {"uid": current_user.id}
+    ).fetchone()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Kein aktiver Mitarbeiter zu diesem Login")
+
+    now = datetime.now()
+    # Aeltere, noch offene Codes dieses MA ungueltig machen
+    db.execute(
+        text("UPDATE telegram_link_codes SET expires_at = :now "
+             "WHERE employee_id = :emp AND used_at IS NULL AND expires_at > :now"),
+        {"emp": emp[0], "now": now}
+    )
+    code = "".join(secrets.choice(_LINK_CODE_ALPHABET) for _ in range(12))
+    expires_at = now + timedelta(minutes=TELEGRAM_LINK_CODE_MINUTES)
+    db.execute(
+        text("INSERT INTO telegram_link_codes (employee_id, code, expires_at, created_at) "
+             "VALUES (:emp, :code, :exp, :now)"),
+        {"emp": emp[0], "code": code, "exp": expires_at, "now": now}
+    )
+    db.commit()
+    return {
+        "code": code,
+        "url": f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={code}",
+        "expires_at": expires_at.isoformat(),
+        "valid_minutes": TELEGRAM_LINK_CODE_MINUTES,
+    }
