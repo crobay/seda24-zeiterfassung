@@ -130,15 +130,40 @@ def _record_admin_message(ref_type, ref_id, chat_id, message_id, text):
         db.close()
 
 
-async def _notify_admin_async(chat_ids, text, reply_markup, ref_type, ref_id):
+FALLBACK_NOTE = "\u26a0\ufe0f Ersatz: Empf\u00e4nger nicht erreichbar"
+
+
+async def _send_admin_one(cid, text, reply_markup, ref_type, ref_id) -> bool:
+    """Eine Admin-Nachricht senden (und ggf. merken). True bei Erfolg."""
+    try:
+        msg = await send_message_async(int(cid), text, reply_markup)
+    except ValueError:
+        logger.error(f"Ungueltige Telegram-Chat-ID: {cid}")
+        return False
+    if msg is None:
+        return False
+    if ref_type and ref_id:
+        _record_admin_message(ref_type, ref_id, cid, msg.message_id, text)
+    return True
+
+
+async def _notify_admin_async(chat_ids, text, reply_markup, ref_type, ref_id, category=None):
+    delivered = 0
     for cid in chat_ids:
-        try:
-            msg = await send_message_async(int(cid), text, reply_markup)
-        except ValueError:
-            logger.error(f"Ungueltige Telegram-Chat-ID: {cid}")
-            continue
-        if msg is not None and ref_type and ref_id:
-            _record_admin_message(ref_type, ref_id, cid, msg.message_id, text)
+        if await _send_admin_one(cid, text, reply_markup, ref_type, ref_id):
+            delivered += 1
+    if delivered:
+        return
+    # Ersatz: niemand erreicht (kein Empfaenger angehakt/vorhanden oder jeder Versand fehlgeschlagen)
+    reason = "kein Empfaenger angehakt/vorhanden" if not chat_ids else f"Versand an {', '.join(map(str, chat_ids))} fehlgeschlagen"
+    if not ADMIN_CHAT_ID:
+        logger.error(f"notify_admin ERSATZ unmoeglich (TELEGRAM_ADMIN_CHAT_ID fehlt): Kategorie {category}, {reason}")
+        return
+    ok = await _send_admin_one(ADMIN_CHAT_ID, f"{FALLBACK_NOTE}\n\n{text}", reply_markup, ref_type, ref_id)
+    logger.warning(
+        f"notify_admin ERSATZ an Admin-Chat: Kategorie {category}, {reason}, "
+        f"ref {ref_type}:{ref_id} -> {'zugestellt' if ok else 'ebenfalls fehlgeschlagen'}"
+    )
 
 
 def notify_admin(text: str, reply_markup=None, category: str = "sonstiges",
@@ -146,22 +171,20 @@ def notify_admin(text: str, reply_markup=None, category: str = "sonstiges",
     """Admin-Meldung an alle eingestellten Empfaenger dieser Meldungsart
     (Einstellung "Telegram-Empfaenger", Tabelle telegram_recipient_settings).
     Mit ref_type/ref_id werden die gesendeten Nachrichten gemerkt, damit sie nach
-    einer Entscheidung bei allen Empfaengern geaendert werden koennen."""
+    einer Entscheidung bei allen Empfaengern geaendert werden koennen.
+    Erreicht die Meldung niemanden, geht sie als Ersatz an den Admin-Chat."""
     chat_ids = _admin_chat_ids_for(category)
-    if not chat_ids:
-        logger.warning(f"notify_admin: keine Empfaenger fuer Kategorie {category}")
-        return
     loop = get_bot_loop()
     if not loop:
         logger.error("Bot-Event-Loop nicht verfuegbar")
         return
-    coro = _notify_admin_async(chat_ids, text, reply_markup, ref_type, ref_id)
+    coro = _notify_admin_async(chat_ids, text, reply_markup, ref_type, ref_id, category)
     if _in_bot_loop():
         loop.create_task(coro)  # aus Callback-Handler: nicht blockieren
         return
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     try:
-        future.result(timeout=10 + 5 * len(chat_ids))
+        future.result(timeout=15 + 5 * len(chat_ids))
     except Exception as e:
         logger.error(f"notify_admin fehlgeschlagen: {e}")
 
