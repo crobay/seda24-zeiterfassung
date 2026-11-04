@@ -83,16 +83,171 @@ def send_message_sync(chat_id: int, text: str,
         return None
 
 
-def notify_admin(text: str, reply_markup=None):
-    """Admin per Telegram benachrichtigen."""
-    if not ADMIN_CHAT_ID:
-        logger.warning("TELEGRAM_ADMIN_CHAT_ID nicht gesetzt")
+APP_GENEHMIGUNGEN_URL = "https://app.seda.de/admin?tab=genehmigungen"
+
+# Callback-Praefixe, die nur Admin/Objektleitung druecken duerfen
+ADMIN_CALLBACK_PREFIXES = ("pb_ok:", "pb_no:", "vac_ok:", "vac_no:", "swa:", "swr:", "scr_done:", "scr_note:")
+
+
+def _in_bot_loop() -> bool:
+    """True, wenn wir gerade im Event-Loop des Bots laufen (Callback-Handler).
+    Dort darf nicht synchron auf den Loop gewartet werden (Deadlock)."""
+    loop = get_bot_loop()
+    if not loop:
+        return False
+    try:
+        return asyncio.get_running_loop() is loop
+    except RuntimeError:
+        return False
+
+
+def _admin_chat_ids_for(category):
+    """Chat-IDs der eingestellten Empfaenger fuer diese Meldungsart (ohne Doppelte).
+    Fallback bei Fehler: nur TELEGRAM_ADMIN_CHAT_ID."""
+    db = SessionLocal()
+    try:
+        from app.services.telegram_recipients import chat_ids_for_category
+        return chat_ids_for_category(db, category)
+    except Exception as e:
+        logger.error(f"Telegram-Empfaenger laden fehlgeschlagen, nur Admin-Chat: {e}")
+        return [ADMIN_CHAT_ID] if ADMIN_CHAT_ID else []
+    finally:
+        db.close()
+
+
+def _record_admin_message(ref_type, ref_id, chat_id, message_id, text):
+    from sqlalchemy import text as sa_text
+    db = SessionLocal()
+    try:
+        db.execute(sa_text(
+            "INSERT INTO telegram_admin_messages (ref_type, ref_id, chat_id, message_id, text) "
+            "VALUES (:rt, :rid, :cid, :mid, :txt)"
+        ), {"rt": ref_type, "rid": ref_id, "cid": str(chat_id), "mid": message_id, "txt": text})
+        db.commit()
+    except Exception as e:
+        logger.error(f"telegram_admin_messages speichern fehlgeschlagen: {e}")
+    finally:
+        db.close()
+
+
+async def _notify_admin_async(chat_ids, text, reply_markup, ref_type, ref_id):
+    for cid in chat_ids:
+        try:
+            msg = await send_message_async(int(cid), text, reply_markup)
+        except ValueError:
+            logger.error(f"Ungueltige Telegram-Chat-ID: {cid}")
+            continue
+        if msg is not None and ref_type and ref_id:
+            _record_admin_message(ref_type, ref_id, cid, msg.message_id, text)
+
+
+def notify_admin(text: str, reply_markup=None, category: str = "sonstiges",
+                 ref_type: str = None, ref_id: int = None):
+    """Admin-Meldung an alle eingestellten Empfaenger dieser Meldungsart
+    (Einstellung "Telegram-Empfaenger", Tabelle telegram_recipient_settings).
+    Mit ref_type/ref_id werden die gesendeten Nachrichten gemerkt, damit sie nach
+    einer Entscheidung bei allen Empfaengern geaendert werden koennen."""
+    chat_ids = _admin_chat_ids_for(category)
+    if not chat_ids:
+        logger.warning(f"notify_admin: keine Empfaenger fuer Kategorie {category}")
+        return
+    loop = get_bot_loop()
+    if not loop:
+        logger.error("Bot-Event-Loop nicht verfuegbar")
+        return
+    coro = _notify_admin_async(chat_ids, text, reply_markup, ref_type, ref_id)
+    if _in_bot_loop():
+        loop.create_task(coro)  # aus Callback-Handler: nicht blockieren
+        return
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    try:
+        future.result(timeout=10 + 5 * len(chat_ids))
+    except Exception as e:
+        logger.error(f"notify_admin fehlgeschlagen: {e}")
+
+
+def pending_booking_keyboard(booking_id: int):
+    """Knoepfe fuer Mehrzeit/Nachtrag/Korrektur."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("\u2705 Genehmigen", callback_data=f"pb_ok:{booking_id}"),
+            InlineKeyboardButton("\u274c Ablehnen", callback_data=f"pb_no:{booking_id}"),
+        ],
+        [InlineKeyboardButton("\U0001f4f1 In App pr\u00fcfen", url=APP_GENEHMIGUNGEN_URL)],
+    ])
+
+
+async def mark_admin_messages_decided_async(ref_type: str, ref_id: int, label: str):
+    """Alle gemerkten Admin-Nachrichten zu diesem Antrag aendern: Text + Vermerk,
+    Knoepfe entfernen. Gibt die Menge der geaenderten (chat_id, message_id) zurueck."""
+    from sqlalchemy import text as sa_text
+    db = SessionLocal()
+    try:
+        rows = db.execute(sa_text(
+            "SELECT id, chat_id, message_id, text FROM telegram_admin_messages "
+            "WHERE ref_type = :rt AND ref_id = :rid AND decided_label IS NULL"
+        ), {"rt": ref_type, "rid": ref_id}).fetchall()
+        done = set()
+        bot = get_bot()
+        for r in rows:
+            try:
+                if bot:
+                    await bot.edit_message_text(
+                        chat_id=int(r.chat_id), message_id=r.message_id,
+                        text=(r.text or "") + "\n\n" + label,
+                        parse_mode='HTML', reply_markup=None,
+                    )
+                done.add((str(r.chat_id), int(r.message_id)))
+            except Exception as e:
+                logger.error(f"Admin-Nachricht {r.chat_id}/{r.message_id} aendern fehlgeschlagen: {e}")
+            db.execute(sa_text("UPDATE telegram_admin_messages SET decided_label = :l WHERE id = :id"),
+                       {"l": label, "id": r.id})
+        db.commit()
+        return done
+    finally:
+        db.close()
+
+
+def mark_admin_messages_decided(ref_type: str, ref_id: int, label: str):
+    """Synchroner Aufruf (App-Endpunkte, Worker-Threads)."""
+    loop = get_bot_loop()
+    if not loop:
+        return
+    coro = mark_admin_messages_decided_async(ref_type, ref_id, label)
+    if _in_bot_loop():
+        loop.create_task(coro)
         return
     try:
-        admin_id = int(ADMIN_CHAT_ID)
-        send_message_sync(admin_id, text, reply_markup)
-    except ValueError:
-        logger.error(f"Ungueltige TELEGRAM_ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
+        asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=30)
+    except Exception as e:
+        logger.error(f"mark_admin_messages_decided fehlgeschlagen: {e}")
+
+
+async def _finish_admin_decision(query, ref_type, ref_id, label):
+    """Nach einer Entscheidung per Knopf: alle Empfaenger-Nachrichten aendern.
+    Alte, nicht gemerkte Nachrichten (vor dieser Funktion verschickt) direkt aendern."""
+    done = await mark_admin_messages_decided_async(ref_type, ref_id, label)
+    key = (str(query.message.chat_id), int(query.message.message_id))
+    if key not in done:
+        try:
+            await query.edit_message_text((query.message.text or "") + "\n\n" + label,
+                                          parse_mode=None, reply_markup=None)
+        except Exception as e:
+            logger.error(f"Nachricht aendern fehlgeschlagen: {e}")
+
+
+async def _run_in_thread(func, *args):
+    """Blockierenden Code ausserhalb des Bot-Loops ausfuehren (Python 3.8 hat to_thread noch nicht)."""
+    return await asyncio.get_running_loop().run_in_executor(None, func, *args)
+
+
+def _approver_for_chat_sync(chat_id):
+    db = SessionLocal()
+    try:
+        from app.services.telegram_recipients import approver_for_chat
+        return approver_for_chat(db, chat_id)
+    finally:
+        db.close()
 
 
 # ========== COMMAND HANDLERS ==========
@@ -433,12 +588,24 @@ def send_shift_confirmation_telegram(notification_id: int):
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Verarbeitet InlineKeyboard-Klicks."""
     query = update.callback_query
-    await query.answer()
-
-    data = query.data
+    data = query.data or ""
     chat_id = query.message.chat_id
 
-    if data.startswith("confirm:"):
+    # Admin-Knoepfe (Genehmigen/Ablehnen usw.) nur fuer Admin-Chat, ADMIN oder OBJEKTLEITER
+    approver = None
+    if data.startswith(ADMIN_CALLBACK_PREFIXES):
+        approver = await _run_in_thread(_approver_for_chat_sync, chat_id)
+        if not approver:
+            logger.warning(f"Admin-Knopf ohne Berechtigung: chat_id {chat_id}, data {data}")
+            await query.answer("Keine Berechtigung.", show_alert=True)
+            return
+    await query.answer()
+
+    if data.startswith("pb_ok:"):
+        await _handle_pending_booking_decision(query, data, chat_id, approver, approve=True)
+    elif data.startswith("pb_no:"):
+        await _handle_pending_booking_decision(query, data, chat_id, approver, approve=False)
+    elif data.startswith("confirm:"):
         await _handle_confirm(query, data, chat_id)
     elif data.startswith("decline:"):
         await _handle_decline(query, data, chat_id)
@@ -451,17 +618,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("month_dispute:"):
         await _handle_month_dispute(query, data, chat_id)
     elif data.startswith("swa:"):
-        await _handle_swap_approve(query, data, chat_id)
+        await _handle_swap_approve(query, data, chat_id, approver)
     elif data.startswith("swr:"):
-        await _handle_swap_reject(query, data, chat_id)
+        await _handle_swap_reject(query, data, chat_id, approver)
     elif data.startswith("scr_done:"):
         await _handle_scr_done(query, data, chat_id)
     elif data.startswith("scr_note:"):
         await _handle_scr_noted(query, data, chat_id)
     elif data.startswith("vac_ok:"):
-        await _handle_vacation_approve(query, data, chat_id)
+        await _handle_vacation_approve(query, data, chat_id, approver)
     elif data.startswith("vac_no:"):
-        await _handle_vacation_reject(query, data, chat_id)
+        await _handle_vacation_reject(query, data, chat_id, approver)
     elif data.startswith("vac_send:"):
         await _handle_vacation_send(query, data, chat_id)
     elif data.startswith("vac_cancel:"):
@@ -472,7 +639,55 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_sick_multi(query, data, chat_id)
 
 
-async def _handle_vacation_approve(query, data, chat_id):
+async def _handle_pending_booking_decision(query, data, chat_id, approver, approve: bool):
+    """Mehrzeit/Nachtrag/Korrektur per Knopf genehmigen oder ablehnen.
+    Gleiche Logik wie die App (pending_booking_service), inkl. Buchung, KM, Audit,
+    Nachricht an den MA und Aenderung der Nachricht bei allen Empfaengern."""
+    booking_id = int(data.split(":")[1])
+
+    def work():
+        from app.services.pending_booking_service import (
+            approve_pending_booking, reject_pending_booking, PendingBookingError)
+        db = SessionLocal()
+        try:
+            fn = approve_pending_booking if approve else reject_pending_booking
+            try:
+                fn(db, booking_id, {}, approver["user_id"], source="Telegram")
+                return None
+            except PendingBookingError as e:
+                db.rollback()
+                return e
+        finally:
+            db.close()
+
+    # Im Worker-Thread: die Service-Logik sendet synchron an Telegram (MA + Markierung)
+    try:
+        err = await _run_in_thread(work)
+    except Exception as e:
+        logger.error(f"Antrag {booking_id} per Telegram entscheiden fehlgeschlagen: {e}", exc_info=True)
+        await query.message.reply_text("\u26a0\ufe0f Fehler bei der Entscheidung. Bitte in der App pr\u00fcfen.")
+        return
+
+    if err is None:
+        logger.info(f"Antrag {booking_id} per Telegram {'genehmigt' if approve else 'abgelehnt'} von {approver['name']}")
+        return  # Nachricht wurde bei allen Empfaengern geaendert
+    if err.status_code == 400:
+        # Bereits entschieden: Knoepfe entfernen, nicht nochmal entscheiden
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await query.message.reply_text("\u2139\ufe0f Dieser Antrag wurde bereits entschieden.")
+    elif err.status_code == 409:
+        await query.message.reply_text(
+            "\u26a0\ufe0f An diesem Tag gibt es schon eine Buchung. Bitte in der App pr\u00fcfen.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                "\U0001f4f1 In App pr\u00fcfen", url=APP_GENEHMIGUNGEN_URL)]]))
+    else:
+        await query.message.reply_text(f"\u26a0\ufe0f {err.detail}")
+
+
+async def _handle_vacation_approve(query, data, chat_id, approver):
     """Admin genehmigt Urlaubsantrag per Telegram."""
     req_id = int(data.split(":")[1])
     db = SessionLocal()
@@ -505,9 +720,9 @@ async def _handle_vacation_approve(query, data, chat_id):
             entitlement.days_remaining = (entitlement.days_entitled or 30) - entitlement.days_taken
 
         from app.services.booking_service import log_audit
-        log_audit(db, None, req.employee_id, 'vacation_request_approved',
+        log_audit(db, approver["user_id"], req.employee_id, 'vacation_request_approved',
             'vacation_request', req.id,
-            details=f"Urlaub genehmigt per Telegram: {req.start_date} bis {req.end_date}")
+            details=f"Urlaub genehmigt per Telegram von {approver['name']}: {req.start_date} bis {req.end_date}")
 
         db.commit()
 
@@ -515,17 +730,14 @@ async def _handle_vacation_approve(query, data, chat_id):
         if employee and employee.telegram_chat_id:
             start_str = req.start_date.strftime("%d.%m.")
             end_str = req.end_date.strftime("%d.%m.%Y")
-            send_message_sync(
+            await send_message_async(
                 employee.telegram_chat_id,
                 f"\U0001f3d6\ufe0f Dein Urlaub vom {start_str} bis {end_str} wurde genehmigt! "
                 f"Schoenen Urlaub!",
             )
 
-        old_text = query.message.text or ''
-        await query.edit_message_text(
-            old_text + "\n\n\u2705 <b>GENEHMIGT</b>",
-            parse_mode='HTML'
-        )
+        await _finish_admin_decision(query, 'vacation_request', req.id,
+            f"\u2705 Genehmigt von {approver['name']}, {datetime.now().strftime('%H:%M')}")
     except Exception as e:
         logger.error(f"Vacation-Approve Fehler: {e}")
         await query.edit_message_text("\u26a0\ufe0f Fehler bei der Genehmigung.")
@@ -533,7 +745,7 @@ async def _handle_vacation_approve(query, data, chat_id):
         db.close()
 
 
-async def _handle_vacation_reject(query, data, chat_id):
+async def _handle_vacation_reject(query, data, chat_id, approver):
     """Admin lehnt Urlaubsantrag ab."""
     req_id = int(data.split(":")[1])
     db = SessionLocal()
@@ -551,9 +763,9 @@ async def _handle_vacation_reject(query, data, chat_id):
         req.decided_at = datetime.now()
 
         from app.services.booking_service import log_audit
-        log_audit(db, None, req.employee_id, 'vacation_request_rejected',
+        log_audit(db, approver["user_id"], req.employee_id, 'vacation_request_rejected',
             'vacation_request', req.id,
-            details=f"Urlaub abgelehnt per Telegram: {req.start_date} bis {req.end_date}")
+            details=f"Urlaub abgelehnt per Telegram von {approver['name']}: {req.start_date} bis {req.end_date}")
 
         db.commit()
 
@@ -561,17 +773,14 @@ async def _handle_vacation_reject(query, data, chat_id):
         if employee and employee.telegram_chat_id:
             start_str = req.start_date.strftime("%d.%m.")
             end_str = req.end_date.strftime("%d.%m.%Y")
-            send_message_sync(
+            await send_message_async(
                 employee.telegram_chat_id,
                 f"\u274c Dein Urlaubsantrag vom {start_str} bis {end_str} wurde leider abgelehnt. "
                 f"Bitte sprich mit der Verwaltung.",
             )
 
-        old_text = query.message.text or ''
-        await query.edit_message_text(
-            old_text + "\n\n\u274c <b>ABGELEHNT</b>",
-            parse_mode='HTML'
-        )
+        await _finish_admin_decision(query, 'vacation_request', req.id,
+            f"\u274c Abgelehnt von {approver['name']}, {datetime.now().strftime('%H:%M')}")
     except Exception as e:
         logger.error(f"Vacation-Reject Fehler: {e}")
         await query.edit_message_text("\u26a0\ufe0f Fehler bei der Ablehnung.")
@@ -642,7 +851,7 @@ async def _handle_vacation_send(query, data, chat_id):
                 InlineKeyboardButton("\u274c Ablehnen", callback_data=f"vac_no:{req.id}"),
             ]
         ])
-        notify_admin(admin_msg, reply_markup=admin_keyboard)
+        notify_admin(admin_msg, reply_markup=admin_keyboard, category="abwesenheit", ref_type="vacation_request", ref_id=req.id)
 
         from app.services.booking_service import log_audit
         log_audit(db, None, employee.id, 'vacation_request_created',
@@ -887,7 +1096,7 @@ async def _handle_decline_reason(query, data, chat_id):
                 f"\U0001f912 <b>Krankmeldung</b>\n\n"
                 f"Mitarbeiter: {emp_name}\n"
                 f"Objekt: {obj_name}\n"
-                f"Datum: {date_str}"
+                f"Datum: {date_str}", category="abwesenheit"
             )
 
         elif reason_type == 'privat':
@@ -908,7 +1117,7 @@ async def _handle_decline_reason(query, data, chat_id):
                 f"\U0001f3e0 <b>Abwesenheit (privat)</b>\n\n"
                 f"Mitarbeiter: {emp_name}\n"
                 f"Objekt: {obj_name}\n"
-                f"Datum: {date_str}"
+                f"Datum: {date_str}", category="sonstiges"
             )
 
         elif reason_type == 'andere_zeiten':
@@ -932,7 +1141,7 @@ async def _handle_decline_reason(query, data, chat_id):
                 f"Mitarbeiter: {emp_name}\n"
                 f"Objekt: {obj_name}\n"
                 f"Datum: {date_str}\n\n"
-                f"Bitte Zeiten klaeren."
+                f"Bitte Zeiten klaeren.", category="sonstiges"
             )
 
         elif reason_type == 'mit_kollege':
@@ -955,7 +1164,7 @@ async def _handle_decline_reason(query, data, chat_id):
                 f"Mitarbeiter: {emp_name}\n"
                 f"Objekt: {obj_name}\n"
                 f"Datum: {date_str}\n\n"
-                f"Bitte Stunden 50/50 aufteilen."
+                f"Bitte Stunden 50/50 aufteilen.", category="sonstiges"
             )
 
     except Exception as e:
@@ -968,27 +1177,32 @@ async def _handle_decline_reason(query, data, chat_id):
         db.close()
 
 
-async def _handle_swap_approve(query, data, chat_id):
+async def _handle_swap_approve(query, data, chat_id, approver):
     """Admin genehmigt Tauschanfrage."""
     request_id = int(data.split(":")[1])
-
-    # Sofort Admin-Nachricht aktualisieren (schnelle Reaktion)
-    original_text = query.message.text or ""
-    await query.edit_message_text(
-        original_text + "\n\n\u2705 GENEHMIGT",
-        parse_mode=None
-    )
 
     db = SessionLocal()
     try:
         from app.models.models import ShiftChangeRequest, Schedule, Object
         sr = db.query(ShiftChangeRequest).get(request_id)
         if not sr:
+            await query.message.reply_text("\u26a0\ufe0f Anfrage nicht gefunden.")
+            return
+        if sr.status != 'pending':
+            # Bereits entschieden: nicht nochmal entscheiden
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+            await query.message.reply_text("\u2139\ufe0f Diese Anfrage wurde bereits entschieden.")
             return
 
         sr.status = 'approved'
         sr.processed_at = datetime.now()
         db.commit()
+
+        await _finish_admin_decision(query, 'shift_change_request', sr.id,
+            f"\u2705 Genehmigt von {approver['name']}, {datetime.now().strftime('%H:%M')}")
 
         # MA per Telegram benachrichtigen (async = schnell)
         employee = db.query(Employee).get(sr.employee_id)
@@ -1011,27 +1225,32 @@ async def _handle_swap_approve(query, data, chat_id):
         db.close()
 
 
-async def _handle_swap_reject(query, data, chat_id):
+async def _handle_swap_reject(query, data, chat_id, approver):
     """Admin lehnt Tauschanfrage ab."""
     request_id = int(data.split(":")[1])
-
-    # Sofort Admin-Nachricht aktualisieren (schnelle Reaktion)
-    original_text = query.message.text or ""
-    await query.edit_message_text(
-        original_text + "\n\n\u274c ABGELEHNT",
-        parse_mode=None
-    )
 
     db = SessionLocal()
     try:
         from app.models.models import ShiftChangeRequest, Schedule, Object
         sr = db.query(ShiftChangeRequest).get(request_id)
         if not sr:
+            await query.message.reply_text("\u26a0\ufe0f Anfrage nicht gefunden.")
+            return
+        if sr.status != 'pending':
+            # Bereits entschieden: nicht nochmal entscheiden
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+            await query.message.reply_text("\u2139\ufe0f Diese Anfrage wurde bereits entschieden.")
             return
 
         sr.status = 'rejected'
         sr.processed_at = datetime.now()
         db.commit()
+
+        await _finish_admin_decision(query, 'shift_change_request', sr.id,
+            f"\u274c Abgelehnt von {approver['name']}, {datetime.now().strftime('%H:%M')}")
 
         # MA per Telegram benachrichtigen
         employee = db.query(Employee).get(sr.employee_id)
@@ -1233,7 +1452,7 @@ def _notify_admin_48h(db, notification, employee, schedule, obj_name, date_str, 
         f"\U0001f4c5 {date_str} | {start_str}-{end_str}\n"
         f"\U0001f552 {hours}h\n\n"
         f"Mitarbeiter hat 48h nicht bestaetigt.\n"
-        f"Schicht wurde NICHT gebucht."
+        f"Schicht wurde NICHT gebucht.", category="stempel"
     )
 
     # Audit-Log
@@ -1491,7 +1710,7 @@ async def _handle_dispute_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"Mitarbeiter: {emp_name}\n"
                 f"Monat: {monat} {year}\n"
                 f"Grund: {reason}\n\n"
-                f"Bitte Buchungen pruefen und erneut senden."
+                f"Bitte Buchungen pruefen und erneut senden.", category="sonstiges"
             )
 
             await update.message.reply_text(
@@ -1644,7 +1863,7 @@ async def handle_sick_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"\U0001f4c5 {start.strftime('%d.%m.')} - {end.strftime('%d.%m.%Y')}\n"
             f"\U0001f4ca {working_days:.0f} Arbeitstage\n"
             f"\U0001f4f8 AU-Foto empfangen\n\n"
-            f"Bitte in der App bestaetigen."
+            f"Bitte in der App bestaetigen.", category="abwesenheit"
         )
 
         from app.services.booking_service import log_audit
@@ -1792,7 +2011,7 @@ async def cmd_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"\U0001f4c5 {start.strftime('%d.%m.')} - {end.strftime('%d.%m.%Y')}\n"
             f"\U0001f4ca {working_days:.0f} Arbeitstage\n"
             f"\U0001f4f8 Kein AU-Foto\n\n"
-            f"Bitte in der App bestaetigen."
+            f"Bitte in der App bestaetigen.", category="abwesenheit"
         )
 
         from app.services.booking_service import log_audit
@@ -1853,7 +2072,7 @@ async def cmd_nachricht(update: Update, context: ContextTypes.DEFAULT_TYPE):
             notify_admin(
                 f"\U0001f4e8 <b>NACHRICHT per Telegram</b>\n\n"
                 f"\U0001f464 {emp_name} ({employee.personal_nr})\n"
-                f"\U0001f4dd {text.strip()[:300]}"
+                f"\U0001f4dd {text.strip()[:300]}", category="sonstiges"
             )
 
             db.commit()
@@ -1912,7 +2131,7 @@ async def _handle_nachricht_text(update: Update, context: ContextTypes.DEFAULT_T
         notify_admin(
             f"\U0001f4e8 <b>NACHRICHT per Telegram</b>\n\n"
             f"\U0001f464 {emp_name} ({employee.personal_nr if employee else '?'})\n"
-            f"\U0001f4dd {text[:300]}"
+            f"\U0001f4dd {text[:300]}", category="sonstiges"
         )
 
         db.commit()

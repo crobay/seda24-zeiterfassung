@@ -887,7 +887,7 @@ def notify_pending_approvals():
             from app.services.telegram_bot import notify_admin
             notify_admin(
                 f"Du hast {count} offene Genehmigung{'en' if count > 1 else ''}.\n"
-                f"Bitte in der Admin-App unter Mehr > Genehmigungen pruefen."
+                f"Bitte in der Admin-App unter Mehr > Genehmigungen pruefen.", category="genehmigungen"
             )
             logger.info(f"notify_pending_approvals: {count} offene Genehmigungen, Admin benachrichtigt")
         else:
@@ -964,7 +964,7 @@ def check_overdue_entries():
                 pn_error_admin = None
                 try:
                     from app.services.telegram_bot import notify_admin
-                    notify_admin(admin_msg)
+                    notify_admin(admin_msg, category="stempel")
                     notified_count += 1
                 except Exception as tg_err:
                     logger.error(f"check_overdue_entries: Telegram-Fehler fuer {emp_name}: {tg_err}")
@@ -1148,7 +1148,7 @@ def check_missing_stamps():
             pn_error = None
             try:
                 from app.services.telegram_bot import notify_admin
-                notify_admin(msg_body)
+                notify_admin(msg_body, category="stempel")
             except Exception as tg_err:
                 logger.error(f"check_missing_stamps: Admin-Telegram-Fehler: {tg_err}")
                 pn_status = 'failed'

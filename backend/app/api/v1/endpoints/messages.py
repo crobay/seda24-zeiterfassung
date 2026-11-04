@@ -80,7 +80,7 @@ def send_message(
             f"\U0001f4e8 <b>NEUE NACHRICHT</b>\n\n"
             f"\U0001f464 {emp_name} ({emp.personal_nr})\n"
             f"\U0001f4cb {cat_label}\n"
-            f"\U0001f4dd {body[:200]}"
+            f"\U0001f4dd {body[:200]}", category="sonstiges"
         )
     except Exception as e:
         logger.error(f"Telegram-Benachrichtigung: {e}")
@@ -140,7 +140,7 @@ async def send_message_with_photo(
             f"\U0001f4e8 <b>NEUE NACHRICHT{photo_hint}</b>\n\n"
             f"\U0001f464 {emp_name} ({emp.personal_nr})\n"
             f"\U0001f4cb {cat_label}\n"
-            f"\U0001f4dd {body[:200]}"
+            f"\U0001f4dd {body[:200]}", category="sonstiges"
         )
     except Exception as e:
         logger.error(f"Telegram-Benachrichtigung: {e}")

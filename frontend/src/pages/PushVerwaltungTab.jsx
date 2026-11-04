@@ -2,6 +2,90 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Smartphone, WifiOff, RefreshCw, Search, CheckCircle, XCircle, Info } from 'lucide-react';
 
+// Einstellung "Telegram-Empfänger": wer bekommt welche Admin-Meldungen
+const TelegramEmpfaenger = () => {
+  const [data, setData] = useState(null);
+  const [saving, setSaving] = useState('');
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    try {
+      const res = await api.get('/admin/telegram-recipients');
+      setData(res.data);
+      setError('');
+    } catch (e) {
+      setError('Telegram-Empfänger konnten nicht geladen werden');
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const toggle = async (recipientKey, category, enabled) => {
+    const id = `${recipientKey}|${category}`;
+    setSaving(id);
+    try {
+      await api.put('/admin/telegram-recipients', { recipient_key: recipientKey, category, enabled });
+      setData(d => ({
+        ...d,
+        recipients: d.recipients.map(r => r.key === recipientKey
+          ? { ...r, settings: { ...r.settings, [category]: enabled } } : r),
+      }));
+      setError('');
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Speichern fehlgeschlagen');
+    }
+    setSaving('');
+  };
+
+  if (!data) {
+    return error ? <div className="text-sm text-red-600">{error}</div> : null;
+  }
+
+  return (
+    <div className="bg-white border rounded-lg p-4">
+      <h3 className="font-bold mb-1">Telegram-Empfänger</h3>
+      <p className="text-xs text-gray-500 mb-3">
+        Wer bekommt welche Admin-Meldungen per Telegram. Jede Änderung wird im Audit-Log festgehalten.
+        Neue Admins und Objektleitungen erscheinen hier, sobald sie Telegram verbunden haben.
+      </p>
+      {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-2 pr-2">Empfänger</th>
+              {data.categories.map(c => (
+                <th key={c.key} className="text-center py-2 px-2 font-semibold" title={c.description}>{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.recipients.map(r => (
+              <tr key={r.key} className="border-b last:border-0">
+                <td className="py-2 pr-2">
+                  <div className="font-medium">{r.label}</div>
+                  <div className="text-xs text-gray-400">Chat {r.chat_id_masked}</div>
+                </td>
+                {data.categories.map(c => (
+                  <td key={c.key} className="text-center py-2 px-2">
+                    <input
+                      type="checkbox"
+                      className="w-5 h-5 cursor-pointer"
+                      checked={!!r.settings[c.key]}
+                      disabled={saving === `${r.key}|${c.key}`}
+                      onChange={e => toggle(r.key, c.key, e.target.checked)}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 const PushVerwaltungTab = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +141,8 @@ const PushVerwaltungTab = () => {
           <RefreshCw size={20} />
         </button>
       </div>
+
+      <TelegramEmpfaenger />
 
       {/* Statistik-Karten */}
       <div className="grid grid-cols-3 gap-3">

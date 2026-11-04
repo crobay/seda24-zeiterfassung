@@ -1089,7 +1089,10 @@ import api from '../services/api';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('overview');
+  // Direktlink aus Telegram ("In App prüfen"): /admin?tab=genehmigungen
+  const [activeTab, setActiveTab] = useState(() =>
+    new URLSearchParams(window.location.search).get('tab') === 'genehmigungen' ? 'genehmigungen' : 'overview'
+  );
 
   // Rollen-basierte Tab-Filterung
   const userRole = localStorage.getItem('userRole') || 'mitarbeiter';

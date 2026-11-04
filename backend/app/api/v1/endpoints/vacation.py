@@ -202,7 +202,7 @@ def create_vacation_request(
                 InlineKeyboardButton("\u274c Ablehnen", callback_data=f"vac_no:{req.id}"),
             ]
         ])
-        notify_admin(msg, reply_markup=keyboard)
+        notify_admin(msg, reply_markup=keyboard, category="abwesenheit", ref_type="vacation_request", ref_id=req.id)
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Telegram Urlaubsantrag-Benachrichtigung: {e}")

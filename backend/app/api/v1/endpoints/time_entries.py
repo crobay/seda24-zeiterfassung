@@ -603,7 +603,7 @@ async def check_in(
                 from app.services.telegram_bot import notify_admin
                 notify_admin(
                     f"Stempelung ist eingegangen fuer {employee.first_name} {employee.last_name} "
-                    f"({stamp_time.strftime('%H:%M')}{delay_text})."
+                    f"({stamp_time.strftime('%H:%M')}{delay_text}).", category="sonstiges"
                 )
 
         return time_entry
@@ -864,7 +864,7 @@ def cap_decision(
             Schedule.object_id == entry.object_id,
             Schedule.date == entry.check_in.date(),
         ).first()
-        db.execute(sa_text("""
+        pb_id = db.execute(sa_text("""
             INSERT INTO pending_bookings
                 (employee_id, object_id, date, start_time, end_time,
                  service_type, requested_hours, status, notes, hourly_rate,
@@ -873,6 +873,7 @@ def cap_decision(
                 (:emp_id, :obj_id, :date, :start, :end,
                  :stype, :hours, 'offen', :notes, :rate,
                  NOW(), :reason, :te_id)
+            RETURNING id
         """), {
             "emp_id": employee.id,
             "obj_id": entry.object_id,
@@ -885,10 +886,12 @@ def cap_decision(
             "rate": entry.hourly_rate or employee.hourly_rate or 0,
             "reason": "mehrzeit_dienstplan",
             "te_id": entry.id,
-        })
+        }).scalar()
+        # Vor dem Telegram-Versand speichern, damit die Knoepfe den Antrag finden
+        db.commit()
         # Telegram an Admin
         try:
-            from app.services.telegram_bot import notify_admin
+            from app.services.telegram_bot import notify_admin, pending_booking_keyboard
             emp_name = f"{employee.first_name} {employee.last_name}"
             datum = entry.check_in.strftime("%d.%m.%Y")
             notify_admin(
@@ -896,7 +899,7 @@ def cap_decision(
                 f"{emp_name} ({employee.personal_nr})\n"
                 f"Datum: {datum}, Schicht: {sched_str}\n"
                 f"Mehrzeit: {excess_minutes} Min\n"
-                f"Grund: {reason.strip()}"
+                f"Grund: {reason.strip()}", reply_markup=pending_booking_keyboard(pb_id) if pb_id else None, category="genehmigungen", ref_type="pending_booking", ref_id=pb_id
             )
         except Exception:
             pass  # Telegram-Fehler soll nicht blockieren
@@ -1723,9 +1726,9 @@ def create_shift_request(
                         InlineKeyboardButton("\u274c Ablehnen", callback_data=f"swr:{scr.id}"),
                     ]
                 ])
-                notify_admin(msg, reply_markup=keyboard)
+                notify_admin(msg, reply_markup=keyboard, category="abwesenheit", ref_type="shift_change_request", ref_id=scr.id)
             except ImportError:
-                notify_admin(msg)
+                notify_admin(msg, category="abwesenheit")
 
         else:  # cancel
             if reason == 'Krank':
@@ -1763,9 +1766,9 @@ def create_shift_request(
                         InlineKeyboardButton("\U0001f4cb Notiert", callback_data=f"scr_note:{scr.id}"),
                     ]
                 ])
-                notify_admin(msg, reply_markup=keyboard)
+                notify_admin(msg, reply_markup=keyboard, category="abwesenheit")
             except ImportError:
-                notify_admin(msg)
+                notify_admin(msg, category="abwesenheit")
 
     except Exception as e:
         logger.error(f"Telegram notify_admin fehlgeschlagen: {e}")
@@ -1998,6 +2001,7 @@ def catch_up_booking(
         raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
 
     object_id = data.get("object_id")
+    pb_id = None  # ID des Antrags (pending_bookings) fuer Telegram-Knoepfe
     catch_up_type = data.get("catch_up_type")
     date_str = data.get("date")
     time_str = data.get("time")        # Kommen-Zeit (kommen/beides) oder Gehen-Zeit (gehen)
@@ -2113,7 +2117,7 @@ def catch_up_booking(
         requested_hours = round(max(0, netto_sec) / 3600, 4)
 
         p_rate, p_service = resolve_rate_and_service(employee, te.object_id, obj_name, db)
-        db.execute(text("""
+        pb_id = db.execute(text("""
             INSERT INTO pending_bookings
             (employee_id, object_id, date, start_time, end_time, service_type,
              is_driver, requested_hours, status, notes, created_at,
@@ -2121,6 +2125,7 @@ def catch_up_booking(
             VALUES (:emp_id, :obj_id, :dt, :st, :et, :svc,
                     false, :hours, 'offen', :notes, NOW(),
                     'zeit_korrektur', :related_id, :corr_field, :reason)
+            RETURNING id
         """), {
             "svc": p_service,
             "emp_id": employee.id,
@@ -2133,7 +2138,7 @@ def catch_up_booking(
             "related_id": time_entry_id,
             "corr_field": correction_field,
             "reason": reason,
-        })
+        }).scalar()
         db.commit()
 
         corr_labels = {"kommen": "Kommen", "gehen": "Gehen", "beides": "Beides"}
@@ -2142,7 +2147,7 @@ def catch_up_booking(
 
         # Telegram
         try:
-            from app.services.telegram_bot import notify_admin
+            from app.services.telegram_bot import notify_admin, pending_booking_keyboard
             notify_admin(
                 f"[KORREKTUR] {emp_name}\n"
                 f"Objekt: {obj_name}\n"
@@ -2151,7 +2156,7 @@ def catch_up_booking(
                 f"Alt: {te.check_in.strftime('%H:%M')}-{te.check_out.strftime('%H:%M')}\n"
                 f"Neu: {new_start}-{new_end}\n"
                 f"Grund: {reason or '-'}\n"
-                f"Hinweis: {notes or '-'}"
+                f"Hinweis: {notes or '-'}", reply_markup=pending_booking_keyboard(pb_id) if pb_id else None, category="genehmigungen", ref_type="pending_booking", ref_id=pb_id
             )
         except Exception as e:
             print(f"Telegram-Benachrichtigung fehlgeschlagen: {e}")
@@ -2186,7 +2191,7 @@ def catch_up_booking(
         requested_hours = round(max(0, netto_sec) / 3600, 4)
 
         p_rate, p_service = resolve_rate_and_service(employee, object_id, obj_name, db)
-        db.execute(text("""
+        pb_id = db.execute(text("""
             INSERT INTO pending_bookings
             (employee_id, object_id, date, start_time, end_time, service_type,
              is_driver, requested_hours, status, notes, created_at,
@@ -2194,6 +2199,7 @@ def catch_up_booking(
             VALUES (:emp_id, :obj_id, :dt, :st, :et, :svc,
                     false, :hours, 'offen', :notes, NOW(),
                     'gehen_vergessen', :related_id, :reason)
+            RETURNING id
         """), {
             "svc": p_service,
             "emp_id": employee.id,
@@ -2205,7 +2211,7 @@ def catch_up_booking(
             "notes": f"[NACHTRAG] Gehen vergessen. {notes}".strip(),
             "related_id": open_entry.id,
             "reason": reason,
-        })
+        }).scalar()
         db.commit()
 
         log_bie2("NACHTRAG GEHEN", emp_name, obj_name,
@@ -2297,7 +2303,7 @@ def catch_up_booking(
 
         # In pending_bookings eintragen -> Admin muss genehmigen
         p_rate, p_service = resolve_rate_and_service(employee, object_id, obj_name, db)
-        db.execute(text("""
+        pb_id = db.execute(text("""
             INSERT INTO pending_bookings
             (employee_id, object_id, date, start_time, end_time, service_type,
              is_driver, requested_hours, status, notes, created_at,
@@ -2305,6 +2311,7 @@ def catch_up_booking(
             VALUES (:emp_id, :obj_id, :dt, :st, :et, :svc,
                     false, :hours, 'offen', :notes, NOW(),
                     :catch_up_type, :reason)
+            RETURNING id
         """), {
             "svc": p_service,
             "emp_id": employee.id,
@@ -2316,7 +2323,7 @@ def catch_up_booking(
             "notes": f"[NACHTRAG] {label}. {notes}".strip(),
             "catch_up_type": catch_up_type,
             "reason": reason,
-        })
+        }).scalar()
         db.commit()
 
         log_bie2(f"NACHTRAG {label.upper()}", emp_name, obj_name,
@@ -2328,7 +2335,7 @@ def catch_up_booking(
 
     # Telegram an Admin (D0001)
     try:
-        from app.services.telegram_bot import notify_admin
+        from app.services.telegram_bot import notify_admin, pending_booking_keyboard
         type_labels = {
             "kommen_vergessen": "Kommen nachgetragen",
             "gehen_vergessen": "Gehen nachgetragen",
@@ -2341,7 +2348,7 @@ def catch_up_booking(
             f"Typ: {type_labels.get(catch_up_type, catch_up_type)}\n"
             f"Datum/Zeit: {telegram_dt}\n"
             f"Grund: {reason_labels.get(reason, reason or '-')}\n"
-            f"Hinweis: {notes or '-'}"
+            f"Hinweis: {notes or '-'}", reply_markup=pending_booking_keyboard(pb_id) if pb_id else None, category="genehmigungen", ref_type="pending_booking", ref_id=pb_id
         )
     except Exception as e:
         print(f"Telegram-Benachrichtigung fehlgeschlagen: {e}")
