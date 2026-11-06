@@ -23,6 +23,41 @@ _file_handler = logging.FileHandler(_os.path.join(_log_dir, "auth.log"))
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("app.api.v1.endpoints.auth").addHandler(_file_handler)
+
+# Telegram-Bot-Token nie im Klartext loggen:
+# httpx/httpcore loggen jede Anfrage inkl. URL (.../bot<TOKEN>/...) auf INFO.
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+
+class _TokenMaskFilter(logging.Filter):
+    """Ersetzt den Bot-Token in Meldung und Traceback durch ***."""
+    def __init__(self, secret):
+        super().__init__()
+        self.secret = secret
+
+    def filter(self, record):
+        if not self.secret:
+            return True
+        try:
+            msg = record.getMessage()
+            if self.secret in msg:
+                record.msg = msg.replace(self.secret, "***")
+                record.args = None
+            if record.exc_info and not record.exc_text:
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            if record.exc_text and self.secret in record.exc_text:
+                record.exc_text = record.exc_text.replace(self.secret, "***")
+        except Exception:
+            pass
+        return True
+
+
+_token_filter = _TokenMaskFilter(_os.getenv("TELEGRAM_BOT_TOKEN", ""))
+for _lg in ("", "uvicorn", "uvicorn.error", "uvicorn.access"):
+    for _h in logging.getLogger(_lg).handlers:
+        _h.addFilter(_token_filter)
+_file_handler.addFilter(_token_filter)
 logger = logging.getLogger(__name__)
 
 models.Base.metadata.create_all(bind=engine)

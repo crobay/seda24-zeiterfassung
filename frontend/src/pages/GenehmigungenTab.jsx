@@ -219,13 +219,24 @@ const GenehmigungenTab = ({ showToast }) => {
                       Korrektur ({b.correction_field === 'kommen' ? 'Kommen' : b.correction_field === 'gehen' ? 'Gehen' : 'Beides'})
                     </span>
                   )}
+                  {['kommen_vergessen', 'gehen_vergessen', 'beides_vergessen'].includes(b.catch_up_type) && (
+                    <span className="inline-block mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-bold">
+                      Nachtrag ({b.catch_up_type === 'kommen_vergessen' ? 'Kommen' : b.catch_up_type === 'gehen_vergessen' ? 'Gehen' : 'Beides'} vergessen)
+                    </span>
+                  )}
                   {b.reason && (
                     <span className={`inline-block mt-1 ml-1 px-2 py-0.5 rounded text-xs font-medium ${
                       b.reason === 'technisch' ? 'bg-blue-100 text-blue-700' :
                       b.reason === 'vergessen' ? 'bg-gray-100 text-gray-600' :
+                      b.reason === 'mehrzeit_dienstplan' ? 'bg-amber-100 text-amber-700' :
                       'bg-purple-100 text-purple-600'
                     }`}>
-                      {b.reason === 'technisch' ? 'Technisch' : b.reason === 'vergessen' ? 'Vergessen' : 'Sonstiges'}
+                      {({
+                        technisch: 'Technisch',
+                        vergessen: 'Vergessen',
+                        sonstiges: 'Sonstiges',
+                        mehrzeit_dienstplan: 'Mehrzeit',
+                      })[b.reason] || b.reason}
                     </span>
                   )}
                 </div>
