@@ -368,3 +368,99 @@ def lexware_intervals(entry, breaks):
         return [(entry.check_in, entry.check_out)]
     b = auto[0]
     return [(entry.check_in, b.start_time), (b.end_time, entry.check_out)]
+
+
+# ---------------------------------------------------------------- Dienstplan fuellen
+
+FILL_START = time(10, 30)
+FILL_END = time(19, 0)
+FILL_DAY = 20                   # am 20. des Vormonats
+FALLBACK_OBJECT_ID = 1          # SEDA24 Zentrale
+
+
+def sunday_object_id(db, ref_day):
+    """Bisheriges Sonntags-Objekt: haeufigstes Objekt ihrer Sonntagsschichten der letzten 120 Tage."""
+    row = db.execute(text("""
+        SELECT s.object_id FROM schedules s JOIN objects o ON o.id = s.object_id
+        WHERE s.employee_id = :emp AND EXTRACT(DOW FROM s.date) = 0
+          AND s.date BETWEEN :von AND :bis AND o.is_active = true
+          AND s.status IN ('normal', 'vertretung')
+        GROUP BY s.object_id ORDER BY COUNT(*) DESC, MAX(s.date) DESC LIMIT 1
+    """), {"emp": RULE_EMPLOYEE_ID, "von": ref_day - timedelta(days=120), "bis": ref_day}).fetchone()
+    return row.object_id if row else FALLBACK_OBJECT_ID
+
+
+def fill_sunday_schedules(db, year, month, now=None, force=False):
+    """Legt die ersten 3 Sonntage des Monats 10:30-19:00 fuer D0002 an (normale Dienstplan-Logik).
+    Vorhandene Schichten werden nicht ueberschrieben, nie mehr als 3 Sonntagsschichten im Monat.
+    Laeuft pro Zielmonat nur einmal (Audit sunday_schedule_fill), ausser force=True."""
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from app.api.v1.endpoints.admin import create_schedule
+
+    now = now or datetime.now()
+    first, nxt = _month_bounds(year, month)
+    if first < RULE_START:
+        return {"status": "vor_regelstart"}
+    key = year * 100 + month
+    done = db.execute(text("""
+        SELECT 1 FROM audit_log WHERE action = 'sunday_schedule_fill'
+          AND entity_type = 'month' AND entity_id = :k LIMIT 1
+    """), {"k": key}).fetchone()
+    if done and not force:
+        return {"status": "bereits_gelaufen"}
+
+    sundays = []
+    d = first
+    while d < nxt:
+        if d.weekday() == 6:
+            sundays.append(d)
+        d += timedelta(days=1)
+    target = sundays[:MAX_SUNDAYS]
+
+    existing_sun = db.execute(text("""
+        SELECT date FROM schedules WHERE employee_id = :emp AND date >= :f AND date < :n
+          AND EXTRACT(DOW FROM date) = 0 AND status IN ('normal', 'vertretung')
+    """), {"emp": RULE_EMPLOYEE_ID, "f": first, "n": nxt}).fetchall()
+    active_count = len({r.date for r in existing_sun})
+
+    obj_id = sunday_object_id(db, now.date())
+    admin = SimpleNamespace(id=SYSTEM_USER_ID)
+    result = {"status": "ok", "objekt": obj_id, "angelegt": [], "uebersprungen": []}
+    for day in target:
+        has = db.execute(text("""
+            SELECT id, start_time, end_time, status FROM schedules
+            WHERE employee_id = :emp AND date = :d ORDER BY start_time LIMIT 1
+        """), {"emp": RULE_EMPLOYEE_ID, "d": day}).fetchone()
+        if has:
+            result["uebersprungen"].append((str(day), f"Schicht vorhanden ({has.status})"))
+            continue
+        if active_count >= MAX_SUNDAYS:
+            result["uebersprungen"].append((str(day), f"bereits {active_count} Sonntage im Monat"))
+            continue
+        try:
+            r = create_schedule({"employee_id": RULE_EMPLOYEE_ID, "object_id": obj_id, "date": str(day),
+                                 "start_time": FILL_START.strftime("%H:%M"), "end_time": FILL_END.strftime("%H:%M"),
+                                 "status": "normal"}, db=db, admin=admin)
+            result["angelegt"].append((str(day), r["id"]))
+            active_count += 1
+        except HTTPException as e:
+            db.rollback()
+            result["uebersprungen"].append((str(day), f"Konflikt: {e.detail}"))
+
+    _audit(db, "sunday_schedule_fill", "month", key,
+           f"Sonntage {MONATE[month]} {year} fuer Ruzica geplant: "
+           f"{len(result['angelegt'])} angelegt, {len(result['uebersprungen'])} uebersprungen",
+           new_value={"angelegt": result["angelegt"], "uebersprungen": result["uebersprungen"], "objekt": obj_id})
+    db.commit()
+    return result
+
+
+def fill_next_month(db, now=None):
+    """Scheduler: ab dem 20. eines Monats den Folgemonat fuellen (einmal pro Zielmonat;
+    die Tage 21-31 fangen einen verpassten Lauf nach Ausfall auf)."""
+    now = now or datetime.now()
+    if now.day < FILL_DAY:
+        return None
+    nxt = (now.date().replace(day=1) + timedelta(days=32)).replace(day=1)
+    return fill_sunday_schedules(db, nxt.year, nxt.month, now=now)

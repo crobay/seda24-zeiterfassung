@@ -95,6 +95,15 @@ def init_scheduler():
         max_instances=1,
     )
 
+    # Job 7c: Sonntagsschichten D0002 fuer den Folgemonat anlegen (ab dem 20., 06:05, einmal pro Monat)
+    scheduler.add_job(
+        sunday_d0002_fill_schedules,
+        CronTrigger(day='20-31', hour=6, minute=5),
+        id='sunday_d0002_fill_schedules',
+        replace_existing=True,
+        max_instances=1,
+    )
+
     # Job 8: Auto-Fill Monatsumsaetze (1. jeden Monats, 06:00)
     scheduler.add_job(
         auto_fill_monthly_revenues,
@@ -451,6 +460,21 @@ def sunday_d0002_followup():
         sonntag_d0002.daily_followup(db)
     except Exception as e:
         logger.error(f"Fehler in sunday_d0002_followup: {e}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def sunday_d0002_fill_schedules():
+    """Sonntagsschichten D0002 (ab 2027): am 20. die ersten 3 Sonntage des Folgemonats anlegen."""
+    from app.services import sonntag_d0002
+    db = SessionLocal()
+    try:
+        res = sonntag_d0002.fill_next_month(db)
+        if res:
+            logger.info(f"sunday_d0002_fill_schedules: {res}")
+    except Exception as e:
+        logger.error(f"Fehler in sunday_d0002_fill_schedules: {e}", exc_info=True)
         db.rollback()
     finally:
         db.close()
