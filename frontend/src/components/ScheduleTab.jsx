@@ -769,7 +769,9 @@ const ScheduleTab = () => {
                       {/* Wochentag-Header */}
                       <div className="grid grid-cols-7 bg-gray-800">
                         {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d, i) => (
-                          <div key={d} className={`text-center py-2 text-[10px] font-bold uppercase tracking-widest text-gray-400 ${i > 0 ? 'border-l border-white/10' : ''}`}>{d}</div>
+                          <div key={d} className={`text-center py-2 text-[10px] font-bold uppercase tracking-widest text-gray-400 ${i > 0 ? 'border-l border-white/10' : ''}`}>
+                            {i === 6 ? <span className="px-1.5 py-px rounded border border-dashed border-gray-300 text-gray-200">◆ Sonntag</span> : d}
+                          </div>
                         ))}
                       </div>
                       {/* Tage */}
@@ -805,9 +807,13 @@ const ScheduleTab = () => {
                                         <span className="bg-blue-600 text-white w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px]">{dayNum}</span>
                                       ) : dayNum}
                                     </span>
-                                    <span className={`text-[9px] font-bold ${colIdx === 5 ? 'text-orange-500' : colIdx === 6 ? 'text-red-500' : 'text-gray-400'}`}>
-                                      {['Mo','Di','Mi','Do','Fr','Sa','So'][colIdx]}
-                                    </span>
+                                    {colIdx === 6 ? (
+                                      <span className="text-[9px] font-bold text-red-600 px-1 rounded border border-dashed border-red-500" title="Sonntag">◆ SO</span>
+                                    ) : (
+                                      <span className={`text-[9px] font-bold ${colIdx === 5 ? 'text-orange-500' : 'text-gray-400'}`}>
+                                        {['Mo','Di','Mi','Do','Fr','Sa','So'][colIdx]}
+                                      </span>
+                                    )}
                                   </div>
                                   {filtered.length > 0 && (
                                     <span className="text-[8px] text-gray-400 font-medium">{filtered.length}x</span>
@@ -819,6 +825,9 @@ const ScheduleTab = () => {
                                     return (
                                       <div key={s.id} className="rounded px-1 py-px text-[9px] leading-tight truncate font-medium" style={{ backgroundColor: c.accent + '20', color: c.accent, borderLeft: `2px solid ${c.accent}` }}>
                                         {s.employee_name.split(' ')[0]} {s.start_time} <span style={{ opacity: 0.7 }}>{(s.object_name || '').substring(0, 6)}</span>
+                                        {colIdx === 6 && s.employee_id === 4 && dayData.date >= '2027-01-01' && (
+                                          <span className="ml-0.5 px-0.5 rounded border border-current font-bold" title="Sonntagsregel D0002 (automatisch geplant, max. 3/Monat)">So-Regel</span>
+                                        )}
                                       </div>
                                     );
                                   })}

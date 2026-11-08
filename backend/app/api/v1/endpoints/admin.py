@@ -3242,6 +3242,31 @@ def get_lohn_uebersicht(
                     "status": "entwurf",
                 }
 
+        # Festgehalt: fix Monatsstunden x Stundensatz + Sonntagszuschlag, kein Zeitkonto,
+        # Werktagsstunden/Urlaub nicht lohnrelevant. Nur Sonntag/Feiertag/Nacht + Warnungen.
+        from app.services import festgehalt as _fg_mod
+        fg = _fg_mod.active_in_month(db, emp.id, year, month)
+        festgehalt_data = None
+        if fg:
+            fs = _fg_mod.lohn_split(db, emp.id, first_day, last_day)
+            sonntag_hours = fs["sonntag_hours"]
+            feiertag_hours = fs["feiertag_hours"]
+            nacht_hours = fs["nacht_hours"]
+            zuschlag = round(sonntag_hours * _fg_mod.SONNTAG_ZUSCHLAG, 2)
+            from app.services import sonntag_d0002 as _so
+            festgehalt_data = {
+                "monatsstunden": fg.monatsstunden, "stundensatz": fg.stundensatz,
+                "betrag": _fg_mod.betrag(fg), "sonntag_zuschlag": zuschlag,
+                "feiertag125_hours": fs["feiertag125_hours"], "feiertag150_hours": fs["feiertag150_hours"],
+                "gueltig_ab": str(fg.gueltig_ab),
+                "warnungen": _so.warnungen(db, year, month) if emp.id == _so.RULE_EMPLOYEE_ID else [],
+            }
+            normal_hours = 0.0
+            normal_amount = _fg_mod.betrag(fg)
+            urlaub_amount = 0.0
+            gesamt = normal_amount + zuschlag + sonder_amount
+            zeitkonto_data = None
+
         result.append({
             "employee_id": emp.id, "personal_nr": emp.personal_nr,
             "name": f"{emp.first_name} {emp.last_name}", "hourly_rate": hourly_rate,
@@ -3253,8 +3278,9 @@ def get_lohn_uebersicht(
             "urlaub_hours": _urlaub_stunden(round(urlaub_amount, 2), hourly_rate),
             "km_amount": round(km_amount, 2), "carryover": round(carryover_amount, 2),
             "gesamt": round(gesamt + carryover_amount, 2),
-            "zeitkonto_aktiv": getattr(emp, 'zeitkonto_aktiv', False) or False,
+            "zeitkonto_aktiv": (getattr(emp, 'zeitkonto_aktiv', False) or False) and not fg,
             "zeitkonto": zeitkonto_data,
+            "festgehalt": festgehalt_data,
         })
     return result
 
@@ -3296,6 +3322,16 @@ def update_carryover(
 # ZEITKONTO ENDPOINTS
 # ============================================================
 
+def _kein_zeitkonto_bei_festgehalt(db, employee_id, year, month):
+    """Ab Festgehalt kein Zeitkonto (kein Soll, kein Uebertrag, kein Vorschuss/LA 6005)."""
+    from app.services import festgehalt
+    fg = festgehalt.active_in_month(db, employee_id, year, month)
+    if fg:
+        raise HTTPException(status_code=400, detail=(
+            f"Festgehalt ab {fg.gueltig_ab.strftime('%d.%m.%Y')}: kein Zeitkonto mehr "
+            f"(kein Soll, kein Übertrag, kein Vorschuss)"))
+
+
 @router.get("/zeitkonto/detail")
 def get_zeitkonto_detail(
     employee_id: int,
@@ -3309,6 +3345,7 @@ def get_zeitkonto_detail(
     emp = db.query(Employee).filter(Employee.id == employee_id).first()
     if not emp or not getattr(emp, 'zeitkonto_aktiv', False):
         raise HTTPException(status_code=404, detail="Mitarbeiter hat kein aktives Zeitkonto")
+    _kein_zeitkonto_bei_festgehalt(db, employee_id, year, month)
 
     first_day = date(year, month, 1)
     last_day = date(year, month, monthrange(year, month)[1])
@@ -3379,6 +3416,7 @@ def update_zeitkonto_soll(
     year = data["year"]
     month = data["month"]
     soll = float(data["soll_stunden"])
+    _kein_zeitkonto_bei_festgehalt(db, emp_id, year, month)
 
     zk = db.query(Zeitkonto).filter(
         Zeitkonto.employee_id == emp_id,
@@ -3412,6 +3450,7 @@ def zeitkonto_abschliessen(
     month = data["month"]
     vorschuss = float(data.get("vorschuss_betrag", 0))
     soll = float(data.get("soll_stunden", 140.0))
+    _kein_zeitkonto_bei_festgehalt(db, emp_id, year, month)
 
     first_day = date(year, month, 1)
     last_day = date(year, month, monthrange(year, month)[1])
@@ -3858,7 +3897,50 @@ def get_open_items(
             "created_at": d.created_at.isoformat() if d.created_at else None,
         })
 
+    # 9. Sonntagsregel D0002 ab 2027: Warnungen, Sperren, Hinweise (live, Vormonat + aktueller Monat)
+    from app.services import sonntag_d0002
+    today_ = date.today()
+    prev_ = today_.replace(day=1) - timedelta(days=1)
+    emp_ = db.query(Employee).filter(Employee.id == sonntag_d0002.RULE_EMPLOYEE_ID).first()
+    for (yy, mm) in [(prev_.year, prev_.month), (today_.year, today_.month)]:
+        for i, w in enumerate(sonntag_d0002.warnungen(db, yy, mm)):
+            items.append({
+                "type": "sonntag_warnung",
+                "id": yy * 10000 + mm * 100 + i,
+                "employee_id": sonntag_d0002.RULE_EMPLOYEE_ID,
+                "employee_name": f"{emp_.first_name} {emp_.last_name}" if emp_ else "D0002",
+                "level": w["level"],
+                "datum": w["datum"],
+                "text": w["text"],
+                "year": yy,
+                "month": mm,
+            })
+
     return items
+
+
+@router.get("/employees/{employee_id:int}/festgehalt")
+def get_festgehalt(employee_id: int, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    from app.services import festgehalt
+    fg = festgehalt.get(db, employee_id)
+    if not fg:
+        return {"aktiv": False, "gueltig_ab": None, "monatsstunden": 100.0, "stundensatz": 20.0, "betrag": 2000.0}
+    return {"aktiv": fg.aktiv, "gueltig_ab": str(fg.gueltig_ab), "monatsstunden": fg.monatsstunden,
+            "stundensatz": fg.stundensatz, "betrag": festgehalt.betrag(fg)}
+
+
+@router.put("/employees/{employee_id:int}/festgehalt")
+def put_festgehalt(employee_id: int, data: dict, db: Session = Depends(get_db), admin = Depends(verify_admin)):
+    """Festgehalt-Schalter im Mitarbeiterprofil (mit Audit)."""
+    from app.services import festgehalt
+    if not db.query(Employee).filter(Employee.id == employee_id).first():
+        raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
+    try:
+        new = festgehalt.save(db, employee_id, data, admin.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
+    return {"status": "ok", **new}
 
 
 @router.put("/open-items/{item_type}/{item_id}/resolve")
@@ -6023,11 +6105,20 @@ def lexware_export(
     ).all()
     zeitkonto_emp_ids = {e.id for e in zeitkonto_emps}
 
+    # Festgehalt-MAs (ab gueltig_ab): eigene Lohnarten-Datei, kein Zeitkonto, keine Tagesbloecke,
+    # kein LA 14 Urlaub / LA 7 Krank / LA 6005
+    from app.services import festgehalt
+    fg_ids = festgehalt.active_employee_ids(db, year, month)
+
     # Filter: wenn employee_ids angegeben, nur diese Zeitkonto-MAs
-    filtered_zk_emps = zeitkonto_emps
+    filtered_zk_emps = [e for e in zeitkonto_emps if e.id not in fg_ids]
     if employee_ids:
         ids = [int(x) for x in employee_ids.split(",") if x.strip().isdigit()]
-        filtered_zk_emps = [e for e in zeitkonto_emps if e.id in ids]
+        filtered_zk_emps = [e for e in filtered_zk_emps if e.id in ids]
+    fg_emps_q = db.query(Employee).filter(Employee.id.in_(fg_ids), Employee.is_active == True)
+    if employee_ids:
+        fg_emps_q = fg_emps_q.filter(Employee.id.in_(ids))
+    fg_emps = fg_emps_q.order_by(Employee.personal_nr).all() if fg_ids else []
 
     # Urlaubsstunden (Lohnart 0014) fuer Stunden-MAs: Url.€ / Stundenlohn, aufgerundet
     urlaub_emps_q = db.query(Employee).filter(Employee.is_active == True)
@@ -6035,13 +6126,13 @@ def lexware_export(
         urlaub_emps_q = urlaub_emps_q.filter(Employee.id.in_(ids))
     urlaub_lohnarten = []
     for u_emp in urlaub_emps_q.order_by(Employee.personal_nr).all():
-        if u_emp.id in zeitkonto_emp_ids:
+        if u_emp.id in zeitkonto_emp_ids or u_emp.id in fg_ids:
             continue
         u_std = _urlaub_stunden(round(_urlaub_betrag(db, u_emp.id, first_day, last_day), 2), u_emp.hourly_rate or 15.50)
         if u_std > 0:
             urlaub_lohnarten.append((u_emp, u_std))
 
-    if not emp_data and not filtered_zk_emps and not urlaub_lohnarten:
+    if not emp_data and not filtered_zk_emps and not urlaub_lohnarten and not fg_emps:
         raise HTTPException(status_code=404, detail="Keine Zeiteintraege fuer diesen Monat gefunden")
 
     # ZIP erstellen
@@ -6049,8 +6140,8 @@ def lexware_export(
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         # Normale MAs (Tagesbloecke) - OHNE Zeitkonto-MAs
         for emp_id in sorted(emp_data.keys(), key=lambda x: emp_info[x]['personal_nr']):
-            if emp_id in zeitkonto_emp_ids:
-                continue  # Zeitkonto-MAs separat
+            if emp_id in zeitkonto_emp_ids or emp_id in fg_ids:
+                continue  # Zeitkonto-/Festgehalt-MAs separat
             info = emp_info[emp_id]
             day_blocks = {}
             for day, intervals in emp_data[emp_id].items():
@@ -6070,6 +6161,15 @@ def lexware_export(
                 [{"lohnart": 14, "bezeichnung": "Urlaubsstunden", "stunden": u_std, "betrag": None}]
             )
             fname = f"{u_emp.personal_nr}_{u_emp.first_name}_{u_emp.last_name}_Lohnarten_{month:02d}_{year}.xml"
+            zf.writestr(fname, xml_content)
+
+        # Festgehalt-MAs (Lohnarten-Format): LA 1 fix, LA 13 Sonntag, LA 15/16/17 Feiertag, LA 11 Nacht
+        for fg_emp in fg_emps:
+            fg = festgehalt.active_in_month(db, fg_emp.id, year, month)
+            xml_content = _generate_lexware_lohnarten_xml(
+                fg_emp.personal_nr, year, month, festgehalt.lexware_lohnarten(db, fg_emp, fg, year, month)
+            )
+            fname = f"{fg_emp.personal_nr}_{fg_emp.first_name}_{fg_emp.last_name}_{month:02d}_{year}.xml"
             zf.writestr(fname, xml_content)
 
         # Zeitkonto-MAs (Lohnarten-Format)

@@ -30,6 +30,11 @@ BREAK_MINUTES = 30
 BREAK_FROM_HOURS = 6.0          # Pause erst bei Planspanne ueber 6 Std
 BREAK_TYPE = "auto_sonntag"
 SYSTEM_USER_ID = 1              # Audit fuer Automatik (Admin A0001)
+YEAR_WARN_FROM = 34             # ab dem 34. Arbeitssonntag im Jahr Warnung
+YEAR_BLOCK_FROM = 38            # ab dem 38. keine Buchung
+MAX_SUNDAY_HOURS = 10.0         # Sonntag ueber 10 Std: keine Buchung
+REST_WINDOW_DAYS = 14           # Ersatzruhetag innerhalb von 14 Tagen
+SUNDAY_SHARE_MAX = 0.35         # Sonntagsstunden ueber 35 % der Monatsstunden: Hinweis
 
 MONATE = ["", "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
           "August", "September", "Oktober", "November", "Dezember"]
@@ -124,6 +129,40 @@ def _distinct_days(rows):
     return sorted({r.check_in.date() for r in rows})
 
 
+def year_sundays(db, year, until=None):
+    """Gearbeitete (gebuchte) Sonntage von D0002 im Kalenderjahr, optional bis einschl. until."""
+    rows = db.execute(text("""
+        SELECT DISTINCT CAST(check_in AS DATE) AS d FROM time_entries
+        WHERE employee_id = :emp AND check_out IS NOT NULL
+          AND check_in >= :f AND check_in < :n
+          AND EXTRACT(DOW FROM check_in) = 0
+          AND COALESCE(object_id, 0) <> 999
+        ORDER BY 1
+    """), {"emp": RULE_EMPLOYEE_ID, "f": date(year, 1, 1),
+           "n": (until + timedelta(days=1)) if until else date(year + 1, 1, 1)}).fetchall()
+    return [r.d for r in rows]
+
+
+def _block(db, sched, reason, detail):
+    """Sonntag nicht buchen (Sperre): einmal Audit + Hinweis an den Admin-Chat je Schicht und Grund."""
+    already = db.execute(text("""
+        SELECT 1 FROM audit_log WHERE action = 'sunday_booking_skipped'
+          AND entity_type = 'schedule' AND entity_id = :sid AND details LIKE :r LIMIT 1
+    """), {"sid": sched.id, "r": f"%{reason}%"}).fetchone()
+    if already:
+        return
+    datum = sched.date.strftime("%d.%m.%Y")
+    _audit(db, "sunday_booking_skipped", "schedule", sched.id,
+           f"Sonntag {datum} nicht gebucht: {reason} ({detail})",
+           new_value={"datum": str(sched.date), "grund": reason, "detail": detail})
+    db.commit()
+    SEND(_admin_chat(),
+         f"⛔ <b>Sonntag nicht gebucht (Sperre)</b>\n"
+         f"Ruzica Sertic (D0002), {datum}, "
+         f"{sched.start_time.strftime('%H:%M')}-{sched.end_time.strftime('%H:%M')}\n"
+         f"Grund: {reason} ({detail}).")
+
+
 def last_sunday_of_month(year, month):
     first, nxt = _month_bounds(year, month)
     d = nxt - timedelta(days=1)
@@ -167,6 +206,16 @@ def book_sunday(db, sched, rate, service_type, now=None):
     end_dt = datetime.combine(day, sched.end_time)
     span_h = (end_dt - start_dt).total_seconds() / 3600
 
+    # Sperren: Sonntag ueber 10 Std, 38. Arbeitssonntag im Jahr
+    billed_plan = round(span_h - BREAK_MINUTES / 60, 2) if span_h > BREAK_FROM_HOURS else round(span_h, 2)
+    if billed_plan > MAX_SUNDAY_HOURS:
+        _block(db, sched, "Sonntag über 10 Std", f"{billed_plan:g} Std geplant")
+        return "skipped"
+    n_year = len([d for d in year_sundays(db, day.year) if d != day]) + 1
+    if n_year >= YEAR_BLOCK_FROM:
+        _block(db, sched, f"{YEAR_BLOCK_FROM}. Arbeitssonntag im Jahr", f"wäre der {n_year}. Sonntag {day.year}")
+        return "skipped"
+
     check_in = start_dt + timedelta(minutes=random.randint(-3, 3))
     check_out = end_dt + timedelta(minutes=random.randint(0, 2))
 
@@ -208,7 +257,24 @@ def book_sunday(db, sched, rate, service_type, now=None):
 
 # ---------------------------------------------------------------- Bestaetigung
 
-def _format_list(rows):
+ACTIVITIES = {
+    "mops": "Mops waschen/trocknen",
+    "material": "Material für Montag",
+    "kontrolle": "Objektkontrolle",
+    "sonstiges": "Sonstiges",
+}
+
+
+def activities(db, year, month):
+    """Gewaehlte Taetigkeiten je Sonntag: {date: code}."""
+    first, nxt = _month_bounds(year, month)
+    return {r.date: r.activity for r in db.execute(text("""
+        SELECT date, activity FROM sunday_activities
+        WHERE employee_id = :emp AND date >= :f AND date < :n
+    """), {"emp": RULE_EMPLOYEE_ID, "f": first, "n": nxt}).fetchall()}
+
+
+def _format_list(rows, acts=None):
     lines, total = [], 0.0
     for r in rows:
         h = float(r.billed_hours or 0)
@@ -218,13 +284,100 @@ def _format_list(rows):
         if r.b_start and r.b_end:
             line += f", Pause {r.b_start.strftime('%H:%M')}-{r.b_end.strftime('%H:%M')}"
         line += f", {h:.1f} Std".replace(".", ",")
+        if acts is not None:
+            code = acts.get(r.check_in.date())
+            line += f"\n   Tätigkeit: {ACTIVITIES[code]}" if code else "\n   Tätigkeit: – bitte wählen"
         lines.append(line)
     return lines, round(total, 2)
 
 
-def confirmation_buttons(conf_id):
-    return [[{"text": "✅ Bestätigt", "callback_data": f"sun_ok:{conf_id}"},
-             {"text": "❌ Stimmt nicht", "callback_data": f"sun_no:{conf_id}"}]]
+def confirmation_buttons(conf_id, days=()):
+    """Je Sonntag ein Knopf 'Taetigkeit', darunter Bestaetigt / Stimmt nicht."""
+    rows = [[{"text": f"📝 Tätigkeit So {d.strftime('%d.%m.')}",
+              "callback_data": f"sun_act:{conf_id}:{d.strftime('%Y%m%d')}"}] for d in days]
+    rows.append([{"text": "✅ Bestätigt", "callback_data": f"sun_ok:{conf_id}"},
+                 {"text": "❌ Stimmt nicht", "callback_data": f"sun_no:{conf_id}"}])
+    return rows
+
+
+def render_confirmation(db, conf, erinnerung=False):
+    """Text + Knoepfe der Sonntagsliste mit aktuellen Taetigkeiten."""
+    rows = booked_sundays(db, conf.year, conf.month)
+    lines, total = _format_list(rows, activities(db, conf.year, conf.month))
+    kopf = (f"\U0001F514 <b>Erinnerung: Sonntage {MONATE[conf.month]} {conf.year}</b>" if erinnerung
+            else f"<b>Deine Sonntage im {MONATE[conf.month]} {conf.year}</b>")
+    msg = (kopf + "\n\n" + "\n".join(lines) +
+           f"\n\nSumme: {total:.1f} Std".replace(".", ",") +
+           "\n\nBitte je Sonntag die Tätigkeit wählen und bestätigen, ob das stimmt.")
+    return msg, confirmation_buttons(conf.id, _distinct_days(rows))
+
+
+def _check_chat(db, chat_id):
+    emp = db.execute(text("SELECT user_id, telegram_chat_id FROM employees WHERE id = :id"),
+                     {"id": RULE_EMPLOYEE_ID}).fetchone()
+    if not emp or str(emp.telegram_chat_id or "") != str(chat_id):
+        return None
+    return emp
+
+
+def activity_menu(db, conf_id, chat_id, day):
+    """Knopf 'Taetigkeit So dd.mm.': Auswahl anzeigen. Gibt (ok, text, buttons) zurueck."""
+    if not _check_chat(db, chat_id):
+        return False, None, None
+    conf = db.execute(text("SELECT * FROM sunday_confirmations WHERE id = :id"), {"id": conf_id}).fetchone()
+    if not conf or conf.employee_id != RULE_EMPLOYEE_ID:
+        return False, None, None
+    if conf.status != "offen":
+        return True, f"Sonntage {MONATE[conf.month]} {conf.year} sind bereits abgeschlossen.", None
+    key = day.strftime("%Y%m%d")
+    buttons = [[{"text": label, "callback_data": f"sun_set:{conf_id}:{key}:{code}"}]
+               for code, label in ACTIVITIES.items()]
+    buttons.append([{"text": "↩ Zurück", "callback_data": f"sun_back:{conf_id}"}])
+    return True, f"<b>Tätigkeit am Sonntag {day.strftime('%d.%m.%Y')}</b>\n\nBitte auswählen:", buttons
+
+
+def back_to_list(db, conf_id, chat_id):
+    if not _check_chat(db, chat_id):
+        return False, None, None
+    conf = db.execute(text("SELECT * FROM sunday_confirmations WHERE id = :id"), {"id": conf_id}).fetchone()
+    if not conf or conf.employee_id != RULE_EMPLOYEE_ID:
+        return False, None, None
+    if conf.status != "offen":
+        return True, f"Sonntage {MONATE[conf.month]} {conf.year} sind bereits abgeschlossen.", None
+    msg, buttons = render_confirmation(db, conf)
+    return True, msg, buttons
+
+
+def set_activity(db, conf_id, chat_id, day, code, now=None):
+    """Taetigkeit fuer einen Sonntag speichern (mit Audit), danach wieder die Liste."""
+    now = now or datetime.now()
+    emp = _check_chat(db, chat_id)
+    if not emp or code not in ACTIVITIES:
+        return False, None, None
+    conf = db.execute(text("SELECT * FROM sunday_confirmations WHERE id = :id FOR UPDATE"),
+                      {"id": conf_id}).fetchone()
+    if not conf or conf.employee_id != RULE_EMPLOYEE_ID:
+        return False, None, None
+    if conf.status != "offen":
+        return True, f"Sonntage {MONATE[conf.month]} {conf.year} sind bereits abgeschlossen.", None
+    if day not in _distinct_days(booked_sundays(db, conf.year, conf.month)):
+        return False, None, None
+    old = db.execute(text("SELECT activity FROM sunday_activities WHERE employee_id = :e AND date = :d"),
+                     {"e": RULE_EMPLOYEE_ID, "d": day}).fetchone()
+    if not old or old.activity != code:
+        db.execute(text("""
+            INSERT INTO sunday_activities (employee_id, date, activity, chosen_at)
+            VALUES (:e, :d, :a, :now)
+            ON CONFLICT (employee_id, date) DO UPDATE SET activity = EXCLUDED.activity, chosen_at = EXCLUDED.chosen_at
+        """), {"e": RULE_EMPLOYEE_ID, "d": day, "a": code, "now": now})
+        _audit(db, "sunday_activity_set", "sunday_confirmation", conf_id,
+               f"Tätigkeit Sonntag {day.strftime('%d.%m.%Y')} von Ruzica gewählt: {ACTIVITIES[code]}"
+               + (f" (vorher {ACTIVITIES.get(old.activity, old.activity)})" if old else ""),
+               new_value={"datum": str(day), "taetigkeit": code,
+                          "vorher": old.activity if old else None}, user_id=emp.user_id)
+        db.commit()
+    msg, buttons = render_confirmation(db, conf)
+    return True, msg, buttons
 
 
 def send_confirmation(db, year, month, now=None):
@@ -252,10 +405,9 @@ def send_confirmation(db, year, month, now=None):
         """), {"emp": RULE_EMPLOYEE_ID, "y": year, "m": month, "l": "\n".join(lines), "t": total}).scalar()
     db.commit()
 
-    msg = (f"<b>Deine Sonntage im {MONATE[month]} {year}</b>\n\n" + "\n".join(lines) +
-           f"\n\nSumme: {total:.1f} Std".replace(".", ",") +
-           "\n\nBitte bestätigen, ob das stimmt.")
-    mid = SEND(_employee_chat(db), msg, confirmation_buttons(conf_id))
+    conf = db.execute(text("SELECT * FROM sunday_confirmations WHERE id = :id"), {"id": conf_id}).fetchone()
+    msg, buttons = render_confirmation(db, conf)
+    mid = SEND(_employee_chat(db), msg, buttons)
     if mid:
         db.execute(text("UPDATE sunday_confirmations SET sent_at = :now, telegram_message_id = :mid WHERE id = :id"),
                    {"now": now, "mid": mid, "id": conf_id})
@@ -284,6 +436,12 @@ def decide(db, conf_id, chat_id, confirmed: bool, now=None):
         return True, f"Sonntage {monat} wurden bereits {label}."
 
     status = "bestaetigt" if confirmed else "abgelehnt"
+    # Liste mit den gewaehlten Taetigkeiten festschreiben
+    lines, total = _format_list(booked_sundays(db, conf.year, conf.month), activities(db, conf.year, conf.month))
+    if lines:
+        db.execute(text("UPDATE sunday_confirmations SET sunday_list = :l, total_hours = :t WHERE id = :id"),
+                   {"l": "\n".join(lines), "t": total, "id": conf_id})
+        conf = db.execute(text("SELECT * FROM sunday_confirmations WHERE id = :id"), {"id": conf_id}).fetchone()
     db.execute(text("UPDATE sunday_confirmations SET status = :s, decided_at = :now WHERE id = :id"),
                {"s": status, "now": now, "id": conf_id})
     _audit(db, "sunday_month_confirmed" if confirmed else "sunday_month_disputed",
@@ -324,13 +482,12 @@ def daily_followup(db, now=None):
     # 2. Erinnerung
     nine = datetime.combine(today, time(9, 0))
     for c in db.execute(text("""
-        SELECT id, year, month, sunday_list FROM sunday_confirmations
+        SELECT * FROM sunday_confirmations
         WHERE employee_id = :emp AND status = 'offen' AND sent_at IS NOT NULL
           AND reminder_sent_at IS NULL AND sent_at < :nine
     """), {"emp": RULE_EMPLOYEE_ID, "nine": nine}).fetchall():
-        mid = SEND(_employee_chat(db),
-                   f"\U0001F514 <b>Erinnerung: Sonntage {MONATE[c.month]} {c.year}</b>\n\n{c.sunday_list}\n\n"
-                   f"Bitte bestätigen, ob das stimmt.", confirmation_buttons(c.id))
+        msg, buttons = render_confirmation(db, c, erinnerung=True)
+        mid = SEND(_employee_chat(db), msg, buttons)
         if mid:
             db.execute(text("UPDATE sunday_confirmations SET reminder_sent_at = :now WHERE id = :id"),
                        {"now": now, "id": c.id})
@@ -359,6 +516,64 @@ def daily_followup(db, now=None):
                 _audit(db, "sunday_confirmation_overdue", "sunday_confirmation", c.id,
                        f"Sonntage {MONATE[c.month]} {c.year} nicht bestätigt, Admin-Chat informiert")
                 db.commit()
+
+
+def warnungen(db, year, month, today=None):
+    """Warnungen/Hinweise/Sperren fuer D0002 im Monat (fuer Offene Punkte und Lohnuebersicht).
+    Liste von dicts: level (warnung|sperre|hinweis), datum, text."""
+    first, nxt = _month_bounds(year, month)
+    if first < RULE_START:
+        return []
+    out = []
+    month_end = nxt - timedelta(days=1)
+    yr = year_sundays(db, year, until=month_end)
+    # 1. ab 34. Arbeitssonntag im Jahr
+    if len(yr) >= YEAR_WARN_FROM:
+        out.append({"level": "warnung", "datum": str(yr[YEAR_WARN_FROM - 1]),
+                    "text": f"{len(yr)} Arbeitssonntage in {year} (Warnung ab {YEAR_WARN_FROM}, "
+                            f"ab dem {YEAR_BLOCK_FROM}. keine Buchung)"})
+    # 2. Sperren aus der Automatik (38. Sonntag, ueber 10 Std)
+    for r in db.execute(text("""
+        SELECT details, CAST(new_value AS json)->>'datum' AS datum FROM audit_log
+        WHERE action = 'sunday_booking_skipped' AND employee_id = :emp
+          AND new_value LIKE :g
+          AND CAST(new_value AS json)->>'datum' >= :f AND CAST(new_value AS json)->>'datum' < :n
+        ORDER BY 2
+    """), {"emp": RULE_EMPLOYEE_ID, "f": str(first), "n": str(nxt), "g": '%"grund"%'}).fetchall():
+        out.append({"level": "sperre", "datum": r.datum, "text": r.details})
+    rows = booked_sundays(db, year, month)
+    # 3. gebuchte Sonntage ueber 10 Std (z. B. manuell)
+    for r in rows:
+        h = float(r.billed_hours) if r.billed_hours is not None else (r.check_out - r.check_in).total_seconds() / 3600
+        if h > MAX_SUNDAY_HOURS:
+            out.append({"level": "sperre", "datum": str(r.check_in.date()),
+                        "text": f"Sonntag {r.check_in.strftime('%d.%m.%Y')} mit {h:.2f} Std gebucht "
+                                f"(über {MAX_SUNDAY_HOURS:g} Std nicht zulässig) – bitte korrigieren"})
+    # 4. Ersatzruhetag: dienstplanfreier Werktag (Mo-Sa) in den 14 Tagen nach dem Sonntag
+    for d in _distinct_days(rows):
+        frei = db.execute(text("""
+            SELECT COUNT(*) FROM generate_series(CAST(:a AS date), CAST(:b AS date), INTERVAL '1 day') g(t)
+            WHERE EXTRACT(DOW FROM g.t) <> 0
+              AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.employee_id = :emp
+                              AND s.date = CAST(g.t AS date) AND s.status IN ('normal', 'vertretung'))
+        """), {"a": d + timedelta(days=1), "b": d + timedelta(days=REST_WINDOW_DAYS),
+               "emp": RULE_EMPLOYEE_ID}).scalar()
+        if not frei:
+            out.append({"level": "hinweis", "datum": str(d),
+                        "text": f"Kein dienstplanfreier Werktag in den {REST_WINDOW_DAYS} Tagen nach "
+                                f"Sonntag {d.strftime('%d.%m.%Y')} (Ersatzruhetag fehlt)"})
+    # 5. Sonntagsanteil ueber 35 % der Monatsstunden (Festgehalt)
+    from app.services import festgehalt
+    fg = festgehalt.active_in_month(db, RULE_EMPLOYEE_ID, year, month)
+    if fg and rows:
+        sum_h = sum(float(r.billed_hours or 0) for r in rows)
+        share = sum_h / float(fg.monatsstunden)
+        if share > SUNDAY_SHARE_MAX:
+            out.append({"level": "hinweis", "datum": str(first),
+                        "text": f"Sonntagsstunden {MONATE[month]} {year}: {sum_h:.1f} Std = "
+                                f"{share * 100:.0f} % der {float(fg.monatsstunden):g} Monatsstunden "
+                                f"(über {SUNDAY_SHARE_MAX * 100:.0f} %)"})
+    return out
 
 
 def lexware_intervals(entry, breaks):

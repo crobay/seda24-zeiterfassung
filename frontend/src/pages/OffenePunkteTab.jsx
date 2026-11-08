@@ -117,13 +117,15 @@ const OffenePunkteTab = () => {
   const autoBooked = openItems.filter(i => i.type === 'auto_booked');
   const telegramCorrections = openItems.filter(i => i.type === 'telegram_correction');
   const monthDisputes = openItems.filter(i => i.type === 'month_dispute');
+  const sonntagWarnungen = openItems.filter(i => i.type === 'sonntag_warnung');
 
   const MONATSNAMEN = ['', 'Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni',
     'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
   const pendingConfsOpen = pendingConfirmations.filter(c => c.status !== 'confirmed').length;
   const totalOpen = expiredPushes.length + notPresent.length + corrections.length +
-    shiftChanges.length + pendingConfsOpen + telegramCorrections.length + monthDisputes.length;
+    shiftChanges.length + pendingConfsOpen + telegramCorrections.length + monthDisputes.length +
+    sonntagWarnungen.length;
 
   return (
     <div className="space-y-4">
@@ -151,6 +153,31 @@ const OffenePunkteTab = () => {
           <CheckCircle size={48} className="mx-auto mb-2 text-green-500" />
           <p className="font-semibold">Alles erledigt!</p>
           <p className="text-sm">Keine offenen Punkte.</p>
+        </div>
+      )}
+
+      {/* Sonntagsregel D0002: Warnungen / Sperren / Hinweise */}
+      {sonntagWarnungen.length > 0 && (
+        <div>
+          <h3 className="font-bold text-red-600 mb-2 flex items-center gap-2">
+            <AlertCircle size={18} />
+            Sonntage Festgehalt ({sonntagWarnungen.length})
+          </h3>
+          <div className="space-y-2">
+            {sonntagWarnungen.map(item => (
+              <div key={`sw-${item.id}`} className={`bg-white border rounded-lg p-3 ${item.level === 'sperre' ? 'border-red-300' : item.level === 'warnung' ? 'border-orange-300' : 'border-amber-200'}`}>
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <p className="font-semibold">{item.employee_name} – {MONATSNAMEN[item.month]} {item.year}</p>
+                    <p className="text-sm text-gray-700">{item.text}</p>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded whitespace-nowrap ${item.level === 'sperre' ? 'bg-red-100 text-red-700' : item.level === 'warnung' ? 'bg-orange-100 text-orange-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {item.level === 'sperre' ? 'Sperre' : item.level === 'warnung' ? 'Warnung' : 'Hinweis'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

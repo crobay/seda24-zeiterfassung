@@ -192,13 +192,14 @@ const LohnUebersichtTab = () => {
             ) : (
               <>
                 {data.map((row, index) => (
-                  <tr key={row.employee_id || index} className="hover:bg-gray-50">
+                  <React.Fragment key={row.employee_id || index}>
+                  <tr className="hover:bg-gray-50">
                     <td className="px-2 py-1.5 border-b font-medium whitespace-nowrap">
                       <div className="text-sm">{row.name}</div>
                       <div className="text-[10px] text-gray-500">{row.personal_nr}</div>
                     </td>
-                    <td className="px-2 py-1.5 border-b text-right bg-green-50/50">{formatHours(row.normal_hours)}</td>
-                    <td className="px-2 py-1.5 border-b text-right bg-green-50/50 text-gray-600">{row.hourly_rate?.toFixed(2) || '15.50'}</td>
+                    <td className="px-2 py-1.5 border-b text-right bg-green-50/50">{row.festgehalt ? <span title="Festgehalt (fix, unabhängig von Ist-Stunden)">FG {formatHours(row.festgehalt.monatsstunden)}</span> : formatHours(row.normal_hours)}</td>
+                    <td className="px-2 py-1.5 border-b text-right bg-green-50/50 text-gray-600">{row.festgehalt ? row.festgehalt.stundensatz.toFixed(2) : (row.hourly_rate?.toFixed(2) || '15.50')}</td>
                     <td className="px-2 py-1.5 border-b text-right bg-green-50/50 font-medium">{formatEuro(row.normal_amount)}</td>
                     <td className="px-2 py-1.5 border-b text-right bg-yellow-50/50">{row.sonder_hours > 0 ? formatHours(row.sonder_hours) : '-'}</td>
                     <td className="px-2 py-1.5 border-b text-right bg-yellow-50/50 font-medium">{row.sonder_hours > 0 ? formatEuro(row.sonder_amount) : '-'}</td>
@@ -299,6 +300,25 @@ const LohnUebersichtTab = () => {
                     </>}
                     <td className="px-2 py-1.5 border-b text-right bg-gray-100 font-bold text-sm">{formatEuro(row.gesamt)}</td>
                   </tr>
+                  {row.festgehalt && (
+                    <tr>
+                      <td colSpan={colCount} className="px-3 py-2 border-b bg-slate-50 text-xs text-gray-700">
+                        <div>
+                          <strong>Festgehalt</strong> {formatHours(row.festgehalt.monatsstunden)} h × {row.festgehalt.stundensatz.toFixed(2)} € = {formatEuro(row.festgehalt.betrag)} (LA 1)
+                          {' · '}Sonntag {formatHours(row.sonntag_hours)} h → Zuschlag {formatEuro(row.festgehalt.sonntag_zuschlag)} (LA 13)
+                          {' · '}Feiertag {formatHours(row.feiertag_hours)} h (125 %: {formatHours(row.festgehalt.feiertag125_hours)} / 150 %: {formatHours(row.festgehalt.feiertag150_hours)})
+                          {' · '}Nacht {formatHours(row.nacht_hours)} h
+                          {' · '}<span className="text-gray-500">Kein Zeitkonto, Werktage nicht lohnrelevant, Urlaub/Krank nicht im Export</span>
+                        </div>
+                        {(row.festgehalt.warnungen || []).map((w, i) => (
+                          <div key={i} className={`mt-1 ${w.level === 'sperre' ? 'text-red-700' : w.level === 'warnung' ? 'text-orange-700' : 'text-amber-700'}`}>
+                            {w.level === 'sperre' ? '⛔ Sperre' : w.level === 'warnung' ? '⚠ Warnung' : 'ℹ Hinweis'}: {w.text}
+                          </div>
+                        ))}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))}
                 <tr className="bg-gray-200 font-bold">
                   <td className="px-2 py-2 border-t-2 border-gray-400">SUMME</td>

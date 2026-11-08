@@ -47,6 +47,12 @@ def auto_book_category_a():
                         print(f"Sonntag D0002 {schedule.date}: {res}")
                         continue
 
+                    # Festgehalt: keine Werktags-Automatik (Stempeln erlaubt, nicht lohnrelevant)
+                    from app.services import festgehalt
+                    if festgehalt.active_on(db, emp.id, schedule.date):
+                        print(f"Festgehalt {emp.personal_nr} {schedule.date}: keine Werktags-Automatik")
+                        continue
+
                     # Kleine Variation
                     start_var = random.randint(-3, 3)
                     end_var = random.randint(0, 2)

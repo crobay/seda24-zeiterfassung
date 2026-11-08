@@ -376,6 +376,11 @@ def auto_book_category_a():
                 continue
             if not sched.end_time:
                 continue
+            # Festgehalt: keine Werktags-Automatik (Sonntage regelt sonntag_d0002 weiter unten)
+            from app.services import festgehalt, sonntag_d0002
+            if (festgehalt.active_on(db, sched.employee_id, sched.date)
+                    and not sonntag_d0002.applies(sched.employee_id, sched.date)):
+                continue
 
             sched_end = datetime.combine(today, sched.end_time)
             if now < sched_end:

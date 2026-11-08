@@ -664,6 +664,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_sunday_decision(query, data, chat_id, confirmed=True)
     elif data.startswith("sun_no:"):
         await _handle_sunday_decision(query, data, chat_id, confirmed=False)
+    elif data.startswith(("sun_act:", "sun_set:", "sun_back:")):
+        await _handle_sunday_activity(query, data, chat_id)
 
 
 async def _handle_sunday_decision(query, data, chat_id, confirmed: bool):
@@ -690,6 +692,43 @@ async def _handle_sunday_decision(query, data, chat_id, confirmed: bool):
         await query.edit_message_text(msg, parse_mode='HTML')
     except Exception as e:
         logger.error(f"Sonntagsbestaetigung: Nachricht nicht geaendert: {e}")
+
+
+async def _handle_sunday_activity(query, data, chat_id):
+    """Sonntagsbestaetigung D0002: Taetigkeit je Sonntag waehlen (nur Ruzicas eigener Chat)."""
+    parts = data.split(":")
+
+    def work():
+        from datetime import datetime as _dt
+        from app.services import sonntag_d0002
+        db = SessionLocal()
+        try:
+            conf_id = int(parts[1])
+            if parts[0] == "sun_back":
+                return sonntag_d0002.back_to_list(db, conf_id, chat_id)
+            day = _dt.strptime(parts[2], "%Y%m%d").date()
+            if parts[0] == "sun_act":
+                return sonntag_d0002.activity_menu(db, conf_id, chat_id, day)
+            return sonntag_d0002.set_activity(db, conf_id, chat_id, day, parts[3])
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Sonntag-Taetigkeit {data} fehlgeschlagen: {e}", exc_info=True)
+            return True, "\u26a0\ufe0f Fehler beim Speichern. Bitte der Leitung Bescheid geben.", None
+        finally:
+            db.close()
+
+    ok, msg, buttons = await _run_in_thread(work)
+    if not ok:
+        logger.warning(f"Sonntag-Taetigkeit ohne Berechtigung: chat_id {chat_id}, data {data}")
+        return
+    markup = None
+    if buttons:
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton(b["text"], callback_data=b["callback_data"])
+                                        for b in row] for row in buttons])
+    try:
+        await query.edit_message_text(msg, parse_mode='HTML', reply_markup=markup)
+    except Exception as e:
+        logger.error(f"Sonntag-Taetigkeit: Nachricht nicht geaendert: {e}")
 
 
 async def _handle_pending_booking_decision(query, data, chat_id, approver, approve: bool):

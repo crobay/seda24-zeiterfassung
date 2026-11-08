@@ -11,6 +11,7 @@ import KmJournalTab from "./KmJournalTab";
 import KmVerwaltungTab from "../components/KmVerwaltungTab";
 import LohnUebersichtTab from "./LohnUebersichtTab";
 import OffenePunkteTab from "./OffenePunkteTab";
+import FestgehaltSection from "../components/FestgehaltSection";
 import AuditLogTab from "./AuditLogTab";
 import LoginLogTab from "./LoginLogTab";
 import MitarbeiterObjekteTab from "./MitarbeiterObjekteTab";
@@ -2539,6 +2540,7 @@ const AdminDashboard = () => {
                 />
                 <span className="text-sm">Mindest-Stempeldauer (Bie2)</span>
               </label>
+              {editingEmployee && <FestgehaltSection employeeId={editingEmployee.id} />}
             </div>
 
             <div className="flex gap-3 mt-6">

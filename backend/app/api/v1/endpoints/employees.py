@@ -37,11 +37,20 @@ def get_my_category(
     """)
     c_count = db.execute(c_count_query, {"emp_id": result[0]}).scalar() or 0
 
+    # Festgehalt (ab gueltig_ab): Kategorie A sieht die Stempeluhr (Button) - Stempeln erlaubt,
+    # aber nicht lohnrelevant. In der DB bleibt Kategorie A (keine Erinnerungen).
+    mode = result[4] if result[4] else "C"
+    if mode == "A":
+        from datetime import date as _date
+        from app.services import festgehalt
+        if festgehalt.active_on(db, result[0], _date.today()):
+            mode = "B"
+
     return {
         "id": result[0],
         "name": f"{result[2]} {result[3]}",
         "personal_nr": result[1],
-        "tracking_mode": result[4] if result[4] else "C",
+        "tracking_mode": mode,
         "gps_required": bool(result[5]) if result[5] else False,
         "has_c_assignments": c_count > 0,
     }
