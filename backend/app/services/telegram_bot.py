@@ -660,6 +660,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_sick_today(query, data, chat_id)
     elif data.startswith("sick_multi:"):
         await _handle_sick_multi(query, data, chat_id)
+    elif data.startswith("sun_ok:"):
+        await _handle_sunday_decision(query, data, chat_id, confirmed=True)
+    elif data.startswith("sun_no:"):
+        await _handle_sunday_decision(query, data, chat_id, confirmed=False)
+
+
+async def _handle_sunday_decision(query, data, chat_id, confirmed: bool):
+    """Sonntagsbestaetigung D0002: 'Bestaetigt' / 'Stimmt nicht' (nur Ruzicas eigener Chat)."""
+    conf_id = int(data.split(":")[1])
+
+    def work():
+        from app.services import sonntag_d0002
+        db = SessionLocal()
+        try:
+            return sonntag_d0002.decide(db, conf_id, chat_id, confirmed)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Sonntagsbestaetigung {conf_id} fehlgeschlagen: {e}", exc_info=True)
+            return True, "\u26a0\ufe0f Fehler beim Speichern. Bitte der Leitung Bescheid geben."
+        finally:
+            db.close()
+
+    ok, msg = await _run_in_thread(work)
+    if not ok:
+        logger.warning(f"Sonntagsbestaetigung ohne Berechtigung: chat_id {chat_id}, data {data}")
+        return
+    try:
+        await query.edit_message_text(msg, parse_mode='HTML')
+    except Exception as e:
+        logger.error(f"Sonntagsbestaetigung: Nachricht nicht geaendert: {e}")
 
 
 async def _handle_pending_booking_decision(query, data, chat_id, approver, approve: bool):

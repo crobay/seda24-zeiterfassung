@@ -5960,7 +5960,15 @@ def lexware_export(
             }
         day = e.check_in.day
         if e.check_out:
-            emp_data[emp_id][day].append((e.check_in, e.check_out))
+            from app.services import sonntag_d0002
+            if sonntag_d0002.applies(emp_id, e.check_in.date()):
+                # Sonntag D0002 ab 2027: Block an der Automatik-Pause teilen (8,5 Std Spanne = 8,0 Std)
+                brks = db.execute(text(
+                    "SELECT start_time, end_time, is_paid, break_type FROM break_entries WHERE time_entry_id = :id"
+                ), {"id": e.id}).fetchall()
+                emp_data[emp_id][day].extend(sonntag_d0002.lexware_intervals(e, brks))
+            else:
+                emp_data[emp_id][day].append((e.check_in, e.check_out))
 
     # Zeitkonto-MAs identifizieren
     from app.models.models import Zeitkonto

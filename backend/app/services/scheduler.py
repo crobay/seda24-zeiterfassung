@@ -86,6 +86,15 @@ def init_scheduler():
         max_instances=1,
     )
 
+    # Job 7b: Sonntagsbestaetigung D0002 - Nachsenden, Erinnerung, Admin-Hinweis (taeglich 09:00)
+    scheduler.add_job(
+        sunday_d0002_followup,
+        CronTrigger(hour=9, minute=0),
+        id='sunday_d0002_followup',
+        replace_existing=True,
+        max_instances=1,
+    )
+
     # Job 8: Auto-Fill Monatsumsaetze (1. jeden Monats, 06:00)
     scheduler.add_job(
         auto_fill_monthly_revenues,
@@ -374,6 +383,14 @@ def auto_book_category_a():
             if existing:
                 continue
 
+            # Sonntagsregel D0002 ab 2027 (gleiche Logik wie Cron-Skript)
+            from app.services import sonntag_d0002
+            if sonntag_d0002.applies(sched.employee_id, sched.date):
+                rate = sched.employee.hourly_rate or 15.50
+                res = sonntag_d0002.book_sunday(db, sched, rate, 'Unterhaltsreinigung')
+                logger.info(f"Sonntag D0002 {sched.date}: {res}")
+                continue
+
             # Randomisierung +-2-3 Min
             start_var = random.randint(-3, 2)
             end_var = random.randint(-2, 3)
@@ -421,6 +438,19 @@ def auto_book_category_a():
         db.commit()
     except Exception as e:
         logger.error(f"Fehler in auto_book_category_a: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def sunday_d0002_followup():
+    """Sonntagsbestaetigung D0002 (ab 2027): Nachsenden, Erinnerung, Admin-Hinweis."""
+    from app.services import sonntag_d0002
+    db = SessionLocal()
+    try:
+        sonntag_d0002.daily_followup(db)
+    except Exception as e:
+        logger.error(f"Fehler in sunday_d0002_followup: {e}", exc_info=True)
         db.rollback()
     finally:
         db.close()

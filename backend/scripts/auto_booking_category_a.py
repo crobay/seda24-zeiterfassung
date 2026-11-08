@@ -40,6 +40,13 @@ def auto_book_category_a():
                 ).first()
                 
                 if not existing:
+                    # Sonntagsregel D0002 ab 2027: max. 3 Sonntage/Monat, 30 Min Pause, Bestaetigung
+                    from app.services import sonntag_d0002
+                    if sonntag_d0002.applies(emp.id, schedule.date):
+                        res = sonntag_d0002.book_sunday(db, schedule, emp.hourly_rate, 'Unterhaltsreinigung')
+                        print(f"Sonntag D0002 {schedule.date}: {res}")
+                        continue
+
                     # Kleine Variation
                     start_var = random.randint(-3, 3)
                     end_var = random.randint(0, 2)
