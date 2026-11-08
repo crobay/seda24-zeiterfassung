@@ -349,7 +349,8 @@ const ScheduleTab = () => {
       const tgtDay = targetDate.getDay() || 7;
       targetDate.setDate(targetDate.getDate() - tgtDay + 1);
       targetDate.setDate(targetDate.getDate() + (targetWeekOffset * 7));
-      await api.post('/admin/schedules/copy-week', { source_week: sourceDate.toISOString(), target_week: targetDate.toISOString() });
+      const res = await api.post('/admin/schedules/copy-week', { source_week: sourceDate.toISOString(), target_week: targetDate.toISOString() });
+      if (res.data?.message) showAction(res.data.message);
       setWeekOffset(targetWeekOffset);
       await loadWeekData();
       setShowCopyModal(false);

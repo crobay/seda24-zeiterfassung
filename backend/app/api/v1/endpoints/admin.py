@@ -1049,6 +1049,8 @@ def copy_week_schedule(
     skipped_exists = 0
     skipped_vacation = 0
     skipped_not_real = 0
+    skipped_sunday_auto = 0
+    from app.services import sonntag_d0002
     for source in source_schedules:
         src_status = (source.status or '').strip().lower()
         if src_status and src_status not in REAL_DUTY:
@@ -1057,6 +1059,11 @@ def copy_week_schedule(
 
         # Check if schedule already exists
         new_date = source.date + timedelta(days=day_diff)
+
+        # Sonntage D0002 ab 2027 werden automatisch angelegt (am 20. des Vormonats)
+        if sonntag_d0002.applies(source.employee_id, new_date):
+            skipped_sunday_auto += 1
+            continue
         
         existing = db.query(Schedule).filter(
             and_(
@@ -1097,7 +1104,18 @@ def copy_week_schedule(
     
     db.commit()
     
-    skipped_total = skipped_exists + skipped_vacation + skipped_not_real
+    skipped_total = skipped_exists + skipped_vacation + skipped_not_real + skipped_sunday_auto
+    message = (
+        f"{copied} Dienste kopiert. "
+        f"Uebersprungen: {skipped_exists} bereits vorhanden, "
+        f"{skipped_vacation} Urlaubskonflikt, "
+        f"{skipped_not_real} kein echter Dienst (Urlaub/Krank/Abwesend)."
+    )
+    if skipped_sunday_auto:
+        message += (
+            f" {skipped_sunday_auto} Sonntagsschicht(en) von D0002 Ruzica nicht kopiert "
+            f"(werden ab 2027 automatisch angelegt)."
+        )
     return {
         "status": "ok",
         "copied": copied,
@@ -1105,12 +1123,8 @@ def copy_week_schedule(
         "skipped_exists": skipped_exists,
         "skipped_vacation": skipped_vacation,
         "skipped_not_real": skipped_not_real,
-        "message": (
-            f"{copied} Dienste kopiert. "
-            f"Uebersprungen: {skipped_exists} bereits vorhanden, "
-            f"{skipped_vacation} Urlaubskonflikt, "
-            f"{skipped_not_real} kein echter Dienst (Urlaub/Krank/Abwesend)."
-        )
+        "skipped_sunday_auto": skipped_sunday_auto,
+        "message": message,
     }
 
 @router.post("/schedules/bulk-update")
