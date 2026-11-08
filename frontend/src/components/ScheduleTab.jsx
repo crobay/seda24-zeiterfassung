@@ -1287,6 +1287,11 @@ const ScheduleTab = () => {
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm text-gray-600">
                   <strong>{generatePreview.total}</strong> Schichten werden erstellt, <strong>{generatePreview.skipped}</strong> uebersprungen
+                  {generatePreview.skipped_sunday_auto > 0 && (
+                    <span className="block text-xs text-amber-700 mt-1">
+                      {generatePreview.skipped_sunday_auto} Sonntagsschicht(en) von D0002 Ruzica nicht angelegt (werden ab 2027 automatisch angelegt).
+                    </span>
+                  )}
                 </p>
                 <button onClick={() => setGeneratePreview(null)} className="text-xs text-blue-600 hover:underline">Zurueck</button>
               </div>

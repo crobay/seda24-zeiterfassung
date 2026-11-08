@@ -1585,9 +1585,17 @@ def repeat_shift(
 
     created = 0
     skipped = 0
+    skipped_sunday_auto = 0
+    from app.services import sonntag_d0002
     current_date = source.date + timedelta(weeks=1)
 
     while current_date <= until_date:
+        # Sonntage D0002 ab 2027 werden automatisch angelegt (am 20. des Vormonats)
+        if sonntag_d0002.applies(source.employee_id, current_date):
+            skipped_sunday_auto += 1
+            current_date += timedelta(weeks=1)
+            continue
+
         # Duplikat-Check
         existing = db.query(Schedule).filter(
             and_(
@@ -1638,7 +1646,14 @@ def repeat_shift(
         current_date += timedelta(weeks=1)
 
     db.commit()
-    return {'status': 'ok', 'created': created, 'skipped': skipped, 'message': f"{created} Wiederholungen erstellt, {skipped} uebersprungen"}
+    message = f"{created} Wiederholungen erstellt, {skipped + skipped_sunday_auto} uebersprungen"
+    if skipped_sunday_auto:
+        message += (
+            f" ({skipped_sunday_auto} Sonntagsschicht(en) von D0002 Ruzica nicht angelegt, "
+            f"werden ab 2027 automatisch angelegt)"
+        )
+    return {'status': 'ok', 'created': created, 'skipped': skipped + skipped_sunday_auto,
+            'skipped_sunday_auto': skipped_sunday_auto, 'message': message}
 
 
 @router.get("/schedules/conflicts")
@@ -4877,6 +4892,8 @@ def generate_month_schedule(
 
     created = 0
     skipped = 0
+    skipped_sunday_auto = 0
+    from app.services import sonntag_d0002
     conflicts = []
     affected_employee_ids = set()
 
@@ -4921,6 +4938,14 @@ def generate_month_schedule(
                         if day_count != target_week:
                             current += timedelta(days=1)
                             continue
+
+                # Sonntage D0002 ab 2027 werden automatisch angelegt - weder anlegen
+                # noch per Overwrite aendern
+                if sonntag_d0002.applies(master.employee_id, current):
+                    skipped += 1
+                    skipped_sunday_auto += 1
+                    current += timedelta(days=1)
+                    continue
 
                 # Pruefen ob bereits ein Eintrag existiert (Urlaub/Krank)
                 existing = db.query(Schedule).filter(
@@ -5023,6 +5048,10 @@ def generate_month_schedule(
 
     month_name = ['', 'Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni',
                   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'][target_month]
+    sunday_hint = (
+        f" {skipped_sunday_auto} Sonntagsschicht(en) von D0002 Ruzica nicht angelegt "
+        f"(werden ab 2027 automatisch angelegt)."
+    ) if skipped_sunday_auto else ""
 
     if dry_run:
         # Keine DB-Aenderung - Vorschau zurueckgeben
@@ -5033,7 +5062,8 @@ def generate_month_schedule(
             "total": created,
             "skipped": skipped,
             "conflicts": conflicts[:10],
-            "message": f"Vorschau: {created} Schichten fuer {month_name} {target_year}, {skipped} wuerden uebersprungen"
+            "skipped_sunday_auto": skipped_sunday_auto,
+            "message": f"Vorschau: {created} Schichten fuer {month_name} {target_year}, {skipped} wuerden uebersprungen.{sunday_hint}"
         }
 
     db.commit()
@@ -5047,7 +5077,8 @@ def generate_month_schedule(
         "created": created,
         "skipped": skipped,
         "conflicts": conflicts[:10],
-        "message": f"{created} Schichten fuer {month_name} {target_year} erstellt, {skipped} uebersprungen"
+        "skipped_sunday_auto": skipped_sunday_auto,
+        "message": f"{created} Schichten fuer {month_name} {target_year} erstellt, {skipped} uebersprungen.{sunday_hint}"
     }
 
 
