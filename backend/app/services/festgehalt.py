@@ -4,8 +4,8 @@ Festgehalt je Mitarbeiter (Tabelle employee_festgehalt), gueltig ab einem Datum.
 Bei aktivem Festgehalt (Monat ab gueltig_ab):
 - Lexware: LA 1 fix Monatsstunden x Stundensatz, unabhaengig von Ist-Stunden.
   Dazu LA 13 Sonntagszuschlag (Sonntagsstunden x SONNTAG_ZUSCHLAG EUR), LA 11 Nacht,
-  LA 15 Feiertagsstunden, LA 16 Feiertagszuschlag 125 %, LA 17 Feiertagszuschlag 150 %
-  (25.12., 26.12., 01.05.). Kein LA 14 Urlaub, kein LA 7 Krank, kein LA 6005 Vorschuss.
+  LA 16 Feiertagszuschlag 125 %, LA 17 Feiertagszuschlag 150 % (25.12., 26.12., 01.05.).
+  Kein LA 15 Feiertagsstunden (Grundlohn im Festgehalt), kein LA 14 Urlaub, kein LA 7 Krank, kein LA 6005 Vorschuss.
 - Kein Zeitkonto (kein Soll, kein Uebertrag), Werktags-Automatik aus,
   Stempeln erlaubt, aber nicht lohnrelevant.
 Monate vor gueltig_ab laufen im alten Modell.
@@ -102,8 +102,7 @@ def lexware_lohnarten(db, emp, fg, year, month):
     if s["sonntag_hours"] > 0:
         la.append({"lohnart": 13, "bezeichnung": "Sonntagszuschlag", "stunden": s["sonntag_hours"],
                    "betrag": round(s["sonntag_hours"] * SONNTAG_ZUSCHLAG, 2)})
-    if s["feiertag_hours"] > 0:
-        la.append({"lohnart": 15, "bezeichnung": "Feiertagsstunden", "stunden": s["feiertag_hours"], "betrag": None})
+    # Kein LA 15 Feiertagsstunden (Grundlohn steckt im Festgehalt), nur Zuschlaege - wie Sonntag (LA 13)
     if s["feiertag125_hours"] > 0:
         la.append({"lohnart": 16, "bezeichnung": "Feiertagszuschlag 125 % stfr.",
                    "stunden": s["feiertag125_hours"], "betrag": None})

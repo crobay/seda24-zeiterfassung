@@ -306,7 +306,7 @@ const LohnUebersichtTab = () => {
                         <div>
                           <strong>Festgehalt</strong> {formatHours(row.festgehalt.monatsstunden)} h × {row.festgehalt.stundensatz.toFixed(2)} € = {formatEuro(row.festgehalt.betrag)} (LA 1)
                           {' · '}Sonntag {formatHours(row.sonntag_hours)} h → Zuschlag {formatEuro(row.festgehalt.sonntag_zuschlag)} (LA 13)
-                          {' · '}Feiertag {formatHours(row.feiertag_hours)} h (125 %: {formatHours(row.festgehalt.feiertag125_hours)} / 150 %: {formatHours(row.festgehalt.feiertag150_hours)})
+                          {' · '}Feiertag {formatHours(row.feiertag_hours)} h (125 %: {formatHours(row.festgehalt.feiertag125_hours)} / 150 %: {formatHours(row.festgehalt.feiertag150_hours)}) → nur Zuschlag (LA 16/17)
                           {' · '}Nacht {formatHours(row.nacht_hours)} h
                           {' · '}<span className="text-gray-500">Kein Zeitkonto, Werktage nicht lohnrelevant, Urlaub/Krank nicht im Export</span>
                         </div>
