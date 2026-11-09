@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { Play, Square, Pause, PlayCircle, Building, Clock, AlertCircle, X as CloseIcon, Wifi, WifiOff, Check, RefreshCw } from 'lucide-react';
 import { API_URL } from '../config.js';
+import { saveCObjects, loadCachedCObjects } from '../services/cObjectsCache';
 
 // ==================== Offline-Queue Utilities ====================
 
@@ -371,11 +372,20 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     try {
       const res = await axios.get(`${API_URL}/time-entries/my-c-objects`, { headers });
       setCObjects(res.data || []);
+      saveCObjects(res.data || []);
       if (res.data && res.data.length > 0 && !selectedObject) {
         setSelectedObject(res.data[0].id);
       }
     } catch (e) {
       console.error('Fehler beim Laden der C-Objekte:', e);
+      // Ohne Verbindung: zuletzt bekannte C-Objekte (Offline-Stempeln ueber Queue)
+      if (!e.response) {
+        const cached = loadCachedCObjects();
+        if (cached.length > 0) {
+          setCObjects(prev => (prev.length > 0 ? prev : cached));
+          if (!selectedObject) setSelectedObject(cached[0].id);
+        }
+      }
     }
   };
 

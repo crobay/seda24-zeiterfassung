@@ -12,6 +12,7 @@ import SelbstbuchungTab from "../components/SelbstbuchungTab";
 import Bie2Stempeluhr from "../components/Bie2Stempeluhr";
 import DienstplanTab from "../components/DienstplanTab";
 import { getPendingNotifications } from '../services/pushService';
+import { saveCObjects, loadCachedCObjects } from '../services/cObjectsCache';
 
 const Dashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -146,52 +147,10 @@ const Dashboard = () => {
   const [employeeCategory, setEmployeeCategory] = useState(null);
   const [employeeData, setEmployeeData] = useState(null);
 
-  const validateLocation = async (objectId, isCheckOut = false) => {
-    console.log("GPS-VALIDIERUNG STARTET FÜR OBJEKT:", objectId);
-    
-    const currentUserEmail = localStorage.getItem('userEmail') || '';
-
-    const objectCoords = {
-      1: { name: 'SEDA24 Zentrale', lat: 48.794968, lng: 8.310615 },
-      3: { name: 'Lidl Muggensturmer Str', lat: 48.8888214774413, lng: 8.26481250682591 },
-      4: { name: 'Lidl Wochenende', lat: 48.8888214774413, lng: 8.26481250682591 },
-      5: { name: 'Enfido', lat: 48.9090646883034, lng: 8.26101850482367 },
-      6: { name: 'Metalicone', lat: 48.8797133935092, lng: 8.28035636486564 }
-    };
-
-    try {
-      const location = await getCurrentLocation();
-      const target = objectCoords[objectId];
-      
-      if (!target) return true;
-
-      const R = 6371000;
-      const dLat = (location.lat - target.lat) * Math.PI / 180;
-      const dLng = (location.lng - target.lng) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(target.lat * Math.PI / 180) * Math.cos(location.lat * Math.PI / 180) *
-                Math.sin(dLng/2) * Math.sin(dLng/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      const distance = R * c;
-      
-      if (distance <= 100) {
-        const action = isCheckOut ? "Ausgestempelt" : "Eingestempelt";
-        alert(`? GPS OK! ${Math.round(distance)}m Entfernung. ${action}!`);
-        return true;
-      } else {
-        const action = isCheckOut ? "AUSSTEMPELN" : "EINSTEMPELN";
-        const distText = distance > 1000 ? `${(distance/1000).toFixed(1)} km` : `${Math.round(distance)}m`;
-        alert(`? ${action} NICHT MÖGLICH! Du bist ${distText} vom ${target.name} entfernt!`);
-        return false;
-      }
-    } catch (error) {
-      console.error("GPS-Fehler:", error);
-      return false;
-    }
-  };
   const [loadingCategory, setLoadingCategory] = useState(true);
   const [hasCAssignments, setHasCAssignments] = useState(false);
   const [dataLoadFailed, setDataLoadFailed] = useState(false);
+  const [connectionLost, setConnectionLost] = useState(false);
   const [employeeTachoData, setEmployeeTachoData] = useState(null);
     
   const [isPaused, setIsPaused] = useState(false);
@@ -204,8 +163,6 @@ const Dashboard = () => {
   const userRole = localStorage.getItem('userRole');
   const canAccessAdmin = userRole === 'admin' || userRole === 'objektleiter';
 
-  const fallbackObjects = {};
-  const objectMap = {};
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -385,9 +342,15 @@ const Dashboard = () => {
       });
       cObjCount = (cRes.data || []).length;
       cObjOk = true;
+      saveCObjects(cRes.data || []);
     } catch (e) {
       console.error('my-c-objects fehlgeschlagen:', e);
     }
+    // Ohne Verbindung: zuletzt bekannte C-Objekte -> Offline-Stempeluhr KOMMEN/GEHEN
+    if (!cObjOk && !(category && category.has_c_assignments)) {
+      cObjCount = loadCachedCObjects().length;
+    }
+    setConnectionLost(!category && !cObjOk);
     if (category) {
       setEmployeeCategory(category.tracking_mode || 'C');
       setEmployeeData(category);
@@ -397,7 +360,8 @@ const Dashboard = () => {
     // hasCAssignments aus BEIDEN Quellen (ODER): ein toter Call knipst die Uhr nicht aus
     setHasCAssignments((category && category.has_c_assignments) || cObjCount > 0);
     // FIX 1c: Datenfehler nur wenn BEIDE Quellen scheitern
-    setDataLoadFailed(!category && !cObjOk);
+    // Mit zwischengespeicherten C-Objekten keine Fehlerbox: Offline-Stempeluhr hat Vorrang
+    setDataLoadFailed(!category && !cObjOk && cObjCount === 0);
     setLoadingCategory(false);
   };
 
@@ -424,29 +388,11 @@ const Dashboard = () => {
           setInfoMessage('Keine Objekte für heute geplant');
         }
         
-        const fallbackList = Object.entries(fallbackObjects).map(([id, obj]) => ({
-          id: parseInt(id),
-          name: obj.name,
-          address: '',
-          planned_hours: 8
-        }));
-        setScheduledObjects(fallbackList);
-        if (!selectedObject) {
-          setSelectedObject(1);
-        }
+        setScheduledObjects([]);
       }
     } catch (error) {
       console.error('Fehler beim Laden der geplanten Objekte:', error);
-      const fallbackList = Object.entries(fallbackObjects).map(([id, obj]) => ({
-        id: parseInt(id),
-        name: obj.name,
-        address: '',
-        planned_hours: null
-      }));
-      setScheduledObjects(fallbackList);
-      if (!selectedObject) {
-        setSelectedObject(1);
-      }
+      setScheduledObjects([]);
     }
   };
 
@@ -604,8 +550,6 @@ const Dashboard = () => {
 
   const handleCheckIn = async () => {
     try {
-      const isValid = await validateLocation(parseInt(selectedObject));
-      if (!isValid) return;
       const notes = "Arbeitsbeginn";
       await axios.post(`${API_URL}/time-entries/check-in`, { 
         object_id: parseInt(selectedObject), 
@@ -2114,76 +2058,26 @@ const Dashboard = () => {
                 </>
               ) : (
                 <>
-                  {/* Alte Kat-C Stempeluhr mit GPS */}
-                  <h2 style={{ textAlign: 'center', color: '#6c757d', fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Zeiterfassung</h2>
+                  {/* Keine C-Objekte (auch nicht im Zwischenspeicher): Hinweis statt GPS-Stempeluhr */}
                   <div className="text-center mb-6">
                     <div style={{ fontSize: '60px', fontWeight: 'bold', color: '#1e3a5f' }}>{currentTime.toLocaleTimeString('de-DE')}</div>
                     <div style={{ fontSize: '16px', color: '#666' }}>{currentTime.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
                   </div>
-
-                  {infoMessage && (
-                    <div style={{ background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '8px', padding: '12px', marginBottom: '16px', textAlign: 'center' }}>
-                      <Info size={20} className="inline mr-2" style={{ color: '#f59e0b' }} />
-                      <span style={{ color: '#92400e' }}>{infoMessage}</span>
+                  <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: '12px', padding: '20px', textAlign: 'center', color: '#9a3412' }}>
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>{connectionLost ? '\u{1F4F6}' : '\u2139\uFE0F'}</div>
+                    <div style={{ fontWeight: 'bold', fontSize: '17px', marginBottom: '8px' }}>
+                      {connectionLost ? 'Keine Verbindung, bitte später erneut versuchen' : 'Keine Stempeluhr für dich hinterlegt'}
                     </div>
-                  )}
-
-                  {isWorking ? (
-                    <>
-                      <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #2c5f7c 100%)', borderRadius: '16px', padding: '24px', marginBottom: '24px', color: 'white', textAlign: 'center' }}>
-                        <div style={{ fontSize: '20px', marginBottom: '8px' }}>ARBEITSZEIT LÄUFT</div>
-                        <div style={{ fontSize: '48px', fontWeight: 'bold', fontFamily: 'monospace' }}>{calculateWorkTime()}</div>
-                        <div style={{marginTop: '16px', padding: '16px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '8px'}}>
-                          <div style={{fontWeight: 'bold'}}>
-                            <Building size={16} className="inline mr-2" />
-                            Objekt: {scheduledObjects.find(o => o.id === selectedObject)?.name || 'Unbekannt'}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
-                        <button onClick={handleCheckOut} style={{ flex: '2', padding: '14px', background: '#dc2626', color: 'white', fontSize: '16px', fontWeight: 'bold', borderRadius: '12px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Square size={24} /> ARBEIT BEENDEN</button>
-                        {!isPaused ? (
-                          <button onClick={handlePauseStart} style={{ flex: '1', background: '#6c757d', color: 'white', borderRadius: '12px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Pause size={24} /> PAUSE</button>
-                        ) : (
-                          <button onClick={handlePauseEnd} style={{ flex: '1', background: '#10b981', color: 'white', borderRadius: '12px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><PlayCircle size={24} /> WEITER</button>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="mb-4">
-                        <label style={{fontSize: '14px', color: '#666', display: 'block', marginBottom: '8px'}}>
-                          Objekt wählen:
-                        </label>
-                        <select
-                          value={selectedObject || ''}
-                          onChange={(e) => setSelectedObject(parseInt(e.target.value))}
-                          style={{
-                            width: '100%',
-                            padding: '12px',
-                            fontSize: '16px',
-                            border: '2px solid #e0e0e0',
-                            borderRadius: '8px'
-                          }}
-                        >
-                          {scheduledObjects.map((obj) => (
-                            <option key={obj.id} value={obj.id}>
-                              {obj.name.split('(')[0].trim()}
-                            </option>
-                          ))}
-                        </select>
-                        {currentObject?.start_time && (
-                          <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                            Geplante Zeit: {currentObject.start_time} - {currentObject.end_time}
-                          </div>
-                        )}
-                      </div>
-
-                      <button onClick={handleCheckIn} style={{ width: '100%', padding: '16px', background: '#1e3a5f', color: 'white', fontSize: '18px', fontWeight: 'bold', borderRadius: '16px', border: 'none' }}>
-                        <Play size={24} className="inline mr-3" /> ARBEIT BEGINNEN
-                      </button>
-                    </>
-                  )}
+                    <div style={{ fontSize: '14px', lineHeight: 1.5, marginBottom: '16px' }}>
+                      {connectionLost
+                        ? 'Die App erreicht den Server gerade nicht. Bitte Netz prüfen und erneut versuchen.'
+                        : 'Bitte melde dich bei Drazen.'}
+                    </div>
+                    <button onClick={() => { fetchEmployeeCategory(); loadTodayShifts(); }}
+                      style={{ width: '100%', padding: '14px', border: 'none', borderRadius: '10px', background: '#f97316', color: '#fff', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>
+                      Erneut versuchen
+                    </button>
+                  </div>
                 </>
               )}
               <div style={{marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e0e0e0'}}>
