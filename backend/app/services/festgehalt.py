@@ -41,8 +41,9 @@ def active_in_month(db, employee_id, year, month):
 
 def active_employee_ids(db, year, month):
     rows = db.execute(text("""
-        SELECT employee_id FROM employee_festgehalt
-        WHERE aktiv = true AND gueltig_ab <= :d
+        SELECT f.employee_id FROM employee_festgehalt f
+        JOIN employees e ON e.id = f.employee_id
+        WHERE f.aktiv = true AND f.gueltig_ab <= :d AND NOT e.is_test
     """), {"d": date(year, month, 1)}).fetchall()
     return {r.employee_id for r in rows}
 

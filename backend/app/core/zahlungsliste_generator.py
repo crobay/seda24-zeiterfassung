@@ -28,7 +28,7 @@ class ZahlungslisteGenerator:
             LEFT JOIN time_entries te ON te.employee_id = e.id 
               AND EXTRACT(YEAR FROM te.check_in) = {year} 
               AND EXTRACT(MONTH FROM te.check_in) = {month}
-            WHERE e.is_active = true
+            WHERE e.is_active = true AND NOT e.is_test
             GROUP BY e.id, e.first_name, e.last_name
             HAVING COALESCE(SUM(EXTRACT(EPOCH FROM (te.check_out - te.check_in))/3600), 0) > 0
             ORDER BY e.last_name, e.first_name

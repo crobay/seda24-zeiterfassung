@@ -60,6 +60,7 @@ class Employee(Base):
     # Wenn gesetzt, wird dieser Wert fuer die Urlaubstage-Zaehlung verwendet statt Wochentagsprofil
     avg_work_days_per_week = Column(Float, nullable=True)
     enforce_min_duration = Column(Boolean, default=False)
+    is_test = Column(Boolean, default=False, nullable=False)  # Test-MA: nicht in Lohn/Lexware/PDF/Telegram
 
     user = relationship("User", back_populates="employee")
     time_entries = relationship("TimeEntry", back_populates="employee")
@@ -101,6 +102,7 @@ class Object(Base):
     end_time = Column(Time)
     monthly_amount_netto = Column(Float, nullable=True)
     ip_prefix = Column(String(32), nullable=True)  # Netz-Erkennung: Praefix der Objekt-Standleitung
+    is_test = Column(Boolean, default=False, nullable=False)  # Test-Objekt: keine echten Kunden
     created_at = Column(DateTime, default=datetime.now)
 
     customer = relationship("Customer", back_populates="objects")

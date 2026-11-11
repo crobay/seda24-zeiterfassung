@@ -2658,8 +2658,10 @@ def generate_bulk_pdfs(
         generator = PDFGenerator(db)
         zip_buffer = BytesIO()
         
+        from app.models.models import Employee as _Emp
+        test_ids = {r[0] for r in db.query(_Emp.id).filter(_Emp.is_test == True).all()}
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            for emp_id in request.employee_ids:
+            for emp_id in [i for i in request.employee_ids if i not in test_ids]:  # Test-MA nie
                 try:
                     # Zeitnachweis
                     if request.include_zeitnachweis:
@@ -2705,6 +2707,7 @@ def get_employees_for_pdf(
 
     employees = db.query(Employee).outerjoin(User, User.id == Employee.user_id).filter(
         Employee.is_active == True,
+        Employee.is_test == False,  # Test-MA nie in der Abrechnung
         or_(User.id == None, and_(User.is_active == True, User.role != UserRole.ADMIN)),
         text("COALESCE(employees.employment_type, '') NOT IN ('admin', 'chef')"),  # Spalte nicht im ORM-Modell
         or_(Employee.personal_nr == None, ~Employee.personal_nr.startswith('A')),
@@ -3154,7 +3157,7 @@ def get_lohn_uebersicht(
     first_day = date(year, month, 1)
     last_day = date(year, month, monthrange(year, month)[1])
 
-    employees = db.query(Employee).filter(Employee.is_active == True).order_by(Employee.personal_nr).all()
+    employees = db.query(Employee).filter(Employee.is_active == True, Employee.is_test == False).order_by(Employee.personal_nr).all()
     result = []
 
     for emp in employees:
@@ -6064,6 +6067,8 @@ def lexware_export(
         TimeEntry.check_out.isnot(None),
         TimeEntry.object_id != 999,  # Kein Urlaub
         Employee.is_active == True,
+        Employee.is_test == False,  # Test-MA (z.B. T9999) nie im Export
+        ~TimeEntry.object_id.in_(db.query(Object.id).filter(Object.is_test == True)),  # Test-Objekte
     )
 
     # Optional: nur bestimmte MAs
@@ -6102,6 +6107,7 @@ def lexware_export(
     zeitkonto_emps = db.query(Employee).filter(
         Employee.zeitkonto_aktiv == True,
         Employee.is_active == True,
+        Employee.is_test == False,
     ).all()
     zeitkonto_emp_ids = {e.id for e in zeitkonto_emps}
 
@@ -6115,13 +6121,13 @@ def lexware_export(
     if employee_ids:
         ids = [int(x) for x in employee_ids.split(",") if x.strip().isdigit()]
         filtered_zk_emps = [e for e in filtered_zk_emps if e.id in ids]
-    fg_emps_q = db.query(Employee).filter(Employee.id.in_(fg_ids), Employee.is_active == True)
+    fg_emps_q = db.query(Employee).filter(Employee.id.in_(fg_ids), Employee.is_active == True, Employee.is_test == False)
     if employee_ids:
         fg_emps_q = fg_emps_q.filter(Employee.id.in_(ids))
     fg_emps = fg_emps_q.order_by(Employee.personal_nr).all() if fg_ids else []
 
     # Urlaubsstunden (Lohnart 0014) fuer Stunden-MAs: Url.€ / Stundenlohn, aufgerundet
-    urlaub_emps_q = db.query(Employee).filter(Employee.is_active == True)
+    urlaub_emps_q = db.query(Employee).filter(Employee.is_active == True, Employee.is_test == False)
     if employee_ids:
         urlaub_emps_q = urlaub_emps_q.filter(Employee.id.in_(ids))
     urlaub_lohnarten = []

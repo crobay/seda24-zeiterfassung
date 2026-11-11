@@ -7,6 +7,8 @@ Pruefung nach jedem Deploy (wird von deploy.sh aufgerufen, Exit-Code != 0 bricht
   (c) Stempeln Kommen/Gehen klappt, inkl. Offline-Nachsendung mit client_id (Trockentest)
   (d) Kein SQLite-SQL (datetime('now'), strftime(...) usw.) im Backend-Code
   (e) Token-Verlaengerung /auth/refresh liefert einen neuen Token
+  (f) Test-Mitarbeiter (is_test) erscheint nicht in Lohnuebersicht/Lohn-Mail, Lexware,
+      PDF-Auswahl, Festgehalt und loest keine Telegram-Meldung an Admin/Rosi aus
 
 Trockentest: Ein temporaerer Test-Mitarbeiter mit Kategorie-C-Zuweisung an Objekt 20 und
 Dienstplan wird in EINER Transaktion angelegt, alle Anfragen laufen ueber die echten
@@ -97,6 +99,102 @@ def check_sqlite():
                 if any(re.search(pat, line, re.I) for pat in SQLITE_PATTERNS):
                     hits.append(f"{os.path.relpath(p, BACKEND)}:{n}")
     check("kein SQLite-SQL in app/", not hits, ", ".join(hits[:10]))
+
+
+# ---------------------------------------------------------------- (f) Test-Mitarbeiter
+def test_employee_checks():
+    print("(f) Test-Mitarbeiter (is_test) nicht in Lohn/Lexware/PDF/Telegram (Rollback)")
+    import asyncio, io, json, zipfile
+    import time as _t
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+    from app.db.database import engine
+    from app.models.models import User, Employee, Object, TimeEntry, UserRole
+    from app.core.security import get_password_hash, create_access_token
+    from app.api.v1.endpoints import admin
+    from app.services import festgehalt
+    import app.services.telegram_bot as tg
+    from app.main import _test_employee_guard
+
+    conn = engine.connect()
+    trans = conn.begin()
+    db = Session(bind=conn, join_transaction_mode="create_savepoint")
+    orig = (tg._admin_chat_ids_for, tg.get_bot_loop)
+    try:
+        stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        y, m = date.today().year, date.today().month
+        obj = Object(name=f"DEPLOYCHECK-TESTOBJ-{stamp}", is_active=True, is_test=True)
+        u = User(email=f"deploycheck-t-{stamp}@seda.invalid", password_hash=get_password_hash(os.urandom(16).hex()),
+                 role=UserRole.MITARBEITER, category="C", is_active=True, must_change_password=False)
+        db.add_all([obj, u])
+        db.flush()
+        pnr = f"TX{stamp[-8:]}"
+        e = Employee(user_id=u.id, personal_nr=pnr, first_name="Deploy", last_name="Testflag", hourly_rate=0.01,
+                     is_active=True, is_test=True, tracking_mode="B", zeitkonto_aktiv=True)
+        db.add(e)
+        db.flush()
+        ci = datetime.combine(date(y, m, 1), time(8, 0))
+        db.add(TimeEntry(employee_id=e.id, object_id=obj.id, check_in=ci, check_out=ci + timedelta(hours=2),
+                         billed_hours=2.0, hourly_rate=0.01, is_manual_entry=True))
+        db.execute(text("INSERT INTO employee_festgehalt (employee_id, aktiv, gueltig_ab, monatsstunden, stundensatz) "
+                        "VALUES (:e, true, :d, 10, 0.01)"), {"e": e.id, "d": date(y, m, 1)})
+        db.flush()
+        boss = db.query(User).filter(User.id == 1).first()
+
+        lohn = json.dumps(admin.get_lohn_uebersicht(y, m, db=db, current_user=boss), default=str)
+        check("Lohnuebersicht (auch Lohn-Mail) ohne Test-MA", pnr not in lohn)
+        pdf = admin.get_employees_for_pdf(db=db, admin=boss)
+        check("PDF-Abrechnung: Auswahlliste ohne Test-MA", all(x.get("id") != e.id for x in pdf))
+        check("Festgehalt-Liste ohne Test-MA", e.id not in festgehalt.active_employee_ids(db, y, m))
+
+        def lex(ids):
+            r = admin.lexware_export(year=y, month=m, employee_ids=ids, db=db, admin=boss)
+
+            async def body():
+                return b"".join([c if isinstance(c, bytes) else c.encode() async for c in r.body_iterator])
+            z = zipfile.ZipFile(io.BytesIO(asyncio.run(body())))
+            return " ".join(z.namelist()) + " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist())
+        check("Lexware-Export (alle) ohne Test-MA", pnr not in lex(None))
+        from fastapi import HTTPException
+        try:
+            only = lex(str(e.id))
+            check("Lexware-Export (Test-MA ausdruecklich gewaehlt) ohne Test-MA", pnr not in only)
+        except HTTPException as he:   # 404 "Keine Zeiteintraege" = Test-MA ausgefiltert
+            check("Lexware-Export (Test-MA ausdruecklich gewaehlt) ohne Test-MA", he.status_code == 404, he.detail)
+
+        # Telegram: Versand wird vor dem Bot erkannt (Empfaengerliste abgefragt = wuerde senden)
+        sent = []
+        tg._admin_chat_ids_for = lambda cat: sent.append(cat) or []
+        tg.get_bot_loop = lambda: None
+        tg._test_cache.update(at=_t.monotonic(), ids=frozenset({e.id}), emails=frozenset({u.email}))
+        tg.notify_admin("deploy-check", employee_id=e.id)
+        check("Telegram: Meldung mit Test-MA wird unterdrueckt", not sent)
+        tg.notify_admin("deploy-check", employee_id=-1)
+        check("Telegram: normale Meldung geht weiter raus (Gegenprobe)", len(sent) == 1)
+        sent.clear()
+        mini = FastAPI()
+        mini.middleware("http")(_test_employee_guard)
+
+        @mini.get("/probe")
+        def probe():
+            tg.notify_admin("deploy-check")
+            return {"test": tg.TEST_REQUEST.get()}
+        cl = TestClient(mini)
+        r1 = cl.get("/probe", headers={"Authorization": "Bearer " + create_access_token(data={"sub": u.email})})
+        check("Telegram: Anfrage eines Test-MA erkannt, nichts gesendet",
+              r1.json().get("test") is True and not sent, f"{r1.json()} gesendet={len(sent)}")
+        r2 = cl.get("/probe", headers={"Authorization": "Bearer " + create_access_token(data={"sub": "real@seda.invalid"})})
+        check("Telegram: Anfrage eines echten MA sendet (Gegenprobe)", r2.json().get("test") is False and len(sent) == 1)
+    except Exception as ex:
+        check("Test-MA-Pruefung ohne Ausnahme", False, repr(ex)[:300])
+    finally:
+        tg._admin_chat_ids_for, tg.get_bot_loop = orig
+        tg._test_cache["at"] = 0.0
+        db.close()
+        trans.rollback()
+        conn.close()
 
 
 # ---------------------------------------------------------------- (b)(c)(e) Trockentest
@@ -247,6 +345,8 @@ def main():
     check_precache(a.webroot)
     if not a.static_only:
         check_sqlite()
+        logging.FileHandler = lambda *a, **k: logging.NullHandler()
+        test_employee_checks()
         dry_api_tests()
     failed = [r for r in results if not r[1]]
     print(f"=== {len(results) - len(failed)}/{len(results)} OK ===")

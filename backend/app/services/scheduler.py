@@ -508,6 +508,7 @@ def auto_monthly_confirmation():
 
         employees = db.query(Employee).filter(
             Employee.is_active == True,
+            Employee.is_test == False,
             Employee.tracking_mode.in_(['B', 'C']),
         ).all()
 
@@ -662,6 +663,7 @@ def auto_fill_monthly_revenues():
 
         objects = db.query(Obj).filter(
             Obj.is_active == True,
+            Obj.is_test == False,
             Obj.monthly_amount_netto != None,
             Obj.monthly_amount_netto > 0,
         ).all()
@@ -939,7 +941,8 @@ def notify_pending_approvals():
     db = SessionLocal()
     try:
         count = db.execute(text(
-            "SELECT COUNT(*) FROM pending_bookings WHERE status = 'offen'"
+            "SELECT COUNT(*) FROM pending_bookings pb JOIN employees e ON e.id = pb.employee_id "
+            "WHERE pb.status = 'offen' AND NOT e.is_test"
         )).scalar()
 
         if count and count > 0:
@@ -1003,6 +1006,7 @@ def check_overdue_entries():
             TimeEntry.check_out == None,
             TimeEntry.overdue_notified == False,
             Employee.is_active == True,
+            Employee.is_test == False,
         ).all()
 
         notified_count = 0
@@ -1107,8 +1111,8 @@ def check_missing_stamps():
         # Gemeinsame Bedingungen (ohne Zeitfenster und ohne notified-Flag)
         base_sql = """
             FROM schedules s
-            JOIN employees e ON e.id = s.employee_id AND e.is_active = TRUE
-            JOIN objects o ON o.id = s.object_id
+            JOIN employees e ON e.id = s.employee_id AND e.is_active = TRUE AND NOT e.is_test
+            JOIN objects o ON o.id = s.object_id AND NOT o.is_test
             JOIN employee_object_assignments eoa
                  ON eoa.employee_id = s.employee_id
                  AND eoa.object_id = s.object_id

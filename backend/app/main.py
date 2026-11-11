@@ -72,6 +72,30 @@ app = FastAPI(
 # Benutzer und ohne Inhalt. Nachvollziehbarkeit laeuft jetzt ueber explizite log_audit-
 # Aufrufe in den Endpunkten (mit user_id aus Token + old/new) und die Protokoll-Ansicht.
 # app.add_middleware(AuditMiddleware)
+@app.middleware("http")
+async def _test_employee_guard(request, call_next):
+    """Markiert Anfragen von Test-Mitarbeitern (employees.is_test, z.B. T9999):
+    notify_admin sendet dann keine Telegram-Meldungen an Admin/Rosi."""
+    from starlette.concurrency import run_in_threadpool
+    from app.services.telegram_bot import TEST_REQUEST, is_test_email
+    marker = None
+    auth = request.headers.get("authorization", "")
+    if auth[:7].lower() == "bearer ":
+        try:
+            from jose import jwt as _jwt
+            email = _jwt.decode(auth[7:], _os.getenv("SECRET_KEY"),
+                                algorithms=[_os.getenv("ALGORITHM")]).get("sub")
+            if email and await run_in_threadpool(is_test_email, email):
+                marker = TEST_REQUEST.set(True)
+        except Exception:
+            pass
+    try:
+        return await call_next(request)
+    finally:
+        if marker is not None:
+            TEST_REQUEST.reset(marker)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

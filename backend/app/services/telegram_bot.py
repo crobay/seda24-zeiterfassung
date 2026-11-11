@@ -166,13 +166,53 @@ async def _notify_admin_async(chat_ids, text, reply_markup, ref_type, ref_id, ca
     )
 
 
+# ---- Test-Mitarbeiter (employees.is_test, z.B. T9999): keine Meldungen an Admin/Rosi ----
+import contextvars
+import time as _time
+
+# True, solange eine API-Anfrage eines Test-Mitarbeiters laeuft (gesetzt in main.py)
+TEST_REQUEST = contextvars.ContextVar("seda_test_request", default=False)
+_test_cache = {"at": 0.0, "emails": frozenset(), "ids": frozenset()}
+
+
+def _load_test_accounts():
+    if _time.monotonic() - _test_cache["at"] > 60:
+        from sqlalchemy import text as _sql
+        db = SessionLocal()
+        try:
+            rows = db.execute(_sql(
+                "SELECT e.id, u.email FROM employees e LEFT JOIN users u ON u.id = e.user_id WHERE e.is_test"
+            )).fetchall()
+        finally:
+            db.close()
+        _test_cache.update(at=_time.monotonic(), ids=frozenset(r[0] for r in rows),
+                           emails=frozenset(r[1] for r in rows if r[1]))
+    return _test_cache
+
+
+def is_test_email(email: str) -> bool:
+    return bool(email) and email in _load_test_accounts()["emails"]
+
+
+def is_test_employee(employee_id) -> bool:
+    return employee_id is not None and employee_id in _load_test_accounts()["ids"]
+
+
 def notify_admin(text: str, reply_markup=None, category: str = "sonstiges",
-                 ref_type: str = None, ref_id: int = None):
+                 ref_type: str = None, ref_id: int = None, employee_id: int = None):
     """Admin-Meldung an alle eingestellten Empfaenger dieser Meldungsart
     (Einstellung "Telegram-Empfaenger", Tabelle telegram_recipient_settings).
     Mit ref_type/ref_id werden die gesendeten Nachrichten gemerkt, damit sie nach
     einer Entscheidung bei allen Empfaengern geaendert werden koennen.
-    Erreicht die Meldung niemanden, geht sie als Ersatz an den Admin-Chat."""
+    Erreicht die Meldung niemanden, geht sie als Ersatz an den Admin-Chat.
+    Meldungen aus Anfragen eines Test-Mitarbeiters (oder mit employee_id eines
+    Test-Mitarbeiters) werden nicht gesendet."""
+    try:
+        if TEST_REQUEST.get() or is_test_employee(employee_id):
+            logger.info(f"notify_admin unterdrueckt (Test-Mitarbeiter): {text[:60]!r}")
+            return
+    except Exception as e:
+        logger.error(f"Test-Pruefung fehlgeschlagen, Meldung wird gesendet: {e}")
     chat_ids = _admin_chat_ids_for(category)
     loop = get_bot_loop()
     if not loop:
@@ -1393,7 +1433,7 @@ def send_telegram_reminders():
 
         for notif in pending:
             employee = db.query(Employee).get(notif.employee_id)
-            if not employee or not employee.telegram_chat_id:
+            if not employee or not employee.telegram_chat_id or employee.is_test:
                 continue
 
             emp_name = f"{employee.first_name} {employee.last_name}"
