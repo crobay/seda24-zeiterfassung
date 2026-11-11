@@ -22,10 +22,21 @@ function saveQueue(q) {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
 }
 
+// Stempel gehoeren dem Benutzer, der sie gemacht hat (bleiben bei Logout erhalten,
+// werden aber nur fuer diesen Benutzer uebertragen). Alte Eintraege ohne owner: wie bisher.
+function currentOwner() {
+  return localStorage.getItem('userEmail') || '';
+}
+
+function isOwnItem(i) {
+  return !i.owner || i.owner === currentOwner();
+}
+
 function addToQueue(action, objectId) {
   const q = getQueue();
   const item = {
     id: generateId(),
+    owner: currentOwner(),
     action,            // 'check_in' | 'check_out' | 'pause_start' | 'pause_end'
     object_id: objectId,
     timestamp: new Date().toISOString(),
@@ -51,7 +62,7 @@ function markFailed(itemId, error) {
 }
 
 function getPendingCount() {
-  return getQueue().filter(i => i.status !== 'synced').length;
+  return getQueue().filter(i => i.status !== 'synced' && isOwnItem(i)).length;
 }
 
 // Offline-State: Optimistischer lokaler Zustand für sofortige UI-Updates
@@ -171,7 +182,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
 
   const triggerSync = useCallback(async () => {
     if (syncingRef.current) return;
-    const queue = getQueue().filter(i => i.status === 'pending' || i.status === 'failed');
+    const queue = getQueue().filter(i => (i.status === 'pending' || i.status === 'failed') && isOwnItem(i));
     if (queue.length === 0) { setPendingSync(0); return; }
 
     syncingRef.current = true;
@@ -233,6 +244,22 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       setTimeout(() => triggerSync(), 2000);
     }
   }, [token]);
+
+  // Sync, sobald die App wieder in den Vordergrund kommt (iOS pausiert Apps im Hintergrund
+  // und meldet 'online' nicht zuverlaessig)
+  useEffect(() => {
+    const kick = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine && getPendingCount() > 0) triggerSync();
+    };
+    document.addEventListener('visibilitychange', kick);
+    window.addEventListener('pageshow', kick);
+    window.addEventListener('focus', kick);
+    return () => {
+      document.removeEventListener('visibilitychange', kick);
+      window.removeEventListener('pageshow', kick);
+      window.removeEventListener('focus', kick);
+    };
+  }, [triggerSync]);
 
   // Periodischer Sync-Versuch alle 30s
   useEffect(() => {

@@ -19,7 +19,7 @@
       // Service Worker registrieren (Caching + Offline-Fallback)
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/service-worker.js').catch(function (e) {
+          navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' }).catch(function (e) {
             console.error('SW-Registrierung fehlgeschlagen:', e);
           });
         });

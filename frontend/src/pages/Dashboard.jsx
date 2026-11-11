@@ -12,7 +12,7 @@ import SelbstbuchungTab from "../components/SelbstbuchungTab";
 import Bie2Stempeluhr from "../components/Bie2Stempeluhr";
 import DienstplanTab from "../components/DienstplanTab";
 import { getPendingNotifications } from '../services/pushService';
-import { saveCObjects, loadCachedCObjects } from '../services/cObjectsCache';
+import { saveCObjects, loadCachedCObjects, saveTodayShifts, loadCachedTodayShifts } from '../services/cObjectsCache';
 
 const Dashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -216,6 +216,7 @@ const Dashboard = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTodayShifts(response.data || []);
+      saveTodayShifts(response.data || []);
     } catch (e) {
       console.log('Schichten-Laden fehlgeschlagen:', e);
     }
@@ -645,8 +646,17 @@ const Dashboard = () => {
   };
   
   const handleLogout = () => {
+    // Noch nicht uebertragene Stempel NIE verwerfen (auch nicht bei abgelaufener Sitzung)
+    const keep = {};
+    const q = localStorage.getItem('bie2_offline_queue');
+    if (q && q !== '[]') {
+      keep.bie2_offline_queue = q;
+      const st = localStorage.getItem('bie2_offline_state');
+      if (st) keep.bie2_offline_state = st;
+    }
     localStorage.clear();
     sessionStorage.clear();
+    Object.entries(keep).forEach(([k, v]) => localStorage.setItem(k, v));
     navigate('/login');
   };
 
@@ -1784,7 +1794,7 @@ const Dashboard = () => {
 
             {/* Bie2 Stempeluhr fuer C-Zuweisungen */}
             {hasCAssignments && activeTab === 'stempeluhr' && (
-              <Bie2Stempeluhr token={token} shiftsToday={todayShifts} onStatusChange={() => { fetchTodayHours(); fetchWeekHours(); fetchMonthHours(); }} onLogout={handleLogout} />
+              <Bie2Stempeluhr token={token} shiftsToday={todayShifts.length ? todayShifts : loadCachedTodayShifts()} onStatusChange={() => { fetchTodayHours(); fetchWeekHours(); fetchMonthHours(); }} onLogout={handleLogout} />
             )}
           </div>
 
@@ -2054,7 +2064,7 @@ const Dashboard = () => {
                     <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#1e3a5f' }}>{currentTime.toLocaleTimeString('de-DE')}</div>
                     <div style={{ fontSize: '15px', color: '#666' }}>{currentTime.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
                   </div>
-                  <Bie2Stempeluhr token={token} shiftsToday={todayShifts} onStatusChange={() => { fetchTodayHours(); fetchWeekHours(); fetchMonthHours(); }} onLogout={handleLogout} />
+                  <Bie2Stempeluhr token={token} shiftsToday={todayShifts.length ? todayShifts : loadCachedTodayShifts()} onStatusChange={() => { fetchTodayHours(); fetchWeekHours(); fetchMonthHours(); }} onLogout={handleLogout} />
                 </>
               ) : (
                 <>

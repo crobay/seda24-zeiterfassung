@@ -45,6 +45,23 @@ export const authService = {
 
   isAuthenticated: () => {
     return !!(localStorage.getItem('token') || sessionStorage.getItem('token'));
+  },
+
+  // Token online verlaengern (max. 1x in 12 Std), damit man eingeloggt bleibt.
+  // Ohne Netz oder bei Fehler passiert nichts: der vorhandene Token wird NIE verworfen.
+  refreshIfDue: async () => {
+    const inLocal = !!localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (!token || !navigator.onLine) return;
+    const last = Number(localStorage.getItem('token_refreshed_at') || 0);
+    if (Date.now() - last < 12 * 3600 * 1000) return;
+    try {
+      const res = await api.post('/auth/refresh', {}, { timeout: 10000 });
+      if (res.data && res.data.access_token) {
+        (inLocal ? localStorage : sessionStorage).setItem('token', res.data.access_token);
+        localStorage.setItem('token_refreshed_at', String(Date.now()));
+      }
+    } catch (e) { /* offline/Timeout/401: Token behalten */ }
   }
 };
 

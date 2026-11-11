@@ -91,6 +91,16 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     
     return user
 
+
+@router.post("/refresh")
+def refresh_token(current_user: User = Depends(get_current_user)):
+    """Gueltigen Token verlaengern (App ruft das online max. 1x in 12 Std auf),
+    damit ein Mitarbeiter eingeloggt bleibt. Deaktivierte Konten bekommen keinen neuen Token."""
+    if not current_user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Konto deaktiviert",
+                            headers={"WWW-Authenticate": "Bearer"})
+    return {"access_token": create_access_token(data={"sub": current_user.email}), "token_type": "bearer"}
+
 @router.get("/time-entries/my-objects-this-week")
 async def get_my_scheduled_objects_this_week(
     db: Session = Depends(get_db),

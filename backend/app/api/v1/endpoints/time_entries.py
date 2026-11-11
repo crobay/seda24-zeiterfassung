@@ -2291,7 +2291,7 @@ def catch_up_booking(
             SELECT id FROM pending_bookings
             WHERE employee_id = :emp_id AND object_id = :obj_id AND date = :dt
               AND start_time = :st AND end_time = :et AND status = 'offen'
-              AND created_at > datetime('now', '-60 seconds')
+              AND created_at > NOW() - INTERVAL '60 seconds'
         """), {
             "emp_id": employee.id, "obj_id": object_id,
             "dt": dt_in.date(),

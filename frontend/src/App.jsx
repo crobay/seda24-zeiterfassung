@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -26,6 +26,19 @@ function ProtectedAdminRoute({ children }) {
 }
 
 function App() {
+  // Login-Token online verlaengern: beim Start, wenn Netz zurueckkommt und beim Zurueckholen der App
+  useEffect(() => {
+    const refresh = () => { authService.refreshIfDue(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    refresh();
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
   return (
     <Router>
       <Routes>
