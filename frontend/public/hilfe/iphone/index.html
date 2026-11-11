@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>iPhone – so geht's | SEDA24</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #1f2937; font-size: 19px; line-height: 1.5; }
+
+  .header { background: #1e3a5f; color: white; padding: 16px 16px 0; }
+  .header-card {
+    background: #2c5f7c; border-radius: 16px; padding: 14px 16px; max-width: 600px; margin: 0 auto;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .header-card img { width: 60px; height: 60px; object-fit: contain; }
+  .header-card h1 { font-size: 24px; line-height: 1.2; }
+  .header-card .subtitle { font-size: 15px; color: #cbd5e1; }
+  .header-spacer { height: 16px; }
+
+  .container { max-width: 600px; margin: 0 auto; padding: 16px 16px 110px; }
+
+  .expand-all {
+    width: 100%; padding: 14px; margin-bottom: 14px; border: 2px solid #1e3a5f; background: white;
+    color: #1e3a5f; border-radius: 12px; font-size: 18px; font-weight: 700; cursor: pointer;
+  }
+
+  .step { background: white; border-radius: 16px; margin-bottom: 14px; border: 2px solid #e5e7eb; overflow: hidden; }
+  .step.open { border-color: #1e3a5f; box-shadow: 0 4px 14px rgba(30,58,95,0.15); }
+  .step.done { border-color: #86efac; }
+  .step-head {
+    width: 100%; display: flex; align-items: center; gap: 14px; padding: 16px; border: none; background: none;
+    text-align: left; font-size: 21px; font-weight: 700; color: #1e3a5f; cursor: pointer; line-height: 1.3;
+  }
+  .step-nr {
+    flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: #1e3a5f; color: white;
+    display: flex; align-items: center; justify-content: center; font-size: 20px;
+  }
+  .step.done .step-nr { background: #16a34a; }
+  .step-head .chev { margin-left: auto; font-size: 26px; color: #9ca3af; transition: transform 0.2s; }
+  .step.open .chev { transform: rotate(90deg); }
+  .step-body { padding: 0 18px 18px; }
+  .step-body[hidden] { display: none; }
+
+  .step-body p { margin-bottom: 12px; }
+  .step-body ol { margin: 0 0 14px 0; padding-left: 0; list-style: none; counter-reset: s; }
+  .step-body ol li { counter-increment: s; position: relative; padding-left: 40px; margin-bottom: 12px; }
+  .step-body ol li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px; width: 28px; height: 28px; border-radius: 50%;
+    background: #e0e7ff; color: #3730a3; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .btn-term { background: #e0e7ff; color: #3730a3; padding: 1px 8px; border-radius: 6px; font-weight: 700; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+
+  figure { margin: 6px 0 16px; text-align: center; }
+  figure img, figure svg { width: 100%; max-width: 300px; height: auto; border-radius: 18px; border: 1px solid #d1d5db; box-shadow: 0 2px 10px rgba(0,0,0,0.12); background: white; }
+  figcaption { font-size: 16px; color: #6b7280; margin-top: 6px; }
+
+  .ok-box { background: #f0fdf4; border-left: 5px solid #16a34a; border-radius: 0 10px 10px 0; padding: 12px 14px; margin-bottom: 14px; }
+  .info-box { background: #eff6ff; border-left: 5px solid #2563eb; border-radius: 0 10px 10px 0; padding: 12px 14px; margin-bottom: 14px; }
+  .warn-red {
+    background: #dc2626; color: white; border-radius: 14px; padding: 18px; margin: 4px 0 16px;
+    font-size: 24px; font-weight: 800; text-align: center; text-transform: uppercase; line-height: 1.3;
+  }
+  .warn-red small { display: block; font-size: 17px; font-weight: 600; text-transform: none; margin-top: 6px; }
+
+  .done-btn {
+    width: 100%; padding: 18px; margin-top: 6px; border: none; border-radius: 14px; background: #16a34a;
+    color: white; font-size: 22px; font-weight: 800; cursor: pointer;
+  }
+  .done-btn:active { background: #15803d; }
+  .finished { display: none; background: #16a34a; color: white; border-radius: 16px; padding: 18px; text-align: center; font-size: 20px; font-weight: 700; margin-bottom: 14px; }
+  .finished.show { display: block; }
+
+  .back-link { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #e5e7eb; padding: 12px 16px; display: flex; gap: 10px; justify-content: center; }
+  .back-link a { padding: 12px 18px; background: #1e3a5f; color: white; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 17px; }
+  .back-link a.light { background: #e5e7eb; color: #1e3a5f; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-card">
+    <img src="/seda24-logo-white.png" alt="SEDA24">
+    <div>
+      <h1>iPhone – so geht's</h1>
+      <div class="subtitle">SEDA24 App: installieren, stempeln, offline</div>
+    </div>
+  </div>
+  <div class="header-spacer"></div>
+</div>
+
+<div class="container">
+  <button class="expand-all" id="expand-all" type="button">Alles wieder aufklappen</button>
+  <div class="finished" id="finished">Geschafft! Du hast alle 6 Schritte erledigt. ✔</div>
+
+  <!-- ===================== 1 ===================== -->
+  <section class="step" data-step="1">
+    <button class="step-head" type="button"><span class="step-nr">1</span><span>App aufs iPhone holen</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <ol>
+        <li>Öffne <strong>Safari</strong>.</li>
+        <li>Gib oben ein: <strong>app.seda.de</strong></li>
+        <li>Tippe unten auf den <strong>Teilen-Knopf</strong>. Das ist das Quadrat mit dem Pfeil nach oben.</li>
+      </ol>
+      <figure>
+        <svg viewBox="0 0 320 210" role="img" aria-label="Safari unten: Teilen-Knopf">
+          <rect width="320" height="210" fill="#f9fafb"/>
+          <text x="160" y="60" text-anchor="middle" font-size="15" fill="#9ca3af" font-family="-apple-system, sans-serif">Login – SEDA24</text>
+          <rect x="0" y="96" width="320" height="114" fill="#f2f2f7"/>
+          <rect x="14" y="108" width="292" height="40" rx="12" fill="white" stroke="#d1d5db"/>
+          <text x="160" y="134" text-anchor="middle" font-size="16" fill="#111827" font-family="-apple-system, sans-serif">app.seda.de</text>
+          <g stroke="#007aff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M36 166 l-8 9 l8 9"/>
+            <path d="M92 166 l8 9 l-8 9" stroke="#c7c7cc"/>
+            <path d="M154 172 h-5 v18 h22 v-18 h-5"/><path d="M160 180 v-18"/><path d="M154 167 l6 -6 l6 6"/>
+            <path d="M212 166 c6 -3 12 -3 16 1 c4 -4 10 -4 16 -1 v20 c-6 -3 -12 -3 -16 1 c-4 -4 -10 -4 -16 -1 z"/>
+            <rect x="272" y="166" width="16" height="16" rx="3"/><path d="M278 162 h14 v14"/>
+          </g>
+          <circle cx="160" cy="176" r="22" fill="none" stroke="#dc2626" stroke-width="4"/>
+          <rect x="196" y="80" width="112" height="28" rx="8" fill="#dc2626"/>
+          <text x="252" y="99" text-anchor="middle" font-size="15" font-weight="700" fill="white" font-family="-apple-system, sans-serif">Teilen-Knopf</text>
+          <path d="M210 108 L178 158" stroke="#dc2626" stroke-width="3"/>
+        </svg>
+        <figcaption>Safari unten: der Teilen-Knopf</figcaption>
+      </figure>
+      <ol start="4" style="counter-reset: s 3;">
+        <li>Scrolle im Menü nach <strong>unten</strong>.</li>
+        <li>Tippe auf <span class="btn-term">Zum Home-Bildschirm</span>.</li>
+      </ol>
+      <figure>
+        <svg viewBox="0 0 320 300" role="img" aria-label="Teilen-Menü: Zum Home-Bildschirm">
+          <rect width="320" height="300" fill="#f2f2f7"/>
+          <g font-family="-apple-system, sans-serif" font-size="16" fill="#111827">
+            <rect x="14" y="14" width="292" height="200" rx="12" fill="white"/>
+            <text x="30" y="46">Kopieren</text>
+            <line x1="30" y1="62" x2="306" y2="62" stroke="#e5e7eb"/>
+            <text x="30" y="94">Zur Leseliste hinzufügen</text>
+            <line x1="30" y1="110" x2="306" y2="110" stroke="#e5e7eb"/>
+            <text x="30" y="142">Lesezeichen hinzufügen</text>
+            <line x1="30" y1="158" x2="306" y2="158" stroke="#e5e7eb"/>
+            <text x="30" y="190">Zu Favoriten hinzufügen</text>
+            <rect x="14" y="226" width="292" height="52" rx="12" fill="white"/>
+            <text x="30" y="258" font-weight="600">Zum Home-Bildschirm</text>
+            <g stroke="#111827" stroke-width="2" fill="none"><rect x="270" y="240" width="22" height="22" rx="5"/><path d="M281 245 v12 M275 251 h12"/></g>
+          </g>
+          <rect x="8" y="220" width="304" height="64" rx="16" fill="none" stroke="#dc2626" stroke-width="4"/>
+          <g stroke="#6b7280" stroke-width="2.5" fill="none" stroke-linecap="round"><path d="M296 120 v60"/><path d="M289 172 l7 8 l7 -8"/></g>
+        </svg>
+        <figcaption>Nach unten scrollen, dann „Zum Home-Bildschirm“</figcaption>
+      </figure>
+      <ol start="6" style="counter-reset: s 5;">
+        <li>Tippe oben rechts auf <span class="btn-term">Hinzufügen</span>.</li>
+      </ol>
+      <figure>
+        <svg viewBox="0 0 360 190" role="img" aria-label="Oben rechts: Hinzufügen">
+          <rect width="360" height="190" fill="#f2f2f7"/>
+          <g font-family="-apple-system, sans-serif">
+            <text x="12" y="36" font-size="13" fill="#007aff">Abbrechen</text>
+            <text x="166" y="36" font-size="12" font-weight="600" text-anchor="middle" fill="#111827">Zum Home-Bildschirm</text>
+            <text x="346" y="36" font-size="13" font-weight="700" text-anchor="end" fill="#007aff">Hinzufügen</text>
+            <rect x="14" y="64" width="332" height="96" rx="12" fill="white"/>
+            <rect x="28" y="78" width="66" height="66" rx="15" fill="#1e3a5f"/>
+            <text x="61" y="117" font-size="15" font-weight="800" text-anchor="middle" fill="white">SEDA24</text>
+            <text x="110" y="104" font-size="17" fill="#111827">SEDA24</text>
+            <line x1="110" y1="114" x2="340" y2="114" stroke="#e5e7eb"/>
+            <text x="110" y="136" font-size="14" fill="#6b7280">https://app.seda.de/</text>
+          </g>
+          <rect x="256" y="13" width="100" height="34" rx="17" fill="none" stroke="#dc2626" stroke-width="4"/>
+        </svg>
+        <figcaption>Oben rechts „Hinzufügen“</figcaption>
+      </figure>
+      <ol start="7" style="counter-reset: s 6;">
+        <li>Fertig: Das <strong>SEDA24-Symbol</strong> liegt jetzt auf deinem Home-Bildschirm.</li>
+      </ol>
+      <figure>
+        <svg viewBox="0 0 320 220" role="img" aria-label="Home-Bildschirm mit SEDA24-Symbol">
+          <defs><linearGradient id="hs" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#93c5fd"/><stop offset="1" stop-color="#c4b5fd"/></linearGradient></defs>
+          <rect width="320" height="220" fill="url(#hs)"/>
+          <g fill="white" opacity="0.55">
+            <rect x="30" y="24" width="56" height="56" rx="13"/><rect x="102" y="24" width="56" height="56" rx="13"/><rect x="174" y="24" width="56" height="56" rx="13"/><rect x="246" y="24" width="56" height="56" rx="13"/>
+            <rect x="30" y="112" width="56" height="56" rx="13"/><rect x="102" y="112" width="56" height="56" rx="13"/><rect x="174" y="112" width="56" height="56" rx="13"/>
+          </g>
+          <rect x="246" y="112" width="56" height="56" rx="13" fill="#1e3a5f"/>
+          <text x="274" y="145" font-size="12.5" font-weight="800" text-anchor="middle" fill="white" font-family="-apple-system, sans-serif">SEDA24</text>
+          <text x="274" y="194" font-size="13" text-anchor="middle" fill="#111827" font-family="-apple-system, sans-serif">SEDA24</text>
+          <circle cx="274" cy="140" r="36" fill="none" stroke="#dc2626" stroke-width="4"/>
+        </svg>
+        <figcaption>Dein SEDA24-Symbol</figcaption>
+      </figure>
+      <div class="warn-red" style="background:#1e3a5f">Ab jetzt nur noch über dieses Symbol öffnen<small>Nicht mehr über Safari.</small></div>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 2 ===================== -->
+  <section class="step" data-step="2">
+    <button class="step-head" type="button"><span class="step-nr">2</span><span>Einmal einloggen</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <ol>
+        <li>Mach das dort, wo du <strong>sicher Netz</strong> hast. Zum Beispiel zu Hause.</li>
+        <li>Öffne die App über das <strong>SEDA24-Symbol</strong>. Nicht über Safari.</li>
+        <li>Gib E-Mail und Passwort ein.</li>
+        <li>Lass den Haken bei <span class="btn-term">Eingeloggt bleiben</span> drin.</li>
+        <li>Tippe auf <span class="btn-term">Einloggen</span>.</li>
+      </ol>
+      <figure>
+        <img src="img/01-login.jpg" alt="Login-Maske, Haken bei Eingeloggt bleiben markiert" loading="lazy">
+        <figcaption>Haken „Eingeloggt bleiben“ drin lassen</figcaption>
+      </figure>
+      <div class="ok-box">Danach musst du dich <strong>nie wieder</strong> einloggen.</div>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 3 ===================== -->
+  <section class="step" data-step="3">
+    <button class="step-head" type="button"><span class="step-nr">3</span><span>Kommen stempeln</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <ol>
+        <li>Öffne die App über das <strong>SEDA24-Symbol</strong>.</li>
+        <li>Wähle dein <strong>Objekt</strong>.</li>
+        <li>Tippe auf <span class="btn-term">KOMMEN</span>.</li>
+      </ol>
+      <figure>
+        <img src="img/02-stempeluhr-online.jpg" alt="Stempeluhr mit WLAN-Zeichen" loading="lazy">
+        <figcaption>WLAN-Zeichen rechts neben „Stempeluhr“</figcaption>
+      </figure>
+      <div class="ok-box"><strong>WLAN-Zeichen</strong> rechts neben „Stempeluhr“: Dein Stempel ist <strong>übertragen</strong>.</div>
+      <figure>
+        <img src="img/03-nach-kommen.jpg" alt="Nach KOMMEN: Arbeitszeit läuft" loading="lazy">
+        <figcaption>Nach KOMMEN: Die Arbeitszeit läuft.</figcaption>
+      </figure>
+      <div class="info-box">Steht da <strong>„ausstehend“</strong> oder <strong>„Noch nicht übertragen“</strong>? Dann ist der Stempel <strong>auf dem Handy gespeichert</strong>. Er wird automatisch nachgeschickt.</div>
+      <figure>
+        <img src="img/04-offline-ausstehend.jpg" alt="Offline gestempelt: 1 ausstehend" loading="lazy">
+        <figcaption>Ohne Netz: „1 ausstehend“</figcaption>
+      </figure>
+      <div class="ok-box"><strong>Beides ist OK.</strong> Dein Stempel geht nicht verloren.</div>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 4 ===================== -->
+  <section class="step" data-step="4">
+    <button class="step-head" type="button"><span class="step-nr">4</span><span>App zumachen</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <p>Wische am unteren Rand vom <strong>schwarzen Strich</strong> nach oben.</p>
+      <p>Du brauchst keinen Zurück-Pfeil.</p>
+      <figure>
+        <svg viewBox="0 0 340 300" role="img" aria-label="Vom schwarzen Strich unten nach oben wischen">
+          <rect width="340" height="300" fill="#f9fafb"/>
+          <rect x="110" y="10" width="120" height="282" rx="24" fill="white" stroke="#111827" stroke-width="5"/>
+          <rect x="124" y="40" width="92" height="16" rx="5" fill="#e5e7eb"/>
+          <rect x="124" y="66" width="92" height="60" rx="8" fill="#fed7aa"/>
+          <rect x="124" y="136" width="44" height="30" rx="8" fill="#bbf7d0"/>
+          <rect x="172" y="136" width="44" height="30" rx="8" fill="#fecaca"/>
+          <rect x="140" y="272" width="60" height="6" rx="3" fill="#111827"/>
+          <g stroke="#2563eb" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M170 258 V188"/><path d="M156 202 L170 186 L184 202"/>
+          </g>
+          <ellipse cx="170" cy="262" rx="12" ry="9" fill="#2563eb" opacity="0.35"/>
+          <g font-family="-apple-system, sans-serif" font-size="15" font-weight="700">
+            <text x="100" y="214" text-anchor="end" fill="#2563eb">nach oben</text>
+            <text x="100" y="234" text-anchor="end" fill="#2563eb">wischen</text>
+            <text x="244" y="262" fill="#111827">schwarzer</text>
+            <text x="244" y="280" fill="#111827">Strich</text>
+          </g>
+          <path d="M240 270 L204 275" stroke="#111827" stroke-width="2"/>
+        </svg>
+        <figcaption>Vom Strich unten nach oben wischen</figcaption>
+      </figure>
+      <div class="warn-red">Nie auf „Logout“ drücken!<small>Sonst musst du dich neu einloggen. Ohne Netz geht das nicht.</small></div>
+      <figure>
+        <img src="img/07-logout-warnung.jpg" alt="Logout-Knopf rot eingekreist: nie drücken" loading="lazy">
+        <figcaption>Diesen Knopf nicht drücken</figcaption>
+      </figure>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 5 ===================== -->
+  <section class="step" data-step="5">
+    <button class="step-head" type="button"><span class="step-nr">5</span><span>Gehen stempeln</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <ol>
+        <li>Öffne die App über das <strong>SEDA24-Symbol</strong>.</li>
+        <li>Tippe auf <span class="btn-term">GEHEN</span>.</li>
+        <li>Mach die App wieder zu: vom Strich unten <strong>nach oben wischen</strong>.</li>
+      </ol>
+      <figure>
+        <img src="img/03-nach-kommen.jpg" alt="Stempeluhr mit GEHEN-Knopf" loading="lazy">
+        <figcaption>Der rote Knopf GEHEN</figcaption>
+      </figure>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 6 ===================== -->
+  <section class="step" data-step="6">
+    <button class="step-head" type="button"><span class="step-nr">6</span><span>Ohne Netz gestempelt?</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <p>Kein Problem. Dein Stempel ist auf dem Handy gespeichert.</p>
+      <figure>
+        <img src="img/05-noch-nicht-uebertragen.jpg" alt="Noch nicht übertragen" loading="lazy">
+        <figcaption>„Noch nicht übertragen“: auf dem Handy gespeichert</figcaption>
+      </figure>
+      <ol>
+        <li>Sobald du wieder Netz hast: Öffne die App kurz. Zum Beispiel im Auto, spätestens zu Hause.</li>
+        <li>Warte, bis <span class="btn-term">Alle Stempel synchronisiert</span> erscheint.</li>
+        <li>Erst dann zumachen.</li>
+      </ol>
+      <figure>
+        <img src="img/06-synchronisiert.jpg" alt="Alle Stempel synchronisiert" loading="lazy">
+        <figcaption>Jetzt ist alles übertragen.</figcaption>
+      </figure>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+</div>
+
+<div class="back-link">
+  <a href="/hilfe/" class="light">Hilfe &amp; FAQ</a>
+  <a href="/">Zur App</a>
+</div>
+
+<script>
+(function () {
+  var KEY = 'seda_hilfe_iphone_v1';
+  function loadDone() {
+    try { var d = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(d) ? d : []; } catch (e) { return []; }
+  }
+  function saveDone(d) {
+    try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { /* privater Modus: ohne Speichern */ }
+  }
+  var steps = Array.prototype.slice.call(document.querySelectorAll('.step'));
+  var done = loadDone();
+
+  function setOpen(step, open) {
+    step.classList.toggle('open', open);
+    step.querySelector('.step-body').hidden = !open;
+    step.querySelector('.step-head').setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function render() {
+    steps.forEach(function (s) {
+      var nr = s.getAttribute('data-step');
+      var isDone = done.indexOf(nr) >= 0;
+      s.classList.toggle('done', isDone);
+      s.querySelector('.step-nr').textContent = isDone ? '✔' : nr;
+    });
+    document.getElementById('finished').classList.toggle('show', done.length >= steps.length);
+  }
+
+  steps.forEach(function (s, i) {
+    s.querySelector('.step-head').addEventListener('click', function () { setOpen(s, !s.classList.contains('open')); });
+    s.querySelector('.done-btn').addEventListener('click', function () {
+      var nr = s.getAttribute('data-step');
+      if (done.indexOf(nr) < 0) { done.push(nr); saveDone(done); }
+      setOpen(s, false);
+      render();
+      var next = steps[i + 1];
+      if (next) { setOpen(next, true); next.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      else { document.getElementById('finished').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    });
+  });
+  document.getElementById('expand-all').addEventListener('click', function () {
+    steps.forEach(function (s) { setOpen(s, true); });
+  });
+
+  // Start: erster noch nicht erledigter Schritt ist offen
+  var first = null;
+  steps.forEach(function (s) {
+    var open = !first && done.indexOf(s.getAttribute('data-step')) < 0;
+    if (open) first = s;
+    setOpen(s, open);
+  });
+  render();
+})();
+</script>
+</body>
+</html>

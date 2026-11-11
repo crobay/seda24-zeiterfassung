@@ -1,0 +1,4 @@
+node_modules/
+ms-playwright/
+t9999.env
+screenshots-tmp/

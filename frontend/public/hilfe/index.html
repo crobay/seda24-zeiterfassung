@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SEDA24 Hilfe / Pomoc</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #333; min-height: 100vh; }
+
+  .header {
+    background: #1e3a5f;
+    color: white; padding: 16px 16px 0; position: sticky; top: 0; z-index: 10;
+  }
+  .header-card {
+    background: #2c5f7c; border-radius: 16px; padding: 16px; max-width: 600px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header-logo img { width: 65px; height: 65px; object-fit: contain; }
+  .header-center { text-align: center; flex: 1; }
+  .header-center h1 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+  .header-center .subtitle { font-size: 12px; color: #cbd5e1; }
+  .lang-switch { display: flex; gap: 3px; background: rgba(255,255,255,0.15); border-radius: 8px; padding: 3px; }
+  .lang-btn {
+    padding: 6px 12px; border: none; border-radius: 6px; font-size: 13px; font-weight: 700;
+    cursor: pointer; transition: all 0.2s; color: rgba(255,255,255,0.6); background: transparent;
+  }
+  .lang-btn.active { background: white; color: #1e3a5f; }
+  .header-spacer { height: 16px; background: #1e3a5f; }
+
+  .container { max-width: 600px; margin: 0 auto; padding: 16px 16px 100px; }
+
+  .section-title {
+    font-size: 13px; font-weight: 700; color: #6b7280; text-transform: uppercase;
+    letter-spacing: 0.5px; margin: 20px 0 8px; padding-left: 4px;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  .faq-item {
+    background: white; border-radius: 12px; margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow: hidden;
+    border: 1px solid #e5e7eb; transition: box-shadow 0.2s;
+  }
+  .faq-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
+  .faq-question {
+    width: 100%; padding: 16px 44px 16px 16px; border: none; background: none;
+    text-align: left; font-size: 15px; font-weight: 600; color: #1e3a5f;
+    cursor: pointer; position: relative; line-height: 1.4;
+  }
+  .faq-question::after {
+    content: '+'; position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+    font-size: 22px; font-weight: 300; color: #9ca3af; transition: transform 0.3s;
+  }
+  .faq-item.open .faq-question::after { content: '\2212'; color: #1e3a5f; }
+  .faq-item.open .faq-question { color: #1e3a5f; background: #f0f7ff; }
+
+  .faq-answer {
+    max-height: 0; overflow: hidden; transition: max-height 0.35s ease, padding 0.35s ease;
+    padding: 0 16px; font-size: 14px; line-height: 1.7; color: #4b5563;
+  }
+  .faq-item.open .faq-answer { max-height: 600px; padding: 0 16px 16px; }
+  .faq-answer p { margin-bottom: 8px; }
+  .faq-answer strong { color: #1e3a5f; }
+  .faq-answer .step { display: flex; gap: 10px; margin-bottom: 6px; }
+  .faq-answer .step-nr {
+    flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+    background: #1e3a5f; color: white; font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; margin-top: 2px;
+  }
+  .faq-answer .hint {
+    background: #fef3c7; border-left: 3px solid #f59e0b; padding: 8px 12px;
+    border-radius: 0 8px 8px 0; margin-top: 8px; font-size: 13px;
+  }
+  .faq-answer .app-term {
+    background: #e0e7ff; color: #3730a3; padding: 1px 6px; border-radius: 4px;
+    font-weight: 600; font-size: 13px; white-space: nowrap;
+  }
+
+  /* Anleitungen pro Handy (oben, grosse Knoepfe) */
+  .guides { display: grid; gap: 10px; margin-bottom: 20px; }
+  .guide-btn {
+    display: flex; align-items: center; gap: 14px; padding: 18px 18px;
+    background: #1e3a5f; color: white; text-decoration: none; border-radius: 14px;
+    font-size: 20px; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .guide-btn:active { background: #2d5a8e; }
+  .guide-btn svg { flex-shrink: 0; }
+  .guide-btn .sub { display: block; font-size: 14px; font-weight: 400; color: #cbd5e1; margin-top: 2px; }
+  .guide-btn .arrow { margin-left: auto; font-size: 26px; font-weight: 300; }
+
+  .back-link {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: white; border-top: 1px solid #e5e7eb; padding: 12px 16px;
+    text-align: center; z-index: 10;
+  }
+  .back-link a {
+    display: inline-block; padding: 10px 32px; background: #1e3a5f; color: white;
+    text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 15px;
+  }
+  .back-link a:hover { background: #2d5a8e; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-card">
+    <div class="header-logo">
+      <img src="/seda24-logo-white.png" alt="SEDA24">
+    </div>
+    <div class="header-center">
+      <h1 id="page-title">Hilfe &amp; h&auml;ufige Fragen</h1>
+      <div class="subtitle" id="page-subtitle">SEDA24 Geb&auml;udereinigung</div>
+    </div>
+    <div class="lang-switch">
+      <button class="lang-btn active" onclick="setLang('de')" id="btn-de">Deutsch</button>
+      <button class="lang-btn" onclick="setLang('hr')" id="btn-hr">Hrvatski</button>
+    </div>
+  </div>
+  <div class="header-spacer"></div>
+</div>
+
+<div class="container">
+  <div class="guides">
+    <a class="guide-btn" href="/hilfe/iphone/">
+      <svg width="30" height="42" viewBox="0 0 30 42" aria-hidden="true"><rect x="2" y="2" width="26" height="38" rx="6" fill="none" stroke="white" stroke-width="3"/><rect x="10" y="34" width="10" height="2.5" rx="1.25" fill="white"/></svg>
+      <span><span id="guide-iphone">iPhone &ndash; so geht's</span><span class="sub" id="guide-iphone-sub">App installieren, stempeln, offline</span></span>
+      <span class="arrow">&rsaquo;</span>
+    </a>
+    <!-- Platz fuer "Android - so geht's" (gleicher Knopf, href="/hilfe/android/") -->
+  </div>
+  <div id="faq-container"></div>
+</div>
+
+<div class="back-link">
+  <a href="https://app.seda.de" id="back-text">Zur&uuml;ck zur App</a>
+</div>
+
+<script>
+const faqs = {
+  de: {
+    sections: [
+      {
+        title: "Stempeluhr (Lidl / Bie2)",
+        items: [
+          {
+            q: "Wie stemple ich bei Lidl (Bie2)?",
+            a: `<p>Wenn du einem Lidl-Objekt mit Kategorie C zugewiesen bist, hast du eine <strong>digitale Stempeluhr</strong> in der App.</p>
+                <div class="step"><span class="step-nr">1</span><span><strong>Einloggen</strong> in der App (app.seda.de). Du siehst die Stempeluhr auf der Startseite.</span></div>
+                <div class="step"><span class="step-nr">2</span><span><span class="app-term">KOMMEN</span> tippen, wenn du mit der Arbeit beginnst.</span></div>
+                <div class="step"><span class="step-nr">3</span><span>F\u00fcr eine Pause: <span class="app-term">PAUSE</span> tippen. Zum Weiterarbeiten nochmal auf <span class="app-term">PAUSE</span>.</span></div>
+                <div class="step"><span class="step-nr">4</span><span><span class="app-term">GEHEN</span> tippen, wenn du fertig bist.</span></div>
+                <p>Die Arbeitszeit wird sekundengenau berechnet, Pausen werden automatisch abgezogen.</p>
+                <div class="hint">Tipp: Bleibe in der App eingeloggt, damit du jederzeit schnell stempeln kannst.</div>`
+          },
+          {
+            q: "Was tun, wenn das Stempeln nicht funktioniert hat?",
+            a: `<p>Manchmal klappt das Stempeln nicht \u2013 z.\u202fB. wegen schlechtem Empfang oder einem App-Problem. Daf\u00fcr gibt es <span class="app-term">Zeit nachtragen</span>.</p>
+                <div class="step"><span class="step-nr">1</span><span>\u00d6ffne die Stempeluhr und tippe unten auf <span class="app-term">Zeit nachtragen</span>.</span></div>
+                <div class="step"><span class="step-nr">2</span><span>W\u00e4hle den Typ (Kommen / Gehen / Beides), das Datum, die Uhrzeiten und einen <strong>Grund</strong>.</span></div>
+                <div class="step"><span class="step-nr">3</span><span>Tippe auf <strong>\u201eNachtrag senden\u201c</strong>. Die Verwaltung pr\u00fcft und tr\u00e4gt die Zeit ein.</span></div>
+                <div class="hint">Ab 01.08. bitte Nachtr\u00e4ge nur noch \u00fcber die App einreichen \u2013 nicht mehr per WhatsApp.</div>`
+          },
+          {
+            q: "Wie sehe ich den Status meines Nachtrags?",
+            a: `<p>Direkt unter der Stempeluhr findest du den Bereich <span class="app-term">Meine Nachtr\u00e4ge</span>.</p>
+                <p>Dort siehst du alle eingereichten Nachtr\u00e4ge mit ihrem Status:</p>
+                <p>\u23f3 <strong>Offen</strong> \u2013 wird noch gepr\u00fcft.</p>
+                <p>\u2705 <strong>Eingetragen</strong> \u2013 die Zeit wurde \u00fcbernommen.</p>
+                <p>\u2753 <strong>R\u00fcckfrage</strong> \u2013 die Verwaltung hat eine R\u00fcckfrage. Der Grund steht dabei.</p>
+                <div class="hint">Bei einer R\u00fcckfrage bekommst du auch eine Telegram-Nachricht mit dem Grund.</div>`
+          },
+          {
+            q: "Was ist, wenn ich kein Internet habe?",
+            a: `<p>Die Stempeluhr funktioniert auch <strong>offline</strong>, wenn du vorher in der App eingeloggt warst.</p>
+                <p>Deine Stempelungen werden lokal gespeichert und automatisch \u00fcbertragen, sobald du wieder Internet hast.</p>
+                <div class="hint">Wichtig: Logge dich nicht aus und l\u00f6sche nicht den Browser-Cache \u2013 sonst gehen die Offline-Daten verloren. Am besten die App auf dem Startbildschirm speichern.</div>`
+          }
+        ]
+      },
+      {
+        title: "Dienstplan & Schichten",
+        items: [
+          {
+            q: "Wie sehe ich meinen Dienstplan?",
+            a: `<p>\u00d6ffne die App und tippe unten auf <span class="app-term">Plan</span>.</p>
+                <p>Du siehst dort alle deine geplanten Schichten f\u00fcr die aktuelle und kommende Woche.</p>
+                <p>Jede Schicht zeigt <strong>Objekt</strong>, <strong>Uhrzeit</strong> und <strong>Status</strong> (best\u00e4tigt, offen, getauscht).</p>
+                <p>Tippe auf eine Schicht f\u00fcr Details und Optionen.</p>`
+          },
+          {
+            q: "Wie best\u00e4tige ich meine Schicht?",
+            a: `<p>Du bekommst eine <strong>Telegram-Nachricht</strong> mit deiner geplanten Schicht f\u00fcr den Tag.</p>
+                <p>Tippe einfach auf <strong>\u201eBest\u00e4tigen\u201c</strong> in der Nachricht.</p>
+                <p>Alternativ kannst du dich auch in der App einloggen und dort auf <strong>\u201eWar anwesend\u201c</strong> tippen.</p>
+                <div class="hint">Die Best\u00e4tigung muss am selben Tag erfolgen. Am besten direkt nach der Schicht.</div>`
+          },
+          {
+            q: "Was wenn ich vergessen habe zu best\u00e4tigen?",
+            a: `<p>Kein Problem! Melde dich bei <strong>Drazen</strong> per Telegram oder Anruf.</p>
+                <p>Er kann die Best\u00e4tigung nachtr\u00e4glich f\u00fcr dich eintragen.</p>
+                <div class="hint">Versuche es trotzdem immer am selben Tag zu best\u00e4tigen \u2013 am Monatsende wird es sonst schwierig nachzuvollziehen.</div>`
+          },
+          {
+            q: "Wie beantrage ich eine Schicht\u00e4nderung?",
+            a: `<p>\u00d6ffne den <span class="app-term">Plan</span>-Tab und tippe auf die Schicht, die du \u00e4ndern m\u00f6chtest.</p>
+                <p>Du hast zwei M\u00f6glichkeiten:</p>
+                <p><strong>\u201eSchicht tauschen\u201c</strong> \u2013 w\u00e4hle einen Kollegen aus, der an diesem Objekt arbeiten kann. Drazen bekommt eine Benachrichtigung und entscheidet.</p>
+                <p><strong>\u201eKann nicht kommen\u201c</strong> \u2013 w\u00e4hle einen Grund (krank, privat, etc.). Drazen wird benachrichtigt und k\u00fcmmert sich um Ersatz.</p>
+                <div class="hint">Bitte so fr\u00fch wie m\u00f6glich melden \u2013 am besten mindestens einen Tag vorher.</div>`
+          }
+        ]
+      },
+      {
+        title: "Urlaub & Krankmeldung",
+        items: [
+          {
+            q: "Wie beantrage ich Urlaub?",
+            a: `<div class="step"><span class="step-nr">1</span><span>\u00d6ffne die App und gehe zum Tab <strong>\u201eUrlaub\u201c</strong>.</span></div>
+                <div class="step"><span class="step-nr">2</span><span>W\u00e4hle das <strong>Start- und Enddatum</strong>.</span></div>
+                <div class="step"><span class="step-nr">3</span><span>Tippe auf <strong>\u201eUrlaub beantragen\u201c</strong>.</span></div>
+                <p>Drazen bekommt eine Benachrichtigung und genehmigt oder lehnt den Antrag ab. Du bekommst eine R\u00fcckmeldung per Telegram.</p>
+                <div class="hint">Urlaub bitte mindestens 2 Wochen vorher beantragen. F\u00fcr l\u00e4ngeren Urlaub (\u00fcber 1 Woche) bitte mit Drazen pers\u00f6nlich absprechen.</div>`
+          },
+          {
+            q: "Was wenn ich krank bin?",
+            a: `<p>Melde dich so fr\u00fch wie m\u00f6glich bei <strong>Drazen</strong> \u2013 am besten per Telegram oder Anruf.</p>
+                <p>Du kannst auch \u00fcber den Telegram-Bot <strong>/krank</strong> schreiben.</p>
+                <p>Denke daran: Ab dem <strong>3. Krankheitstag</strong> brauchst du eine Arbeitsunf\u00e4higkeitsbescheinigung (AU) vom Arzt.</p>`
+          }
+        ]
+      },
+      {
+        title: "Stunden & Abrechnung",
+        items: [
+          {
+            q: "Was wenn die Stunden nicht stimmen?",
+            a: `<p>Pr\u00fcfe zuerst in der App unter <strong>\u201eHistorie\u201c</strong> deine Eintr\u00e4ge f\u00fcr den Monat.</p>
+                <p>Wenn etwas nicht stimmt, melde dich bei <strong>Drazen</strong> mit dem genauen Datum und der richtigen Uhrzeit.</p>
+                <p>Er kann Korrekturen vornehmen.</p>
+                <div class="hint">Kontrolliere deine Stunden am besten w\u00f6chentlich \u2013 so fallen Fehler schnell auf.</div>`
+          },
+          {
+            q: "Was wenn ich mit einem Kollegen zusammen gearbeitet habe?",
+            a: `<p>Wenn ihr zusammen an einem Objekt gearbeitet habt, muss <strong>jeder einzeln best\u00e4tigen</strong>.</p>
+                <p>Ihr seid getrennt im Dienstplan eingetragen und best\u00e4tigt jeweils eure eigene Schicht.</p>
+                <p>Falls nur einer eingetragen ist, melde das bitte <strong>Drazen</strong>, damit er den Plan anpasst.</p>`
+          },
+          {
+            q: "Was passiert am Monatsende?",
+            a: `<p>Am Ende des Monats werden alle best\u00e4tigten Stunden zusammengez\u00e4hlt und an die <strong>Lohnbuchhaltung</strong> \u00fcbergeben.</p>
+                <p>Bitte stelle sicher, dass alle deine Schichten best\u00e4tigt sind <strong>bevor der Monat endet</strong>.</p>
+                <p>Nachtr\u00e4gliche \u00c4nderungen sind aufw\u00e4ndig und verz\u00f6gern die Lohnabrechnung.</p>
+                <div class="hint">Am besten jeden Freitag kurz pr\u00fcfen, ob die Woche komplett ist.</div>`
+          },
+          {
+            q: "Wie funktioniert die Kilometer-Abrechnung?",
+            a: `<p>Es wird immer der <strong>weiteste Weg</strong> abgerechnet \u2013 also die Strecke von deiner Wohnung zum Objekt, das am weitesten weg ist.</p>
+                <p>Die Kilometer werden <strong>automatisch berechnet</strong> wenn du deine Schicht best\u00e4tigst.</p>
+                <p><strong>Wenn ihr zu zweit arbeitet:</strong> Jeder bekommt seine eigenen Kilometer. Jeder f\u00e4hrt von sich zu Hause los \u2013 deshalb bekommt auch jeder die KM-Pauschale.</p>
+                <p>Die Erstattung betr\u00e4gt <strong>0,30 \u20ac pro Kilometer</strong>.</p>
+                <div class="hint">Du kannst deine KM-Abrechnung in der App unter \u201eKM\u201c einsehen.</div>`
+          }
+        ]
+      },
+      {
+        title: "Telegram & Konto",
+        items: [
+          {
+            q: "Wie registriere ich mich bei Telegram?",
+            a: `<div class="step"><span class="step-nr">1</span><span>Installiere die <strong>Telegram App</strong> auf deinem Handy (App Store / Google Play).</span></div>
+                <div class="step"><span class="step-nr">2</span><span>Erstelle ein Konto mit deiner Handynummer.</span></div>
+                <div class="step"><span class="step-nr">3</span><span>Suche nach dem Bot: <strong>@SEDA24Bot</strong></span></div>
+                <div class="step"><span class="step-nr">4</span><span>Schreibe dem Bot: <strong>/start</strong> gefolgt von deiner Personalnummer, z.\u202fB. <strong>/start D0004</strong></span></div>
+                <div class="step"><span class="step-nr">5</span><span>Der Bot best\u00e4tigt die Registrierung. Ab jetzt bekommst du Nachrichten \u00fcber Schichten und Best\u00e4tigungen.</span></div>
+                <div class="hint">Deine Personalnummer findest du auf deiner Lohnabrechnung oder frage Drazen.</div>`
+          },
+          {
+            q: "Passwort vergessen \u2013 was tun?",
+            a: `<p>Es gibt zwei Wege, dein Passwort zur\u00fcckzusetzen:</p>
+                <p><strong>Weg 1: Per Telegram</strong></p>
+                <div class="step"><span class="step-nr">1</span><span>\u00d6ffne die Login-Seite: <strong>app.seda.de</strong></span></div>
+                <div class="step"><span class="step-nr">2</span><span>Tippe auf <strong>\u201ePasswort vergessen?\u201c</strong></span></div>
+                <div class="step"><span class="step-nr">3</span><span>W\u00e4hle <strong>\u201ePer Telegram\u201c</strong>, gib deine E-Mail-Adresse ein und fordere den Code an.</span></div>
+                <div class="step"><span class="step-nr">4</span><span>Du bekommst einen <strong>6-stelligen Code per Telegram</strong>. Gib ihn ein und setze dein neues Passwort.</span></div>
+                <p style="margin-top:12px"><strong>Weg 2: Per E-Mail</strong></p>
+                <div class="step"><span class="step-nr">1</span><span>Tippe auf <strong>\u201ePasswort vergessen?\u201c</strong> und w\u00e4hle <strong>\u201ePer E-Mail\u201c</strong>.</span></div>
+                <div class="step"><span class="step-nr">2</span><span>Du bekommst eine E-Mail mit einem <strong>Link zum Zur\u00fccksetzen</strong>. Pr\u00fcfe auch den Spam-Ordner.</span></div>
+                <div class="hint">Falls beides nicht klappt, melde dich bei Drazen \u2013 er setzt dein Passwort manuell zur\u00fcck.</div>`
+          }
+        ]
+      }
+    ]
+  },
+  hr: {
+    sections: [
+      {
+        title: "\u0160templanje (Lidl / Bie2)",
+        items: [
+          {
+            q: "Kako \u0161templam na Lidlu (Bie2)?",
+            a: `<p>Ako si raspore\u0111en/a na Lidl objekt s kategorijom C, ima\u0161 <strong>digitalnu \u0161templ-uru</strong> u aplikaciji.</p>
+                <div class="step"><span class="step-nr">1</span><span><strong>Prijavi se</strong> u aplikaciju (app.seda.de). Na po\u010detnoj stranici vidi\u0161 \u0161templ-uru.</span></div>
+                <div class="step"><span class="step-nr">2</span><span>Klikni <span class="app-term">KOMMEN</span> (dolazak) kad po\u010dinje\u0161 raditi.</span></div>
+                <div class="step"><span class="step-nr">3</span><span>Za pauzu: klikni <span class="app-term">PAUSE</span> (pauza). Za nastavak opet klikni <span class="app-term">PAUSE</span>.</span></div>
+                <div class="step"><span class="step-nr">4</span><span>Klikni <span class="app-term">GEHEN</span> (odlazak) kad zavr\u0161i\u0161.</span></div>
+                <p>Radno vrijeme se ra\u010duna u sekundama, pauze se automatski oduzimaju.</p>
+                <div class="hint">Savjet: Ostani prijavljen/a u aplikaciji da mo\u017ee\u0161 brzo \u0161templati u bilo koje vrijeme.</div>`
+          },
+          {
+            q: "\u0160to u\u010diniti ako \u0161templanje nije funkcioniralo?",
+            a: `<p>Ponekad \u0161templanje ne radi \u2013 npr. lo\u0161 signal ili problem s aplikacijom. Za to postoji <span class="app-term">Zeit nachtragen</span> (naknadno upisati vrijeme).</p>
+                <div class="step"><span class="step-nr">1</span><span>Otvori \u0161templ-uru i klikni dolje na <span class="app-term">Zeit nachtragen</span> (naknadno upisati vrijeme).</span></div>
+                <div class="step"><span class="step-nr">2</span><span>Odaberi vrstu (Dolazak / Odlazak / Oboje), datum, vrijeme i <strong>razlog</strong>.</span></div>
+                <div class="step"><span class="step-nr">3</span><span>Klikni na <strong>\u201eNachtrag senden\u201c</strong> (po\u0161alji). Uprava provjerava i unosi vrijeme.</span></div>
+                <div class="hint">Od 01.08. naknadne unose \u0161alji samo preko aplikacije \u2013 vi\u0161e ne preko WhatsAppa.</div>`
+          },
+          {
+            q: "Kako vidim status svog naknadnog unosa?",
+            a: `<p>Ispod \u0161templ-ure nalazi se dio <span class="app-term">Meine Nachtr\u00e4ge</span> (Moji naknadni unosi).</p>
+                <p>Tamo vidi\u0161 sve poslane unose sa statusom:</p>
+                <p>\u23f3 <strong>Offen</strong> (otvoreno) \u2013 jo\u0161 se provjerava.</p>
+                <p>\u2705 <strong>Eingetragen</strong> (uneseno) \u2013 vrijeme je preuzeto.</p>
+                <p>\u2753 <strong>R\u00fcckfrage</strong> (upit) \u2013 uprava ima pitanje. Razlog je naveden.</p>
+                <div class="hint">Kod upita dobije\u0161 i Telegram poruku s razlogom.</div>`
+          },
+          {
+            q: "\u0160to ako nemam internet?",
+            a: `<p>\u0160templanje radi i <strong>offline</strong>, ako si bio/la prijavljen/a u aplikaciji.</p>
+                <p>Tvoja \u0161templanja se spremaju lokalno i automatski \u0161alju \u010dim ponovo ima\u0161 internet.</p>
+                <div class="hint">Va\u017eno: Ne odjavljuj se i ne bri\u0161i cache preglednika \u2013 ina\u010de se offline podaci gube. Najbolje spremi aplikaciju na po\u010detni zaslon.</div>`
+          }
+        ]
+      },
+      {
+        title: "Raspored & smjene",
+        items: [
+          {
+            q: "Kako vidim svoj raspored?",
+            a: `<p>Otvori aplikaciju i klikni dolje na <span class="app-term">Plan</span> (raspored).</p>
+                <p>Tamo vidi\u0161 sve planirane smjene za teku\u0107i i sljede\u0107i tjedan.</p>
+                <p>Svaka smjena pokazuje <strong>objekt</strong>, <strong>vrijeme</strong> i <strong>status</strong> (potvr\u0111eno, otvoreno, zamijenjeno).</p>
+                <p>Klikni na smjenu za detalje i opcije.</p>`
+          },
+          {
+            q: "Kako potvrdim svoju smjenu?",
+            a: `<p>Dobije\u0161 <strong>Telegram poruku</strong> s tvojom planiranom smjenom za taj dan.</p>
+                <p>Samo klikni na <strong>\u201ePotvrdi\u201c</strong> u poruci.</p>
+                <p>Alternativno se mo\u017ee\u0161 prijaviti u aplikaciju i tamo kliknuti na <strong>\u201eBio/la sam prisutan/na\u201c</strong>.</p>
+                <div class="hint">Potvrda mora biti isti dan. Najbolje odmah nakon smjene.</div>`
+          },
+          {
+            q: "\u0160to ako sam zaboravio/la potvrditi?",
+            a: `<p>Nema problema! Javi se <strong>Dra\u017eenu</strong> preko Telegrama ili nazovi.</p>
+                <p>On mo\u017ee naknadno unijeti potvrdu za tebe.</p>
+                <div class="hint">Ipak poku\u0161aj uvijek potvrditi isti dan \u2013 na kraju mjeseca je te\u0161ko rekonstruirati.</div>`
+          },
+          {
+            q: "Kako zatra\u017eim promjenu smjene?",
+            a: `<p>Otvori tab <span class="app-term">Plan</span> (raspored) i klikni na smjenu koju \u017eeli\u0161 promijeniti.</p>
+                <p>Ima\u0161 dvije mogu\u0107nosti:</p>
+                <p><strong>\u201eSchicht tauschen\u201c</strong> (zamijeniti smjenu) \u2013 odaberi kolegu koji mo\u017ee raditi na tom objektu. Dra\u017een dobije obavijest i odlu\u010duje.</p>
+                <p><strong>\u201eKann nicht kommen\u201c</strong> (ne mogu do\u0107i) \u2013 odaberi razlog (bolest, privatno, itd.). Dra\u017een \u0107e biti obavije\u0161ten i pobrinut \u0107e se za zamjenu.</p>
+                <div class="hint">Molim javi se \u0161to ranije \u2013 najbolje najmanje jedan dan unaprijed.</div>`
+          }
+        ]
+      },
+      {
+        title: "Godi\u0161nji odmor & bolovanje",
+        items: [
+          {
+            q: "Kako zatra\u017eim godi\u0161nji odmor?",
+            a: `<div class="step"><span class="step-nr">1</span><span>Otvori aplikaciju i idi na tab <strong>\u201eUrlaub\u201c (Odmor)</strong>.</span></div>
+                <div class="step"><span class="step-nr">2</span><span>Odaberi <strong>po\u010detni i zavr\u0161ni datum</strong>.</span></div>
+                <div class="step"><span class="step-nr">3</span><span>Klikni na <strong>\u201eUrlaub beantragen\u201c (Zatra\u017ei odmor)</strong>.</span></div>
+                <p>Dra\u017een dobije obavijest i odobri ili odbije zahtjev. Dobije\u0161 povratnu informaciju preko Telegrama.</p>
+                <div class="hint">Odmor tra\u017ei najmanje 2 tjedna unaprijed. Za du\u017ei odmor (preko 1 tjedna) razgovaraj osobno s Dra\u017eenom.</div>`
+          },
+          {
+            q: "\u0160to ako sam bolestan/na?",
+            a: `<p>Javi se <strong>Dra\u017eenu</strong> \u0161to ranije \u2013 najbolje preko Telegrama ili pozivom.</p>
+                <p>Mo\u017ee\u0161 i preko Telegram bota napisati <strong>/krank</strong>.</p>
+                <p>Zapamti: Od <strong>3. dana bolovanja</strong> treba\u0161 potvrdu lije\u010dnika (Arbeitsunf\u00e4higkeitsbescheinigung).</p>`
+          }
+        ]
+      },
+      {
+        title: "Sati & obra\u010dun",
+        items: [
+          {
+            q: "\u0160to ako sati nisu to\u010dni?",
+            a: `<p>Prvo provjeri u aplikaciji pod <strong>\u201eHistorie\u201c (Povijest)</strong> svoje unose za mjesec.</p>
+                <p>Ako ne\u0161to ne \u0161tima, javi se <strong>Dra\u017eenu</strong> s to\u010dnim datumom i ispravnim vremenom.</p>
+                <p>On mo\u017ee napraviti ispravke.</p>
+                <div class="hint">Najbolje provjeri svoje sate svaki tjedan \u2013 tako brzo primijeti\u0161 gre\u0161ke.</div>`
+          },
+          {
+            q: "\u0160to ako sam radio/la s kolegom zajedno?",
+            a: `<p>Ako ste zajedno radili na objektu, <strong>svaki mora pojedina\u010dno potvrditi</strong>.</p>
+                <p>Odvojeno ste upisani u rasporedu i svatko potvr\u0111uje svoju smjenu.</p>
+                <p>Ako je samo jedan upisan, javi to <strong>Dra\u017eenu</strong> da prilagodi plan.</p>`
+          },
+          {
+            q: "\u0160to se doga\u0111a na kraju mjeseca?",
+            a: `<p>Na kraju mjeseca svi potvr\u0111eni sati se zbrajaju i predaju <strong>obra\u010dunu pla\u0107a</strong>.</p>
+                <p>Molim te provjeri da su sve tvoje smjene potvr\u0111ene <strong>prije kraja mjeseca</strong>.</p>
+                <p>Naknadne promjene su komplicirane i odga\u0111aju obra\u010dun pla\u0107e.</p>
+                <div class="hint">Najbolje svaki petak kratko provjeri je li tjedan kompletiran.</div>`
+          },
+          {
+            q: "Kako funkcionira obra\u010dun kilometara?",
+            a: `<p>Uvijek se obra\u010dunava <strong>najdu\u017ei put</strong> \u2013 dakle udaljenost od tvog doma do objekta koji je najdalje.</p>
+                <p>Kilometri se <strong>automatski izra\u010dunavaju</strong> kada potvrdi\u0161 svoju smjenu.</p>
+                <p><strong>Ako radite udvoje:</strong> Svaki dobije svoje kilometre. Svaki vozi od svog doma \u2013 zato svaki dobije naknadu za KM.</p>
+                <p>Naknada iznosi <strong>0,30 \u20ac po kilometru</strong>.</p>
+                <div class="hint">Svoj obra\u010dun KM mo\u017ee\u0161 vidjeti u aplikaciji pod \u201eKM\u201c.</div>`
+          }
+        ]
+      },
+      {
+        title: "Telegram & ra\u010dun",
+        items: [
+          {
+            q: "Kako se registriram na Telegramu?",
+            a: `<div class="step"><span class="step-nr">1</span><span>Instaliraj <strong>Telegram</strong> aplikaciju na mobitel (App Store / Google Play).</span></div>
+                <div class="step"><span class="step-nr">2</span><span>Napravi ra\u010dun sa svojim brojem mobitela.</span></div>
+                <div class="step"><span class="step-nr">3</span><span>Tra\u017ei bota: <strong>@SEDA24Bot</strong></span></div>
+                <div class="step"><span class="step-nr">4</span><span>Napi\u0161i botu: <strong>/start</strong> pa tvoj personalni broj, npr. <strong>/start D0004</strong></span></div>
+                <div class="step"><span class="step-nr">5</span><span>Bot potvrdi registraciju. Od sada dobiva\u0161 poruke o smjenama i potvrdama.</span></div>
+                <div class="hint">Tvoj personalni broj na\u0111e\u0161 na obra\u010dunu pla\u0107e ili pitaj Dra\u017eena.</div>`
+          },
+          {
+            q: "Zaboravio/la sam lozinku \u2013 \u0161to da radim?",
+            a: `<p>Postoje dva na\u010dina za resetiranje lozinke:</p>
+                <p><strong>Na\u010din 1: Preko Telegrama</strong></p>
+                <div class="step"><span class="step-nr">1</span><span>Otvori stranicu za prijavu: <strong>app.seda.de</strong></span></div>
+                <div class="step"><span class="step-nr">2</span><span>Klikni na <strong>\u201ePasswort vergessen?\u201c (Zaboravljena lozinka?)</strong></span></div>
+                <div class="step"><span class="step-nr">3</span><span>Odaberi <strong>\u201ePer Telegram\u201c</strong>, upi\u0161i svoju e-mail adresu i zatra\u017ei kod.</span></div>
+                <div class="step"><span class="step-nr">4</span><span>Dobije\u0161 <strong>6-znamenkasti kod preko Telegrama</strong>. Upi\u0161i ga i postavi novu lozinku.</span></div>
+                <p style="margin-top:12px"><strong>Na\u010din 2: Preko e-maila</strong></p>
+                <div class="step"><span class="step-nr">1</span><span>Klikni na <strong>\u201ePasswort vergessen?\u201c</strong> i odaberi <strong>\u201ePer E-Mail\u201c</strong>.</span></div>
+                <div class="step"><span class="step-nr">2</span><span>Dobije\u0161 e-mail s <strong>linkom za resetiranje</strong>. Provjeri i spam mapu.</span></div>
+                <div class="hint">Ako ni\u0161ta ne radi, javi se Dra\u017eenu \u2013 on \u0107e ti ru\u010dno resetirati lozinku.</div>`
+          }
+        ]
+      }
+    ]
+  }
+};
+
+let currentLang = 'de';
+
+function setLang(lang) {
+  currentLang = lang;
+  document.getElementById('btn-de').classList.toggle('active', lang === 'de');
+  document.getElementById('btn-hr').classList.toggle('active', lang === 'hr');
+  document.getElementById('page-title').textContent = lang === 'de' ? 'Hilfe & h\u00e4ufige Fragen' : 'Pomo\u0107 & \u010desta pitanja';
+  document.getElementById('page-subtitle').textContent = lang === 'de' ? 'SEDA24 Geb\u00e4udereinigung' : 'SEDA24 \u010ci\u0161\u0107enje zgrada';
+  document.getElementById('back-text').textContent = lang === 'de' ? 'Zur\u00fcck zur App' : 'Natrag u aplikaciju';
+  document.getElementById('guide-iphone').textContent = lang === 'de' ? 'iPhone \u2013 so geht\'s' : 'iPhone \u2013 upute';
+  document.getElementById('guide-iphone-sub').textContent = lang === 'de' ? 'App installieren, stempeln, offline' : 'Instalacija, \u0161templ, offline (na njema\u010dkom)';
+  renderFAQ();
+}
+
+function renderFAQ() {
+  const data = faqs[currentLang];
+  const container = document.getElementById('faq-container');
+  let html = '';
+  data.sections.forEach(section => {
+    html += '<div class="section-title">' + section.title + '</div>';
+    section.items.forEach(item => {
+      html += '<div class="faq-item" onclick="toggleFAQ(this)">';
+      html += '<button class="faq-question">' + item.q + '</button>';
+      html += '<div class="faq-answer">' + item.a + '</div>';
+      html += '</div>';
+    });
+  });
+  container.innerHTML = html;
+}
+
+function toggleFAQ(el) {
+  const wasOpen = el.classList.contains('open');
+  document.querySelectorAll('.faq-item.open').forEach(item => item.classList.remove('open'));
+  if (!wasOpen) el.classList.add('open');
+}
+
+renderFAQ();
+</script>
+
+</body>
+</html>

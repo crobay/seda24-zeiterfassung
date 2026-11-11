@@ -5,6 +5,8 @@
 #  3. Pruefung VOR dem Kopieren (Precache, Nachtrag, Stempeln, Token - Trockentest mit Rollback)
 #  4. Kopieren nach httpdocs (vorher Sicherung)
 #  5. Pruefung NACH dem Kopieren (Precache in httpdocs); bei Fehler alte Version zurueck
+#  6. Echter Browser-Test Offline-Stempeln mit T9999 (tools/browsertest/offline_test.mjs);
+#     bei Fehler alte Version zurueck
 set -e
 set -o pipefail
 export PYTHONDONTWRITEBYTECODE=1
@@ -15,10 +17,13 @@ WEB=$APP/httpdocs
 DIST=$ROOT/frontend/dist
 PY=$ROOT/backend/venv/bin/python
 CHECK=$ROOT/backend/scripts/post_deploy_check.py
+BROWSERTEST=$ROOT/tools/browsertest
 
 fail() { echo ""; echo "DEPLOY ABGEBROCHEN: $1"; exit 1; }
 
 echo "Starting deployment..."
+[ -d $BROWSERTEST/node_modules/playwright ] && [ -d $BROWSERTEST/ms-playwright ] && [ -f $BROWSERTEST/t9999.env ] \
+    || fail "Browser-Test nicht eingerichtet ($BROWSERTEST: npm install + Chromium + t9999.env)"
 cd $ROOT/frontend
 npm run build || fail "Build fehlgeschlagen"
 
@@ -40,11 +45,13 @@ $PY $CHECK --webroot $DIST || fail "Pruefung fehlgeschlagen - httpdocs NICHT ver
 BACKUP=$(mktemp -d /tmp/seda24-deploy-backup.XXXXXX)
 cp -a $WEB/index.html $WEB/service-worker.js $BACKUP/ 2>/dev/null || true
 [ -d $WEB/assets ] && cp -a $WEB/assets $BACKUP/assets
+[ -d $WEB/hilfe ] && cp -a $WEB/hilfe $BACKUP/hilfe
 
 restore() {
     echo "Stelle vorherige Version wieder her..."
     rm -rf $WEB/assets
     [ -d $BACKUP/assets ] && cp -a $BACKUP/assets $WEB/assets
+    [ -d $BACKUP/hilfe ] && rm -rf $WEB/hilfe && cp -a $BACKUP/hilfe $WEB/hilfe
     cp -a $BACKUP/index.html $BACKUP/service-worker.js $WEB/ 2>/dev/null || true
     chown -R seda24dev:psacln $WEB/
 }
@@ -59,6 +66,13 @@ if ! $PY $CHECK --webroot $WEB --static-only; then
     restore
     fail "Pruefung in httpdocs fehlgeschlagen - vorherige Version wiederhergestellt"
 fi
+
+echo ""
+echo "Echter Browser-Test Offline-Stempeln (T9999):"
+if ! node $BROWSERTEST/offline_test.mjs --base https://app.seda.de --expect-cache seda24-cache-v$TIMESTAMP; then
+    restore
+    fail "Offline-Browser-Test fehlgeschlagen - vorherige Version wiederhergestellt"
+fi
 rm -rf $BACKUP
 
 # Hinweis, falls das laufende Backend aelter ist als der Code (restart.sh noetig)
@@ -71,4 +85,4 @@ fi
 
 echo ""
 echo "Deploy complete with cache-buster: $TIMESTAMP"
-echo "PWA/Offline: Bundles im Precache, alle Pruefungen OK."
+echo "PWA/Offline: Bundles im Precache, Offline-Browser-Test bestanden, alle Pruefungen OK."

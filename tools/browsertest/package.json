@@ -1,0 +1,6 @@
+{
+  "name": "seda24-browsertest",
+  "private": true,
+  "description": "Echter Browser-Test (Offline-Stempeln) fuer deploy.sh und Screenshots der Hilfeseiten",
+  "dependencies": { "playwright": "1.58.0" }
+}
