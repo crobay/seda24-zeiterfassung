@@ -127,7 +127,11 @@
       <span><span id="guide-iphone">iPhone &ndash; so geht's</span><span class="sub" id="guide-iphone-sub">App installieren, stempeln, offline</span></span>
       <span class="arrow">&rsaquo;</span>
     </a>
-    <!-- Platz fuer "Android - so geht's" (gleicher Knopf, href="/hilfe/android/") -->
+    <a class="guide-btn" href="/hilfe/android/">
+      <svg width="30" height="42" viewBox="0 0 30 42" aria-hidden="true"><rect x="2" y="2" width="26" height="38" rx="4" fill="none" stroke="white" stroke-width="3"/><circle cx="15" cy="35" r="2" fill="white"/><rect x="11" y="5.5" width="8" height="2" rx="1" fill="white"/></svg>
+      <span><span id="guide-android">Android &ndash; so geht's</span><span class="sub" id="guide-android-sub">Samsung, Xiaomi, Pixel &hellip; mit Chrome</span></span>
+      <span class="arrow">&rsaquo;</span>
+    </a>
   </div>
   <div id="faq-container"></div>
 </div>
@@ -458,6 +462,8 @@ function setLang(lang) {
   document.getElementById('page-subtitle').textContent = lang === 'de' ? 'SEDA24 Geb\u00e4udereinigung' : 'SEDA24 \u010ci\u0161\u0107enje zgrada';
   document.getElementById('back-text').textContent = lang === 'de' ? 'Zur\u00fcck zur App' : 'Natrag u aplikaciju';
   document.getElementById('guide-iphone').textContent = lang === 'de' ? 'iPhone \u2013 so geht\'s' : 'iPhone \u2013 upute';
+  document.getElementById('guide-android').textContent = lang === 'de' ? 'Android \u2013 so geht\'s' : 'Android \u2013 upute';
+  document.getElementById('guide-android-sub').textContent = lang === 'de' ? 'Samsung, Xiaomi, Pixel \u2026 mit Chrome' : 'Samsung, Xiaomi, Pixel \u2026 s Chromeom (na njema\u010dkom)';
   document.getElementById('guide-iphone-sub').textContent = lang === 'de' ? 'App installieren, stempeln, offline' : 'Instalacija, \u0161templ, offline (na njema\u010dkom)';
   renderFAQ();
 }

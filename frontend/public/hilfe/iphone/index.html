@@ -71,6 +71,15 @@
   .finished { display: none; background: #16a34a; color: white; border-radius: 16px; padding: 18px; text-align: center; font-size: 20px; font-weight: 700; margin-bottom: 14px; }
   .finished.show { display: block; }
 
+  .rescue { background: #fffbeb; border: 3px solid #f59e0b; border-radius: 16px; padding: 18px; margin-top: 6px; }
+  .rescue h2 { font-size: 23px; color: #92400e; margin-bottom: 10px; }
+  .rescue ol { margin: 0; padding-left: 0; list-style: none; counter-reset: r; }
+  .rescue ol li { counter-increment: r; position: relative; padding-left: 40px; margin-bottom: 10px; }
+  .rescue ol li::before {
+    content: counter(r); position: absolute; left: 0; top: 1px; width: 28px; height: 28px; border-radius: 50%;
+    background: #f59e0b; color: white; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+
   .back-link { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #e5e7eb; padding: 12px 16px; display: flex; gap: 10px; justify-content: center; }
   .back-link a { padding: 12px 18px; background: #1e3a5f; color: white; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 17px; }
   .back-link a.light { background: #e5e7eb; color: #1e3a5f; }
@@ -316,6 +325,18 @@
       <button class="done-btn" type="button">Erledigt ✔</button>
     </div>
   </section>
+
+  <!-- ===================== Notfall ===================== -->
+  <div class="rescue">
+    <h2>App streikt?</h2>
+    <p style="margin-bottom:12px">Kein Problem. Deine Zeit kannst du auch so eintragen:</p>
+    <ol>
+      <li>Öffne <strong>app.seda.de</strong> in irgendeinem Browser. Auf dem Handy, Laptop oder PC.</li>
+      <li>Logge dich ein.</li>
+      <li>Tippe unter der Stempeluhr auf <span class="btn-term">Zeit nachtragen</span>.</li>
+      <li>Trage deine Zeit ein und schicke sie ab.</li>
+    </ol>
+  </div>
 </div>
 
 <div class="back-link">

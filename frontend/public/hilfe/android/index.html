@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Android – so geht's | SEDA24</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #1f2937; font-size: 19px; line-height: 1.5; }
+
+  .header { background: #1e3a5f; color: white; padding: 16px 16px 0; }
+  .header-card {
+    background: #2c5f7c; border-radius: 16px; padding: 14px 16px; max-width: 600px; margin: 0 auto;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .header-card img { width: 60px; height: 60px; object-fit: contain; }
+  .header-card h1 { font-size: 24px; line-height: 1.2; }
+  .header-card .subtitle { font-size: 15px; color: #cbd5e1; }
+  .header-spacer { height: 16px; }
+
+  .container { max-width: 600px; margin: 0 auto; padding: 16px 16px 110px; }
+
+  .expand-all {
+    width: 100%; padding: 14px; margin-bottom: 14px; border: 2px solid #1e3a5f; background: white;
+    color: #1e3a5f; border-radius: 12px; font-size: 18px; font-weight: 700; cursor: pointer;
+  }
+
+  .step { background: white; border-radius: 16px; margin-bottom: 14px; border: 2px solid #e5e7eb; overflow: hidden; }
+  .step.open { border-color: #1e3a5f; box-shadow: 0 4px 14px rgba(30,58,95,0.15); }
+  .step.done { border-color: #86efac; }
+  .step-head {
+    width: 100%; display: flex; align-items: center; gap: 14px; padding: 16px; border: none; background: none;
+    text-align: left; font-size: 21px; font-weight: 700; color: #1e3a5f; cursor: pointer; line-height: 1.3;
+  }
+  .step-nr {
+    flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: #1e3a5f; color: white;
+    display: flex; align-items: center; justify-content: center; font-size: 20px;
+  }
+  .step.done .step-nr { background: #16a34a; }
+  .step-head .chev { margin-left: auto; font-size: 26px; color: #9ca3af; transition: transform 0.2s; }
+  .step.open .chev { transform: rotate(90deg); }
+  .step-body { padding: 0 18px 18px; }
+  .step-body[hidden] { display: none; }
+
+  .step-body p { margin-bottom: 12px; }
+  .step-body ol { margin: 0 0 14px 0; padding-left: 0; list-style: none; counter-reset: s; }
+  .step-body ol li { counter-increment: s; position: relative; padding-left: 40px; margin-bottom: 12px; }
+  .step-body ol li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px; width: 28px; height: 28px; border-radius: 50%;
+    background: #e0e7ff; color: #3730a3; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .btn-term { background: #e0e7ff; color: #3730a3; padding: 1px 8px; border-radius: 6px; font-weight: 700; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+
+  figure { margin: 6px 0 16px; text-align: center; }
+  figure img, figure svg { width: 100%; max-width: 300px; height: auto; border-radius: 18px; border: 1px solid #d1d5db; box-shadow: 0 2px 10px rgba(0,0,0,0.12); background: white; }
+  figcaption { font-size: 16px; color: #6b7280; margin-top: 6px; }
+
+  .ok-box { background: #f0fdf4; border-left: 5px solid #16a34a; border-radius: 0 10px 10px 0; padding: 12px 14px; margin-bottom: 14px; }
+  .info-box { background: #eff6ff; border-left: 5px solid #2563eb; border-radius: 0 10px 10px 0; padding: 12px 14px; margin-bottom: 14px; }
+  .warn-red {
+    background: #dc2626; color: white; border-radius: 14px; padding: 18px; margin: 4px 0 16px;
+    font-size: 24px; font-weight: 800; text-align: center; text-transform: uppercase; line-height: 1.3;
+  }
+  .warn-red small { display: block; font-size: 17px; font-weight: 600; text-transform: none; margin-top: 6px; }
+
+  .done-btn {
+    width: 100%; padding: 18px; margin-top: 6px; border: none; border-radius: 14px; background: #16a34a;
+    color: white; font-size: 22px; font-weight: 800; cursor: pointer;
+  }
+  .done-btn:active { background: #15803d; }
+  .finished { display: none; background: #16a34a; color: white; border-radius: 16px; padding: 18px; text-align: center; font-size: 20px; font-weight: 700; margin-bottom: 14px; }
+  .finished.show { display: block; }
+
+  .chrome-hint {
+    display: flex; gap: 14px; align-items: center; background: #fef3c7; border: 3px solid #f59e0b;
+    border-radius: 16px; padding: 16px; margin-bottom: 14px; font-size: 19px; color: #78350f;
+  }
+  .chrome-hint svg { flex-shrink: 0; }
+  .rescue { background: #fffbeb; border: 3px solid #f59e0b; border-radius: 16px; padding: 18px; margin-top: 6px; }
+  .rescue h2 { font-size: 23px; color: #92400e; margin-bottom: 10px; }
+  .rescue ol { margin: 0; padding-left: 0; list-style: none; counter-reset: r; }
+  .rescue ol li { counter-increment: r; position: relative; padding-left: 40px; margin-bottom: 10px; }
+  .rescue ol li::before {
+    content: counter(r); position: absolute; left: 0; top: 1px; width: 28px; height: 28px; border-radius: 50%;
+    background: #f59e0b; color: white; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+
+  .back-link { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #e5e7eb; padding: 12px 16px; display: flex; gap: 10px; justify-content: center; }
+  .back-link a { padding: 12px 18px; background: #1e3a5f; color: white; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 17px; }
+  .back-link a.light { background: #e5e7eb; color: #1e3a5f; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-card">
+    <img src="/seda24-logo-white.png" alt="SEDA24">
+    <div>
+      <h1>Android – so geht's</h1>
+      <div class="subtitle">SEDA24 App: installieren, stempeln, offline</div>
+    </div>
+  </div>
+  <div class="header-spacer"></div>
+</div>
+
+<div class="container">
+  <div class="chrome-hint">
+    <svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="#ea4335"/><path d="M24 24 L43 35 A22 22 0 0 1 5 35 Z" fill="#34a853"/><path d="M24 24 L5 35 A22 22 0 0 1 24 2 Z" fill="#fbbc04" transform="rotate(0)"/><circle cx="24" cy="24" r="10" fill="white"/><circle cx="24" cy="24" r="7.5" fill="#4285f4"/></svg>
+    <div><strong>Bitte Google Chrome benutzen.</strong><br>Bei Samsung ist oft „Samsung Internet“ eingestellt. Dann bitte <strong>Chrome</strong> öffnen.</div>
+  </div>
+  <button class="expand-all" id="expand-all" type="button">Alles wieder aufklappen</button>
+  <div class="finished" id="finished">Geschafft! Du hast alle 6 Schritte erledigt. ✔</div>
+
+  <!-- ===================== 1 ===================== -->
+  <section class="step" data-step="1">
+    <button class="step-head" type="button"><span class="step-nr">1</span><span>App aufs Handy holen</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <ol>
+        <li>Öffne <strong>Google Chrome</strong>.</li>
+        <li>Gib oben ein: <strong>app.seda.de</strong></li>
+        <li>Tippe oben rechts auf die <strong>drei Punkte ⋮</strong>.</li>
+      </ol>
+      <figure>
+        <svg viewBox="0 0 320 170" role="img" aria-label="Chrome oben rechts: drei Punkte">
+          <rect width="320" height="170" fill="#f9fafb"/>
+          <rect x="0" y="0" width="320" height="64" fill="#f1f3f4"/>
+          <g fill="none" stroke="#5f6368" stroke-width="2.2"><path d="M16 26 l8 -7 l8 7 v10 h-16 z"/></g>
+          <rect x="44" y="14" width="192" height="36" rx="18" fill="white" stroke="#dadce0"/>
+          <g fill="none" stroke="#5f6368" stroke-width="2"><rect x="56" y="27" width="10" height="9" rx="2"/><path d="M58 27 v-3 a3 3 0 0 1 6 0 v3"/></g>
+          <text x="74" y="37" font-size="15" fill="#202124" font-family="Roboto, sans-serif">app.seda.de</text>
+          <rect x="248" y="21" width="22" height="22" rx="4" fill="none" stroke="#5f6368" stroke-width="2.2"/>
+          <text x="259" y="37" font-size="12" font-weight="700" text-anchor="middle" fill="#5f6368" font-family="Roboto, sans-serif">1</text>
+          <g fill="#202124"><circle cx="297" cy="22" r="3"/><circle cx="297" cy="32" r="3"/><circle cx="297" cy="42" r="3"/></g>
+          <circle cx="297" cy="32" r="20" fill="none" stroke="#dc2626" stroke-width="4"/>
+          <rect x="176" y="96" width="132" height="30" rx="8" fill="#dc2626"/>
+          <text x="242" y="116" text-anchor="middle" font-size="15" font-weight="700" fill="white" font-family="Roboto, sans-serif">Drei Punkte ⋮</text>
+          <path d="M280 96 L293 54" stroke="#dc2626" stroke-width="3"/>
+          <text x="20" y="150" font-size="14" fill="#9ca3af" font-family="Roboto, sans-serif">Login – SEDA24</text>
+        </svg>
+        <figcaption>Chrome oben rechts: die drei Punkte</figcaption>
+      </figure>
+      <ol style="counter-reset: s 3;">
+        <li>Tippe auf <span class="btn-term">App installieren</span>. Steht das nicht da: <span class="btn-term">Zum Startbildschirm hinzufügen</span>.</li>
+      </ol>
+      <figure>
+        <svg viewBox="0 0 320 330" role="img" aria-label="Chrome-Menü: App installieren">
+          <rect width="320" height="330" fill="#e5e7eb"/>
+          <rect x="36" y="8" width="276" height="314" rx="10" fill="white"/>
+          <g font-size="15" fill="#202124" font-family="Roboto, sans-serif">
+            <text x="80" y="42">Neuer Tab</text>
+            <text x="80" y="80">Neuer Inkognito-Tab</text>
+            <line x1="36" y1="96" x2="312" y2="96" stroke="#e5e7eb"/>
+            <text x="80" y="124">Verlauf</text>
+            <text x="80" y="160">Downloads</text>
+            <text x="80" y="196">Lesezeichen</text>
+            <text x="80" y="232">Teilen …</text>
+            <text x="80" y="268" font-weight="700">App installieren</text>
+            <text x="54" y="304" fill="#6b7280" font-size="12.5">oder: Zum Startbildschirm hinzufügen</text>
+          </g>
+          <rect x="40" y="244" width="268" height="72" rx="12" fill="none" stroke="#dc2626" stroke-width="4"/>
+        </svg>
+        <figcaption>„App installieren“ (oder „Zum Startbildschirm hinzufügen“)</figcaption>
+      </figure>
+      <ol style="counter-reset: s 4;">
+        <li>Tippe auf <span class="btn-term">Installieren</span> bzw. <span class="btn-term">Hinzufügen</span>.</li>
+      </ol>
+      <figure>
+        <svg viewBox="0 0 320 230" role="img" aria-label="Dialog: Installieren">
+          <rect width="320" height="230" fill="#9ca3af"/>
+          <rect x="20" y="20" width="280" height="190" rx="24" fill="white"/>
+          <g font-family="Roboto, sans-serif">
+            <text x="44" y="60" font-size="19" fill="#202124">App installieren</text>
+            <rect x="44" y="80" width="52" height="52" rx="26" fill="#1e3a5f"/>
+            <text x="70" y="111" font-size="11" font-weight="800" text-anchor="middle" fill="white">SEDA24</text>
+            <text x="110" y="102" font-size="16" fill="#202124">SEDA24</text>
+            <text x="110" y="122" font-size="13" fill="#6b7280">app.seda.de</text>
+            <text x="118" y="183" font-size="15" font-weight="600" text-anchor="middle" fill="#1a73e8">Abbrechen</text>
+            <rect x="176" y="160" width="112" height="36" rx="18" fill="#1a73e8"/>
+            <text x="232" y="183" font-size="15" font-weight="600" text-anchor="middle" fill="white">Installieren</text>
+          </g>
+          <rect x="170" y="154" width="124" height="48" rx="24" fill="none" stroke="#dc2626" stroke-width="4"/>
+        </svg>
+        <figcaption>„Installieren“ (oder „Hinzufügen“)</figcaption>
+      </figure>
+      <ol style="counter-reset: s 5;">
+        <li>Fertig: Das <strong>SEDA24-Symbol</strong> liegt jetzt auf deinem Startbildschirm.</li>
+      </ol>
+      <figure>
+        <svg viewBox="0 0 320 220" role="img" aria-label="Startbildschirm mit SEDA24-Symbol">
+          <defs><linearGradient id="hs" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#86efac"/><stop offset="1" stop-color="#93c5fd"/></linearGradient></defs>
+          <rect width="320" height="220" fill="url(#hs)"/>
+          <g fill="white" opacity="0.6">
+            <circle cx="58" cy="52" r="28"/><circle cx="130" cy="52" r="28"/><circle cx="202" cy="52" r="28"/><circle cx="274" cy="52" r="28"/>
+            <circle cx="58" cy="140" r="28"/><circle cx="130" cy="140" r="28"/><circle cx="202" cy="140" r="28"/>
+          </g>
+          <circle cx="274" cy="140" r="28" fill="#1e3a5f"/>
+          <text x="274" y="145" font-size="12" font-weight="800" text-anchor="middle" fill="white" font-family="Roboto, sans-serif">SEDA24</text>
+          <text x="274" y="194" font-size="13" text-anchor="middle" fill="#111827" font-family="Roboto, sans-serif">SEDA24</text>
+          <circle cx="274" cy="140" r="38" fill="none" stroke="#dc2626" stroke-width="4"/>
+        </svg>
+        <figcaption>Dein SEDA24-Symbol</figcaption>
+      </figure>
+      <div class="warn-red" style="background:#1e3a5f">Ab jetzt nur noch über dieses Symbol öffnen<small>Nicht mehr über Chrome.</small></div>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 2 ===================== -->
+  <section class="step" data-step="2">
+    <button class="step-head" type="button"><span class="step-nr">2</span><span>Einmal einloggen</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <ol>
+        <li>Mach das dort, wo du <strong>sicher Netz</strong> hast. Zum Beispiel zu Hause.</li>
+        <li>Öffne die App über das <strong>SEDA24-Symbol</strong>. Nicht über Chrome.</li>
+        <li>Gib E-Mail und Passwort ein.</li>
+        <li>Lass den Haken bei <span class="btn-term">Eingeloggt bleiben</span> drin.</li>
+        <li>Tippe auf <span class="btn-term">Einloggen</span>.</li>
+      </ol>
+      <figure>
+        <img src="img/01-login.jpg" alt="Login-Maske, Haken bei Eingeloggt bleiben markiert" loading="lazy">
+        <figcaption>Haken „Eingeloggt bleiben“ drin lassen</figcaption>
+      </figure>
+      <div class="ok-box">Danach musst du dich <strong>nie wieder</strong> einloggen.</div>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 3 ===================== -->
+  <section class="step" data-step="3">
+    <button class="step-head" type="button"><span class="step-nr">3</span><span>Kommen stempeln</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <ol>
+        <li>Öffne die App über das <strong>SEDA24-Symbol</strong>.</li>
+        <li>Wähle dein <strong>Objekt</strong>.</li>
+        <li>Tippe auf <span class="btn-term">KOMMEN</span>.</li>
+      </ol>
+      <figure>
+        <img src="img/02-stempeluhr-online.jpg" alt="Stempeluhr mit WLAN-Zeichen" loading="lazy">
+        <figcaption>WLAN-Zeichen rechts neben „Stempeluhr“</figcaption>
+      </figure>
+      <div class="ok-box"><strong>WLAN-Zeichen</strong> rechts neben „Stempeluhr“: Dein Stempel ist <strong>übertragen</strong>.</div>
+      <figure>
+        <img src="img/03-nach-kommen.jpg" alt="Nach KOMMEN: Arbeitszeit läuft" loading="lazy">
+        <figcaption>Nach KOMMEN: Die Arbeitszeit läuft.</figcaption>
+      </figure>
+      <div class="info-box">Steht da <strong>„ausstehend“</strong> oder <strong>„Noch nicht übertragen“</strong>? Dann ist der Stempel <strong>auf dem Handy gespeichert</strong>. Er wird automatisch nachgeschickt.</div>
+      <figure>
+        <img src="img/04-offline-ausstehend.jpg" alt="Offline gestempelt: 1 ausstehend" loading="lazy">
+        <figcaption>Ohne Netz: „1 ausstehend“</figcaption>
+      </figure>
+      <div class="ok-box"><strong>Beides ist OK.</strong> Dein Stempel geht nicht verloren.</div>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 4 ===================== -->
+  <section class="step" data-step="4">
+    <button class="step-head" type="button"><span class="step-nr">4</span><span>App zumachen</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <p>Drücke die <strong>Home-Taste</strong> (Kreis unten in der Mitte).</p>
+      <p>Oder: Wische vom <strong>unteren Rand nach oben</strong>, wenn dein Handy keine Tasten hat.</p>
+      <p>Du brauchst keinen Zurück-Pfeil.</p>
+      <figure>
+        <svg viewBox="0 0 340 300" role="img" aria-label="Home-Taste oder von unten nach oben wischen">
+          <rect width="340" height="300" fill="#f9fafb"/>
+          <g font-family="Roboto, sans-serif" font-size="14" font-weight="700" text-anchor="middle">
+            <!-- Handy mit Tasten -->
+            <rect x="20" y="10" width="130" height="250" rx="18" fill="white" stroke="#111827" stroke-width="5"/>
+            <rect x="34" y="34" width="102" height="50" rx="8" fill="#fed7aa"/>
+            <rect x="34" y="94" width="48" height="28" rx="8" fill="#bbf7d0"/><rect x="88" y="94" width="48" height="28" rx="8" fill="#fecaca"/>
+            <rect x="25" y="214" width="120" height="40" fill="#f3f4f6"/>
+            <path d="M48 226 l-10 8 l10 8 z" fill="none" stroke="#111827" stroke-width="2.5"/>
+            <circle cx="85" cy="234" r="9" fill="none" stroke="#111827" stroke-width="2.5"/>
+            <rect x="114" y="226" width="16" height="16" rx="2" fill="none" stroke="#111827" stroke-width="2.5"/>
+            <circle cx="85" cy="234" r="19" fill="none" stroke="#dc2626" stroke-width="4"/>
+            <text x="85" y="280" fill="#dc2626">Home-Taste</text>
+            <!-- Handy mit Wischen -->
+            <rect x="190" y="10" width="130" height="250" rx="18" fill="white" stroke="#111827" stroke-width="5"/>
+            <rect x="204" y="34" width="102" height="50" rx="8" fill="#fed7aa"/>
+            <rect x="204" y="94" width="48" height="28" rx="8" fill="#bbf7d0"/><rect x="258" y="94" width="48" height="28" rx="8" fill="#fecaca"/>
+            <rect x="230" y="242" width="50" height="5" rx="2.5" fill="#111827"/>
+            <g stroke="#2563eb" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M255 230 V160"/><path d="M241 174 L255 158 L269 174"/></g>
+            <ellipse cx="255" cy="234" rx="12" ry="9" fill="#2563eb" opacity="0.35"/>
+            <text x="255" y="280" fill="#2563eb">oder nach oben</text><text x="255" y="297" fill="#2563eb">wischen</text>
+          </g>
+        </svg>
+        <figcaption>Home-Taste drücken oder von unten nach oben wischen</figcaption>
+      </figure>
+      <div class="warn-red">Nie auf „Logout“ drücken!<small>Sonst musst du dich neu einloggen. Ohne Netz geht das nicht.</small></div>
+      <figure>
+        <img src="img/07-logout-warnung.jpg" alt="Logout-Knopf rot eingekreist: nie drücken" loading="lazy">
+        <figcaption>Diesen Knopf nicht drücken</figcaption>
+      </figure>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 5 ===================== -->
+  <section class="step" data-step="5">
+    <button class="step-head" type="button"><span class="step-nr">5</span><span>Gehen stempeln</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <ol>
+        <li>Öffne die App über das <strong>SEDA24-Symbol</strong>.</li>
+        <li>Tippe auf <span class="btn-term">GEHEN</span>.</li>
+        <li>Mach die App wieder zu: <strong>Home-Taste</strong> oder von unten <strong>nach oben wischen</strong>.</li>
+      </ol>
+      <figure>
+        <img src="img/03-nach-kommen.jpg" alt="Stempeluhr mit GEHEN-Knopf" loading="lazy">
+        <figcaption>Der rote Knopf GEHEN</figcaption>
+      </figure>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== 6 ===================== -->
+  <section class="step" data-step="6">
+    <button class="step-head" type="button"><span class="step-nr">6</span><span>Ohne Netz gestempelt?</span><span class="chev">›</span></button>
+    <div class="step-body">
+      <p>Kein Problem. Dein Stempel ist auf dem Handy gespeichert.</p>
+      <figure>
+        <img src="img/05-noch-nicht-uebertragen.jpg" alt="Noch nicht übertragen" loading="lazy">
+        <figcaption>„Noch nicht übertragen“: auf dem Handy gespeichert</figcaption>
+      </figure>
+      <ol>
+        <li>Sobald du wieder Netz hast: Öffne die App kurz. Zum Beispiel im Auto, spätestens zu Hause.</li>
+        <li>Warte, bis <span class="btn-term">Alle Stempel synchronisiert</span> erscheint.</li>
+        <li>Erst dann zumachen.</li>
+      </ol>
+      <figure>
+        <img src="img/06-synchronisiert.jpg" alt="Alle Stempel synchronisiert" loading="lazy">
+        <figcaption>Jetzt ist alles übertragen.</figcaption>
+      </figure>
+      <button class="done-btn" type="button">Erledigt ✔</button>
+    </div>
+  </section>
+
+  <!-- ===================== Notfall ===================== -->
+  <div class="rescue">
+    <h2>App streikt?</h2>
+    <p style="margin-bottom:12px">Kein Problem. Deine Zeit kannst du auch so eintragen:</p>
+    <ol>
+      <li>Öffne <strong>app.seda.de</strong> in irgendeinem Browser. Auf dem Handy, Laptop oder PC.</li>
+      <li>Logge dich ein.</li>
+      <li>Tippe unter der Stempeluhr auf <span class="btn-term">Zeit nachtragen</span>.</li>
+      <li>Trage deine Zeit ein und schicke sie ab.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="back-link">
+  <a href="/hilfe/" class="light">Hilfe &amp; FAQ</a>
+  <a href="/">Zur App</a>
+</div>
+
+<script>
+(function () {
+  var KEY = 'seda_hilfe_android_v1';
+  function loadDone() {
+    try { var d = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(d) ? d : []; } catch (e) { return []; }
+  }
+  function saveDone(d) {
+    try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { /* privater Modus: ohne Speichern */ }
+  }
+  var steps = Array.prototype.slice.call(document.querySelectorAll('.step'));
+  var done = loadDone();
+
+  function setOpen(step, open) {
+    step.classList.toggle('open', open);
+    step.querySelector('.step-body').hidden = !open;
+    step.querySelector('.step-head').setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function render() {
+    steps.forEach(function (s) {
+      var nr = s.getAttribute('data-step');
+      var isDone = done.indexOf(nr) >= 0;
+      s.classList.toggle('done', isDone);
+      s.querySelector('.step-nr').textContent = isDone ? '✔' : nr;
+    });
+    document.getElementById('finished').classList.toggle('show', done.length >= steps.length);
+  }
+
+  steps.forEach(function (s, i) {
+    s.querySelector('.step-head').addEventListener('click', function () { setOpen(s, !s.classList.contains('open')); });
+    s.querySelector('.done-btn').addEventListener('click', function () {
+      var nr = s.getAttribute('data-step');
+      if (done.indexOf(nr) < 0) { done.push(nr); saveDone(done); }
+      setOpen(s, false);
+      render();
+      var next = steps[i + 1];
+      if (next) { setOpen(next, true); next.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      else { document.getElementById('finished').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    });
+  });
+  document.getElementById('expand-all').addEventListener('click', function () {
+    steps.forEach(function (s) { setOpen(s, true); });
+  });
+
+  // Start: erster noch nicht erledigter Schritt ist offen
+  var first = null;
+  steps.forEach(function (s) {
+    var open = !first && done.indexOf(s.getAttribute('data-step')) < 0;
+    if (open) first = s;
+    setOpen(s, open);
+  });
+  render();
+})();
+</script>
+</body>
+</html>

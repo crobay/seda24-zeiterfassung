@@ -1,7 +1,8 @@
-// Echte App-Screenshots fuer die Hilfeseite "iPhone - so geht's" (Chromium, iPhone-15-Groesse wie als
-// Home-Bildschirm-App ohne Safari-Leisten). Eingeloggt als T9999, Objekt TEST BrowserStack.
+// Echte App-Screenshots fuer die Hilfeseiten "iPhone/Android - so geht's" (Chromium, Handy-Groesse wie als
+// installierte App ohne Browserleisten). Eingeloggt als T9999, Objekt TEST BrowserStack.
 // Testbuchungen werden am Ende wieder geloescht.
-// Aufruf: node screenshots.mjs [--base https://app.seda.de] [--out <ordner>]
+// Aufruf: node screenshots.mjs [--device iphone|android] [--base https://app.seda.de] [--out <ordner>]
+//   iphone  = iPhone 15 (393x852), android = Pixel 7 (412x915), jeweils volle Hoehe ohne Browserleisten
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -16,7 +17,13 @@ const { chromium, devices } = await import('playwright');
 
 const arg = (name, def) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : def; };
 const BASE = arg('--base', 'https://app.seda.de');
-const OUT = arg('--out', path.join(ROOT, 'frontend/public/hilfe/iphone/img'));
+const DEVICE = arg('--device', 'iphone');
+const PROFILES = {
+  iphone: { descriptor: 'iPhone 15', viewport: { width: 393, height: 852 } },
+  android: { descriptor: 'Pixel 7', viewport: { width: 412, height: 915 } },
+};
+if (!PROFILES[DEVICE]) throw new Error('--device iphone oder android');
+const OUT = arg('--out', path.join(ROOT, `frontend/public/hilfe/${DEVICE}/img`));
 const env = Object.fromEntries(fs.readFileSync(path.join(HERE, 't9999.env'), 'utf8')
   .split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]));
 const db = (...a) => JSON.parse(execFileSync(PY, [HELPER, ...a], { env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }).toString());
@@ -25,10 +32,10 @@ fs.mkdirSync(OUT, { recursive: true });
 const start = db('precheck');
 if (start.open_entries.length) throw new Error('T9999 ist eingestempelt - erst ausstempeln');
 
-const { defaultBrowserType, ...iphone } = devices['iPhone 15'];
+const { defaultBrowserType, ...device } = devices[PROFILES[DEVICE].descriptor];
 const browser = await chromium.launch();
 const context = await browser.newContext({
-  ...iphone, viewport: { width: 393, height: 852 }, deviceScaleFactor: 2,
+  ...device, viewport: PROFILES[DEVICE].viewport, deviceScaleFactor: 2,
   locale: 'de-DE', timezoneId: 'Europe/Berlin', serviceWorkers: 'allow',
 });
 const page = await context.newPage();
@@ -139,7 +146,7 @@ try {
   await shot('07-logout-warnung.jpg', 'Logout-Knopf rot eingekreist: NIE druecken');
 } finally {
   await browser.close();
-  const c = db('cleanup', String(start.max_te_id), 'Screenshots Hilfeseite iPhone');
+  const c = db('cleanup', String(start.max_te_id), `Screenshots Hilfeseite ${DEVICE}`);
   console.log('Testbuchungen geloescht:', JSON.stringify(c));
 }
 console.log(shots.join('\n'));
