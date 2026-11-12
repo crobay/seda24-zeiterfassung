@@ -1090,6 +1090,12 @@ def check_overdue_entries():
         db.close()
 
 
+def missing_stamp_admin_text(name, personal_nr, von, bis, object_name):
+    """Admin-Meldung 60 Min nach Schichtbeginn ohne Kommen."""
+    return (f"Für {name} ({personal_nr}) liegt seit {von} keine Stempelung vor "
+            f"(geplant {von}-{bis}, {object_name}). Bitte nachfragen.")
+
+
 def check_missing_stamps():
     """
     Job 12: Alle 15 Min - Prueft ob Kat-C-Mitarbeiter laut Dienstplan eingeteilt sind,
@@ -1203,10 +1209,8 @@ def check_missing_stamps():
         for row in admin_rows:
             von = row.start_time.strftime('%H:%M') if row.start_time else '?'
             bis = row.end_time.strftime('%H:%M') if row.end_time else '?'
-            msg_body = (f"Fuer {row.first_name} {row.last_name} ({row.personal_nr}) "
-                        f"liegt heute noch keine Stempelung vor "
-                        f"(geplant {von}-{bis}, {row.object_name}). "
-                        f"Moeglicherweise offline gestempelt und noch nicht uebertragen.")
+            msg_body = missing_stamp_admin_text(f"{row.first_name} {row.last_name}", row.personal_nr,
+                                                von, bis, row.object_name)
             pn_status = 'sent'
             pn_error = None
             try:

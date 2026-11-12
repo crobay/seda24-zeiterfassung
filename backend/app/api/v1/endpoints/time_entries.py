@@ -13,8 +13,10 @@ from app.schemas.time_entry_schema import CheckIn, CheckOut, TimeEntryResponse
 from app.core.validation_service import ValidationService
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.bie2_logger import log_bie2
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_client_ip(request: Request):
@@ -36,6 +38,28 @@ def get_client_ip(request: Request):
 
 
 # ========== Bie2 Hilfsfunktionen ==========
+
+def late_check_in_text(name: str, stamp_time: datetime, start_time, end_time=None) -> str:
+    """Admin-Hinweis, wenn nach der Meldung "keine Stempelung" doch noch ein Kommen eingeht."""
+    planned_start = datetime.combine(stamp_time.date(), start_time)
+    delay_min = max(0, round((stamp_time - planned_start).total_seconds() / 60))
+    hours, mins = divmod(delay_min, 60)
+    if hours and mins:
+        delay = f"{hours} h {mins} min"
+    elif hours:
+        delay = f"{hours} h"
+    else:
+        delay = f"{mins} min"
+    text = (f"\u26a0\ufe0f {name} hat erst um {stamp_time.strftime('%H:%M')} Kommen gestempelt, "
+            f"{delay} nach Schichtbeginn {start_time.strftime('%H:%M')}")
+    if end_time:
+        planned_end = datetime.combine(stamp_time.date(), end_time)
+        if end_time <= start_time:  # Schicht ueber Mitternacht
+            planned_end += timedelta(days=1)
+        if stamp_time > planned_end:
+            return text + f" \u2013 nach Schichtende ({end_time.strftime('%H:%M')})! Bitte prüfen."
+    return text + ". Bitte prüfen."
+
 
 def is_c_assignment(employee_id: int, object_id: int, db) -> bool:
     """Prueft ob die Zuweisung tracking_category=C hat."""
@@ -590,21 +614,12 @@ async def check_in(
                     Schedule.date == stamp_time.date(),
                     Schedule.no_stamp_notified == True
                 ).first()
-            if notified_sched:
-                delay_text = ""
-                if notified_sched.start_time:
-                    planned_start = datetime.combine(stamp_time.date(), notified_sched.start_time)
-                    delay_min = round((stamp_time - planned_start).total_seconds() / 60)
-                    if delay_min >= 60:
-                        hours, mins = divmod(delay_min, 60)
-                        delay_text = f", verzoegert um {hours}h {mins}min"
-                    elif delay_min > 0:
-                        delay_text = f", verzoegert um {delay_min}min"
+            if notified_sched and notified_sched.start_time:
+                late_text = late_check_in_text(f"{employee.first_name} {employee.last_name}", stamp_time,
+                                               notified_sched.start_time, notified_sched.end_time)
+                logger.info(f"Spaetes Kommen gemeldet (Eintrag {time_entry.id}, Schicht {notified_sched.id}): {late_text}")
                 from app.services.telegram_bot import notify_admin
-                notify_admin(
-                    f"Stempelung ist eingegangen fuer {employee.first_name} {employee.last_name} "
-                    f"({stamp_time.strftime('%H:%M')}{delay_text}).", category="sonstiges"
-                )
+                notify_admin(late_text, category="sonstiges", ref_type="late_check_in", ref_id=time_entry.id)
 
         return time_entry
     except Exception as e:
