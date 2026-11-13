@@ -37,3 +37,7 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# Zeiterfassungs-Export (Personendaten) und Export-Schluessel - nie ins Git
+backend/exports/
+backend/secrets/

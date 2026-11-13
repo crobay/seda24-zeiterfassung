@@ -14,13 +14,6 @@ from app.services import push_service
 
 logger = logging.getLogger(__name__)
 
-# --- TEMPORAERE TEST-AUSNAHME (2026-10-21) ---------------------------------
-# auto_book_category_a ueberspringt diese Employee-IDs (Manuell-Stempel-Test).
-# Zum Entfernen: Liste leeren -> AUTO_BOOK_SKIP_EMPLOYEE_IDS = set()
-# Enthaelt: 4 = D0002 Ruzica Sertic
-AUTO_BOOK_SKIP_EMPLOYEE_IDS = {4}
-# ---------------------------------------------------------------------------
-
 scheduler = BackgroundScheduler()
 
 
@@ -149,8 +142,17 @@ def init_scheduler():
         max_instances=1,
     )
 
+    # Job 13: Zeiterfassungs-Export Vormonat erzeugt und nach Q: abgeholt? (3. jeden Monats, 12:00)
+    scheduler.add_job(
+        check_export_fetched,
+        CronTrigger(day=3, hour=12, minute=0),
+        id='check_export_fetched',
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
-    logger.info("APScheduler gestartet mit 12 Jobs")
+    logger.info("APScheduler gestartet mit 13 Jobs")
 
 
 def shutdown_scheduler():
@@ -371,9 +373,6 @@ def auto_book_category_a():
         ).all()
 
         for sched in schedules:
-            if sched.employee_id in AUTO_BOOK_SKIP_EMPLOYEE_IDS:
-                logger.info(f"auto_book_category_a: Employee {sched.employee_id} per TEST-SKIP-Liste uebersprungen")
-                continue
             if not sched.end_time:
                 continue
             # Festgehalt: keine Werktags-Automatik (Sonntage regelt sonntag_d0002 weiter unten)
@@ -1249,3 +1248,30 @@ def check_missing_stamps():
         db.rollback()
     finally:
         db.close()
+
+
+def check_export_fetched():
+    """Am 3. um 12:00: Gibt es zeiterfassung_<Vormonat>.csv (Cron am 1. um 03:00) und wurde sie von
+    Drazens PC abgeholt (Audit export_abruf)? Sonst Telegram - deckt den Fall ab, dass der PC den
+    Server gar nicht erreicht und deshalb selbst keinen Fehler melden kann."""
+    import os
+    from sqlalchemy import text
+    from app.services.telegram_bot import notify_admin
+    prev = (date.today().replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
+    name = f"zeiterfassung_{prev}.csv"
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        'exports', 'zeiterfassung', name)
+    if not os.path.isfile(path):
+        notify_admin(f"\u26a0\ufe0f Zeiterfassungs-Export {name} wurde nicht erzeugt (Cron am 1. um 03:00). "
+                     f"Bitte pruefen: backend/logs/export_zeiterfassung.log", category="sonstiges")
+        return
+    db = SessionLocal()
+    try:
+        fetched = db.execute(text("""SELECT 1 FROM audit_log WHERE action = 'export_abruf'
+                                     AND details LIKE :d AND created_at >= :since LIMIT 1"""),
+                             {"d": f"Export {name} %", "since": date.today().replace(day=1)}).first()
+    finally:
+        db.close()
+    if not fetched:
+        notify_admin(f"\u26a0\ufe0f Zeiterfassungs-Export {name} wurde noch nicht nach Q: abgeholt. "
+                     f"Bitte Drazens PC pruefen (Aufgabe \"SEDA24 Zeiterfassung Export\").", category="sonstiges")

@@ -11,7 +11,7 @@ from app.api.v1.endpoints import (
     corrections, warnings, quick_booking, hours_management,
     admin, schedule, vacation, km
 )
-from app.api.v1.endpoints import push, confirmations, messages, self_booking, fest
+from app.api.v1.endpoints import push, confirmations, messages, self_booking, fest, export
 from app.middleware.audit import AuditMiddleware
 from app.services.scheduler import init_scheduler, shutdown_scheduler
 from app.services.telegram_bot import start_bot as start_telegram_bot, stop_bot as stop_telegram_bot
@@ -125,6 +125,7 @@ app.include_router(confirmations.router, prefix="/api/v1/confirmations", tags=["
 app.include_router(messages.router, prefix="/api/v1/messages", tags=["messages"])
 app.include_router(self_booking.router, prefix="/api/v1/self-booking", tags=["self-booking"])
 app.include_router(fest.router, prefix="/api/v1/fest", tags=["fest"])
+app.include_router(export.router, prefix="/api/v1/export", tags=["export"])
 
 
 @app.on_event("startup")
