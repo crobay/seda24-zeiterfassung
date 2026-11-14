@@ -9,7 +9,7 @@ Zeiterfassungs-Export fuer die Buchhaltung (Deckungsbeitrag je Objekt), DB nur l
 
   export_zeiterfassung.py --exporttag       wie ohne Option, aber nur am Exporttag (sonst still beenden)
 
-Cron: an Tag 1-7 um 14:00 mit --exporttag -> Export des Vormonats am 1. Werktag des Folgemonats
+Cron: taeglich um 14:00 mit --exporttag -> Export des Vormonats am 1. Werktag des Folgemonats
 (Mo-Fr ohne Feiertage BW, app/services/export_termine.py). Abruf von Drazens PC ueber /api/v1/export/zeiterfassung
 (Endpunkt app/api/v1/endpoints/export.py, Windows-Skript frontend/public/downloads/seda24_export_abruf.ps1).
 
@@ -19,6 +19,7 @@ Test-/Admin-Konten (is_test, T9999, TEST01, A0001) und Test-Objekte fehlen.
 """
 import argparse
 import csv
+import hashlib
 import os
 import sys
 from collections import defaultdict
@@ -240,7 +241,13 @@ def main():
               ['Objekt-ID', 'Objekt', 'Objekt_Adresse', 'Objekt_aktiv', 'Kunden-ID', 'Kunde', 'Kunden_Adresse',
                'Kunde_aktiv', 'Hinweis'], objs)
     write_csv(os.path.join(a.out, 'qualitaet.csv'), QUALITY_HDR, quality)
-    print(f"{datetime.now():%Y-%m-%d %H:%M:%S} Export bis {bis}: " + ', '.join(written) + f" | Objekte {len(objs)}")
+    detail = ''
+    if months:
+        p = os.path.join(a.out, f'zeiterfassung_{months[0]}.csv')
+        with open(p, 'rb') as f:
+            detail = f" | {os.path.basename(p)} {os.path.getsize(p)} Bytes, SHA-256 {hashlib.sha256(f.read()).hexdigest()[:12]}"
+    print(f"{datetime.now():%Y-%m-%d %H:%M:%S} {'Exporttag ' if a.exporttag else ''}Export bis {bis}: "
+          + ', '.join(written) + f" | Objekte {len(objs)}" + detail)
 
 
 if __name__ == '__main__':

@@ -5,9 +5,11 @@ SEDA24 Zeiterfassung - monatlicher Export fuer die Buchhaltung nach
 Der Server erzeugt am 1. Werktag des Monats (Mo-Fr ohne Feiertage BW) um 14:00
 zeiterfassung_JJJJ-MM.csv (Vormonat) und objekte_kunden.csv neu.
 Dieses Skript holt sie per HTTPS ab (eigener Export-Schluessel, gilt nur fuer diese Dateien).
-Die Windows-Aufgabe "SEDA24 Zeiterfassung Export" startet es taeglich um 15:00 und zusaetzlich
+Die Windows-Aufgabe "SEDA24 Zeiterfassung Export" startet es taeglich um 15:05 und zusaetzlich
 10 Minuten nach jeder Anmeldung (holt einen verpassten Lauf nach, wenn der PC aus war).
-Ist die Datei des Vormonats schon in Q:, endet es sofort ohne Serverzugriff.
+Jeder Lauf fragt die Liste ab und holt jede Datei, die in Q: fehlt, anders ist oder auf dem Server
+neu erzeugt wurde (Stand je Datei in stand.txt) - so kommt auch ein korrigiert neu gelieferter Monat an.
+Danach bestaetigt es dem Server, welche Dateien jetzt in Q: liegen (Quittung).
 Vor 15:00 am Exporttag oder solange die Datei auf dem Server noch fehlt: still beenden, spaeter erneut.
 Bei Fehlern: Telegram-Meldung ueber den Server; ist der Server nicht erreichbar, ein Hinweisfenster.
 
@@ -28,6 +30,7 @@ $Ziel     = 'Q:\03_Auswertungen\Kennzahlen\Rohdaten\Zeiterfassung'
 $AppDir   = Join-Path $env:LOCALAPPDATA 'SEDA24-Export'
 $KeyFile  = Join-Path $AppDir 'schluessel.dat'
 $LogFile  = Join-Path $AppDir 'abruf.log'
+$StandFile = Join-Path $AppDir 'stand.txt'   # je Datei: Name <TAB> Server-Stand (modified) der geholten Version
 $TaskName = 'SEDA24 Zeiterfassung Export'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
@@ -65,6 +68,33 @@ function Get-Liste([string]$Key) {
     Invoke-RestMethod -Uri $Base -Headers @{ 'X-Export-Key' = $Key } -TimeoutSec 60
 }
 
+function Get-Stand {
+    $stand = @{}
+    if (Test-Path -LiteralPath $StandFile) {
+        foreach ($z in Get-Content -LiteralPath $StandFile) {
+            $t = $z -split "`t"
+            if ($t.Count -eq 2) { $stand[$t[0]] = $t[1] }
+        }
+    }
+    $stand
+}
+
+function Save-Stand($Stand) {
+    $Stand.Keys | Sort-Object | ForEach-Object { "$_`t$($Stand[$_])" } | Set-Content -LiteralPath $StandFile -Encoding ASCII
+}
+
+function Send-Quittung($Dateien) {
+    try {
+        $body = @{ dateien = @($Dateien); rechner = $env:COMPUTERNAME } | ConvertTo-Json -Depth 3
+        Invoke-RestMethod -Method Post -Uri "$Base/quittung" -Headers @{ 'X-Export-Key' = (Get-ExportKey) } `
+            -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) `
+            -TimeoutSec 30 | Out-Null
+        Write-Log 'Quittung an den Server gesendet'
+    } catch {
+        Write-Log "Quittung nicht moeglich: $($_.Exception.Message)"
+    }
+}
+
 function Invoke-Abruf {
     $vormonat = (Get-Date -Day 1).AddMonths(-1).ToString('yyyy-MM')
     $soll = "zeiterfassung_$vormonat.csv"
@@ -73,14 +103,10 @@ function Invoke-Abruf {
         New-Item -ItemType Directory -Force -Path $Ziel | Out-Null
         Write-Log "Zielordner angelegt: $Ziel"
     }
-    if ((Test-Path -LiteralPath (Join-Path $Ziel $soll)) -and -not $Jetzt) {
-        Write-Log "$soll ist schon in Q:, nichts zu tun"
-        return
-    }
     $key = Get-ExportKey
     $liste = Get-Liste $key
     if (-not $Jetzt) {
-        # Server nennt den Abrufbeginn (Exporttag 15:00); fehlt die Datei noch: kein Fehler, naechster Lauf
+        # Server nennt den Abrufbeginn (Exporttag 15:00); vorher oder ohne Datei: kein Fehler, naechster Lauf
         if ($liste.abruf_ab -and (Get-Date) -lt [datetime]$liste.abruf_ab) {
             Write-Log "$soll erst ab $(([datetime]$liste.abruf_ab).ToString('dd.MM.yyyy HH:mm')) abrufbar, spaeter erneut"
             return
@@ -90,10 +116,14 @@ function Invoke-Abruf {
             return
         }
     }
-    $neu = 0
+    $stand = Get-Stand
+    $geholt = @()
     foreach ($f in $liste.files) {
         $dst = Join-Path $Ziel $f.name
-        if ((Test-Path -LiteralPath $dst) -and ((Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash -eq $f.sha256)) { continue }
+        $mod = "$($f.modified)"   # immer als Text vergleichen/speichern
+        $gleich = (Test-Path -LiteralPath $dst) -and ((Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash -eq $f.sha256)
+        if ($gleich -and $stand[$f.name] -eq $mod) { continue }
+        $grund = if (-not (Test-Path -LiteralPath $dst)) { 'fehlte in Q:' } elseif (-not $gleich) { 'Inhalt anders' } else { "neu erzeugt am $mod" }
         $tmp = Join-Path $AppDir ($f.name + '.tmp')
         Invoke-WebRequest -UseBasicParsing -Uri "$Base/$($f.name)" -Headers @{ 'X-Export-Key' = $key } -OutFile $tmp -TimeoutSec 120
         if ((Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash -ne $f.sha256) {
@@ -102,10 +132,15 @@ function Invoke-Abruf {
         }
         Copy-Item -LiteralPath $tmp -Destination $dst -Force
         Remove-Item -LiteralPath $tmp -Force
-        Write-Log "geholt: $($f.name) ($($f.size) Bytes)"
-        $neu++
+        $kopie = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash
+        if ($kopie -ne $f.sha256) { throw "Kopie in Q: weicht ab: $($f.name)" }
+        $stand[$f.name] = $mod
+        Save-Stand $stand
+        Write-Log "geholt: $($f.name) ($($f.size) Bytes, $grund)"
+        $geholt += @{ name = $f.name; sha256 = $kopie.ToLower() }
     }
-    Write-Log "fertig: $neu Datei(en) neu oder aktualisiert in $Ziel"
+    if ($geholt.Count) { Send-Quittung $geholt }
+    Write-Log "fertig: $($geholt.Count) Datei(en) neu oder aktualisiert in $Ziel"
 }
 
 function Install-Aufgabe {
@@ -126,11 +161,11 @@ function Install-Aufgabe {
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Holt den Zeiterfassungs-Export des Vormonats von app.seda.de nach Q: (Buchhaltung), ab 15:00 am 1. Werktag des Monats. Laeuft taeglich um 15:00 und nach jeder Anmeldung, bis die Datei in Q: liegt.</Description>
+    <Description>Holt den Zeiterfassungs-Export des Vormonats von app.seda.de nach Q: (Buchhaltung), ab 15:00 am 1. Werktag des Monats. Laeuft taeglich um 15:05 und nach jeder Anmeldung und holt neue oder neu erzeugte Dateien.</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2026-11-01T15:00:00</StartBoundary>
+      <StartBoundary>2026-11-01T15:05:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
     </CalendarTrigger>
@@ -165,13 +200,13 @@ function Install-Aufgabe {
 </Task>
 "@
     Register-ScheduledTask -TaskName $TaskName -Xml $xml -Force | Out-Null
-    Write-Log "Aufgabe '$TaskName' eingerichtet (taeglich 15:00 und 10 Min nach Anmeldung)"
+    Write-Log "Aufgabe '$TaskName' eingerichtet (taeglich 15:05 und 10 Min nach Anmeldung)"
 }
 
 try {
     if ($Uninstall) {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $KeyFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $KeyFile, $StandFile -Force -ErrorAction SilentlyContinue
         Write-Log "Aufgabe '$TaskName' und Schluessel entfernt"
         return
     }

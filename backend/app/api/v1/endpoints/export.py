@@ -81,6 +81,7 @@ def list_files(request: Request, db: Session = Depends(get_db)):
     """Verfuegbare Dateien mit Groesse, Stand und SHA-256 (die Liste selbst wird nicht protokolliert).
     vormonat/abruf_ab: das Windows-Skript holt die Vormonatsdatei erst ab 15:00 am Exporttag."""
     _check(request, db, 'Liste')
+    logger.info('Export-Liste abgefragt von %s (%s)', _client_ip(request), request.headers.get('user-agent', '')[:80])
     files = []
     for name in sorted(os.listdir(EXPORT_DIR)) if os.path.isdir(EXPORT_DIR) else []:
         if FILE_RE.match(name):
@@ -100,6 +101,23 @@ def download(name: str, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail='Datei nicht vorhanden')
     _audit(db, request, 'export_abruf', f'Export {name} abgerufen ({os.path.getsize(path)} Bytes)')
     return FileResponse(path, media_type='text/csv; charset=utf-8', filename=name)
+
+
+@router.post('/zeiterfassung/quittung')
+def confirm(request: Request, payload: dict = Body(...), db: Session = Depends(get_db)):
+    """Bestaetigung des Windows-Skripts: diese Dateien liegen jetzt in Q: (Name + SHA-256 der Kopie)."""
+    _check(request, db, 'Quittung')
+    pc = str(payload.get('rechner', 'PC'))[:40]
+    items = []
+    for f in (payload.get('dateien') or [])[:50]:
+        name = str((f or {}).get('name', ''))
+        if FILE_RE.match(name):
+            sha = str(f.get('sha256', '')).lower()[:64]
+            path = os.path.join(EXPORT_DIR, name)
+            same = os.path.isfile(path) and sha == _sha256(path)
+            items.append(f"{name} ({sha[:12]}{'' if same else ', WEICHT VOM SERVER AB'})")
+    _audit(db, request, 'export_quittung', f"In Q: aktualisiert ({pc}): " + (', '.join(items) or 'keine Dateien'))
+    return {'ok': True}
 
 
 @router.post('/zeiterfassung/fehler')

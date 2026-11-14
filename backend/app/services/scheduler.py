@@ -1276,8 +1276,15 @@ def check_export_fetched():
         fetched = db.execute(text("""SELECT 1 FROM audit_log WHERE action = 'export_abruf'
                                      AND details LIKE :d AND created_at >= :since LIMIT 1"""),
                              {"d": f"Export {name} %", "since": datetime.combine(et, EXPORT_ZEIT)}).first()
+        confirmed = db.execute(text("""SELECT 1 FROM audit_log WHERE action = 'export_quittung'
+                                       AND details LIKE :d AND created_at >= :since LIMIT 1"""),
+                               {"d": f"%{name} (%", "since": datetime.combine(et, EXPORT_ZEIT)}).first()
     finally:
         db.close()
     if not fetched:
         notify_admin(f"\u26a0\ufe0f Zeiterfassungs-Export {name} wurde noch nicht nach Q: abgeholt. "
                      f"Bitte Drazens PC pruefen (Aufgabe \"SEDA24 Zeiterfassung Export\").", category="sonstiges")
+    elif not confirmed:
+        notify_admin(f"\u26a0\ufe0f Zeiterfassungs-Export {name} wurde abgerufen, aber der PC hat nicht bestaetigt, "
+                     f"dass sie in Q: liegt. Bitte Protokoll %LOCALAPPDATA%\\SEDA24-Export\\abruf.log pruefen.",
+                     category="sonstiges")
