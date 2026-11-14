@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.models import AuditLog
+from app.services.export_termine import ABRUF_ZEIT, exporttag, vormonat
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -77,7 +78,8 @@ def _sha256(path):
 
 @router.get('/zeiterfassung')
 def list_files(request: Request, db: Session = Depends(get_db)):
-    """Verfuegbare Dateien mit Groesse, Stand und SHA-256 (die Liste selbst wird nicht protokolliert)."""
+    """Verfuegbare Dateien mit Groesse, Stand und SHA-256 (die Liste selbst wird nicht protokolliert).
+    vormonat/abruf_ab: das Windows-Skript holt die Vormonatsdatei erst ab 15:00 am Exporttag."""
     _check(request, db, 'Liste')
     files = []
     for name in sorted(os.listdir(EXPORT_DIR)) if os.path.isdir(EXPORT_DIR) else []:
@@ -85,7 +87,9 @@ def list_files(request: Request, db: Session = Depends(get_db)):
             p = os.path.join(EXPORT_DIR, name)
             files.append({'name': name, 'size': os.path.getsize(p), 'sha256': _sha256(p),
                           'modified': datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec='seconds')})
-    return {'files': files}
+    vm = vormonat()
+    return {'files': files, 'vormonat': vm,
+            'abruf_ab': datetime.combine(exporttag(vm), ABRUF_ZEIT).isoformat(timespec='seconds')}
 
 
 @router.get('/zeiterfassung/{name}')

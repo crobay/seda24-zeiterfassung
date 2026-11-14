@@ -2,11 +2,13 @@
 SEDA24 Zeiterfassung - monatlicher Export fuer die Buchhaltung nach
   Q:\03_Auswertungen\Kennzahlen\Rohdaten\Zeiterfassung\
 
-Der Server erzeugt am 1. um 03:00 zeiterfassung_JJJJ-MM.csv (Vormonat) und objekte_kunden.csv.
+Der Server erzeugt am 1. Werktag des Monats (Mo-Fr ohne Feiertage BW) um 14:00
+zeiterfassung_JJJJ-MM.csv (Vormonat) und objekte_kunden.csv neu.
 Dieses Skript holt sie per HTTPS ab (eigener Export-Schluessel, gilt nur fuer diese Dateien).
-Die Windows-Aufgabe "SEDA24 Zeiterfassung Export" startet es am 1. um 06:00 und zusaetzlich
+Die Windows-Aufgabe "SEDA24 Zeiterfassung Export" startet es taeglich um 15:00 und zusaetzlich
 10 Minuten nach jeder Anmeldung (holt einen verpassten Lauf nach, wenn der PC aus war).
 Ist die Datei des Vormonats schon in Q:, endet es sofort ohne Serverzugriff.
+Vor 15:00 am Exporttag oder solange die Datei auf dem Server noch fehlt: still beenden, spaeter erneut.
 Bei Fehlern: Telegram-Meldung ueber den Server; ist der Server nicht erreichbar, ein Hinweisfenster.
 
 Einrichten (einmalig, als der Benutzer, der Q: verbunden hat - keine Admin-Rechte noetig):
@@ -77,10 +79,16 @@ function Invoke-Abruf {
     }
     $key = Get-ExportKey
     $liste = Get-Liste $key
-    if (-not ($liste.files | Where-Object { $_.name -eq $soll })) {
-        $jetzt = Get-Date
-        if ($jetzt.Day -eq 1 -and $jetzt.Hour -lt 6) { Write-Log "$soll wird erst um 03:00 erzeugt, spaeter erneut"; return }
-        throw "$soll liegt auf dem Server nicht vor (Export am 1. um 03:00 gelaufen?)"
+    if (-not $Jetzt) {
+        # Server nennt den Abrufbeginn (Exporttag 15:00); fehlt die Datei noch: kein Fehler, naechster Lauf
+        if ($liste.abruf_ab -and (Get-Date) -lt [datetime]$liste.abruf_ab) {
+            Write-Log "$soll erst ab $(([datetime]$liste.abruf_ab).ToString('dd.MM.yyyy HH:mm')) abrufbar, spaeter erneut"
+            return
+        }
+        if (-not ($liste.files | Where-Object { $_.name -eq $soll })) {
+            Write-Log "$soll liegt auf dem Server noch nicht vor, spaeter erneut"
+            return
+        }
     }
     $neu = 0
     foreach ($f in $liste.files) {
@@ -118,16 +126,13 @@ function Install-Aufgabe {
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Holt am 1. den Zeiterfassungs-Export des Vormonats von app.seda.de nach Q: (Buchhaltung). Nach Anmeldung wird ein verpasster Lauf nachgeholt.</Description>
+    <Description>Holt den Zeiterfassungs-Export des Vormonats von app.seda.de nach Q: (Buchhaltung), ab 15:00 am 1. Werktag des Monats. Laeuft taeglich um 15:00 und nach jeder Anmeldung, bis die Datei in Q: liegt.</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2026-11-01T06:00:00</StartBoundary>
+      <StartBoundary>2026-11-01T15:00:00</StartBoundary>
       <Enabled>true</Enabled>
-      <ScheduleByMonth>
-        <DaysOfMonth><Day>1</Day></DaysOfMonth>
-        <Months><January /><February /><March /><April /><May /><June /><July /><August /><September /><October /><November /><December /></Months>
-      </ScheduleByMonth>
+      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
     </CalendarTrigger>
     <LogonTrigger>
       <Enabled>true</Enabled>
@@ -160,7 +165,7 @@ function Install-Aufgabe {
 </Task>
 "@
     Register-ScheduledTask -TaskName $TaskName -Xml $xml -Force | Out-Null
-    Write-Log "Aufgabe '$TaskName' eingerichtet (am 1. um 06:00 und 10 Min nach Anmeldung)"
+    Write-Log "Aufgabe '$TaskName' eingerichtet (taeglich 15:00 und 10 Min nach Anmeldung)"
 }
 
 try {

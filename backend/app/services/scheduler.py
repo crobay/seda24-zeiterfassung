@@ -142,10 +142,11 @@ def init_scheduler():
         max_instances=1,
     )
 
-    # Job 13: Zeiterfassungs-Export Vormonat erzeugt und nach Q: abgeholt? (3. jeden Monats, 12:00)
+    # Job 13: Zeiterfassungs-Export Vormonat erzeugt und nach Q: abgeholt? (taeglich 12:00, meldet nur
+    # am Kontrolltag = 2 Werktage nach dem Exporttag, siehe export_termine.py)
     scheduler.add_job(
         check_export_fetched,
-        CronTrigger(day=3, hour=12, minute=0),
+        CronTrigger(hour=12, minute=0),
         id='check_export_fetched',
         replace_existing=True,
         max_instances=1,
@@ -1251,25 +1252,30 @@ def check_missing_stamps():
 
 
 def check_export_fetched():
-    """Am 3. um 12:00: Gibt es zeiterfassung_<Vormonat>.csv (Cron am 1. um 03:00) und wurde sie von
-    Drazens PC abgeholt (Audit export_abruf)? Sonst Telegram - deckt den Fall ab, dass der PC den
-    Server gar nicht erreicht und deshalb selbst keinen Fehler melden kann."""
+    """Taeglich 12:00, aktiv nur am Kontrolltag (2 Werktage nach dem Exporttag = 1. Werktag des Monats,
+    Export um 14:00): Gibt es zeiterfassung_<Vormonat>.csv und wurde sie seit dem Export von Drazens PC
+    abgeholt (Audit export_abruf)? Sonst Telegram - deckt den Fall ab, dass der PC den Server gar nicht
+    erreicht und deshalb selbst keinen Fehler melden kann."""
     import os
     from sqlalchemy import text
     from app.services.telegram_bot import notify_admin
-    prev = (date.today().replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
+    from app.services.export_termine import vormonat, exporttag, kontrolltag, EXPORT_ZEIT
+    prev = vormonat()
+    if date.today() != kontrolltag(prev):
+        return
+    et = exporttag(prev)
     name = f"zeiterfassung_{prev}.csv"
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                         'exports', 'zeiterfassung', name)
     if not os.path.isfile(path):
-        notify_admin(f"\u26a0\ufe0f Zeiterfassungs-Export {name} wurde nicht erzeugt (Cron am 1. um 03:00). "
+        notify_admin(f"\u26a0\ufe0f Zeiterfassungs-Export {name} wurde nicht erzeugt (Export am {et:%d.%m.} um 14:00). "
                      f"Bitte pruefen: backend/logs/export_zeiterfassung.log", category="sonstiges")
         return
     db = SessionLocal()
     try:
         fetched = db.execute(text("""SELECT 1 FROM audit_log WHERE action = 'export_abruf'
                                      AND details LIKE :d AND created_at >= :since LIMIT 1"""),
-                             {"d": f"Export {name} %", "since": date.today().replace(day=1)}).first()
+                             {"d": f"Export {name} %", "since": datetime.combine(et, EXPORT_ZEIT)}).first()
     finally:
         db.close()
     if not fetched:

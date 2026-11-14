@@ -7,7 +7,10 @@ Zeiterfassungs-Export fuer die Buchhaltung (Deckungsbeitrag je Objekt), DB nur l
   export_zeiterfassung.py --alle --bis 2026-10-31
                                              alle Monate ab dem ersten Eintrag bis zum Stichtag
 
-Cron: am 1. um 03:00 fuer den Vormonat. Abruf von Drazens PC ueber /api/v1/export/zeiterfassung
+  export_zeiterfassung.py --exporttag       wie ohne Option, aber nur am Exporttag (sonst still beenden)
+
+Cron: an Tag 1-7 um 14:00 mit --exporttag -> Export des Vormonats am 1. Werktag des Folgemonats
+(Mo-Fr ohne Feiertage BW, app/services/export_termine.py). Abruf von Drazens PC ueber /api/v1/export/zeiterfassung
 (Endpunkt app/api/v1/endpoints/export.py, Windows-Skript frontend/public/downloads/seda24_export_abruf.ps1).
 
 Eine Zeile je Einsatz; Semikolon, Dezimalkomma, UTF-8 (mit BOM fuer Excel), Datum JJJJ-MM-TT, keine Summen.
@@ -26,6 +29,8 @@ from sqlalchemy import create_engine, text
 
 BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(BACKEND, '.env'))
+sys.path.insert(0, BACKEND)
+from app.services.export_termine import exporttag, vormonat  # noqa: E402
 OUT_DEFAULT = os.path.join(BACKEND, 'exports', 'zeiterfassung')
 EXCL_PNR = ('T9999', 'TEST01', 'A0001')          # Test-/Admin-Konten
 OBJ_URLAUB, OBJ_KRANK = 999, 19                  # Hilfsobjekte, kein Einsatzort
@@ -202,7 +207,10 @@ def main():
     ap.add_argument('--alle', action='store_true', help='alle Monate bis --bis')
     ap.add_argument('--bis', help='Stichtag JJJJ-MM-TT fuer --alle (Standard: Ende Vormonat)')
     ap.add_argument('--out', default=OUT_DEFAULT)
+    ap.add_argument('--exporttag', action='store_true', help='nur am 1. Werktag des Monats exportieren (Cron)')
     a = ap.parse_args()
+    if a.exporttag and date.today() != exporttag(vormonat()):
+        return
 
     first_this_month = date.today().replace(day=1)
     if a.alle:
