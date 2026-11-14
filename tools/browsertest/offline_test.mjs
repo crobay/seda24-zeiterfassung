@@ -82,11 +82,19 @@ try {
   const keys = await page.evaluate(() => caches.keys());
   if (EXPECT_CACHE) ok('Cache dieses Deploys vorhanden', keys.includes(EXPECT_CACHE), keys.join(', '));
 
-  // 2) Einloggen (Eingeloggt bleiben ist angehakt)
+  // 2) Einloggen (Eingeloggt bleiben ist angehakt). Passwort wird nie ausgegeben.
+  const pw = env.T9999_PASSWORD || '';
+  const pwClasses = [/[a-z]/, /[A-Z]/, /[0-9]/].filter((r) => r.test(pw)).length;
+  ok('T9999-Passwort stark (mind. 24 Zeichen, gross/klein/Ziffer)', pw.length >= 24 && pwClasses === 3, `${pw.length} Zeichen`);
   await page.fill('input[name=email]', env.T9999_EMAIL);
-  await page.fill('input[name=password]', env.T9999_PASSWORD);
+  await page.fill('input[name=password]', pw);
   await page.click('button[type=submit]');
-  await page.waitForURL('**/dashboard');
+  try {
+    await page.waitForURL('**/dashboard', { timeout: 15000 });
+  } catch (e) {
+    ok('Login T9999', false, 't9999.env passt nicht zum Konto oder Login gesperrt');
+    throw e;
+  }
   await page.getByRole('button', { name: 'KOMMEN', exact: true }).waitFor();
   const opt = page.locator('select').filter({ hasText: 'TEST BrowserStack' }).first();
   if (await opt.count()) await opt.selectOption({ label: 'TEST BrowserStack' });

@@ -97,6 +97,7 @@ def _sched_snap(s):
         "objekt_id": s.object_id,
         "status": s.status,
         "employee_id": s.employee_id,
+        "fahrer": bool(s.is_driver),
     }
 
 
@@ -625,7 +626,8 @@ def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(v
         start_time=time(int(start_parts[0]), int(start_parts[1])),
         end_time=time(int(end_parts[0]), int(end_parts[1])),
         planned_hours=hours_diff,  # Automatisch berechnet!
-        status=data.get("status", "normal")
+        status=data.get("status", "normal"),
+        is_driver=bool(data.get("is_driver", True)),  # Fahrer-Haken aus der Maske, Standard wie Maske: an
     )
 
     db.add(schedule)
@@ -639,7 +641,7 @@ def create_schedule(data: dict, db: Session = Depends(get_db), admin = Depends(v
     obj_name = obj.name if obj else str(data["object_id"])
     log_audit(db, admin.id, data["employee_id"], 'schedule_created',
         entity_type='schedule', entity_id=schedule.id,
-        new_value={"datum": str(schedule_date), "zeit": f"{data['start_time']}-{data['end_time']}", "stunden": hours_diff, "objekt": obj_name, "status": data.get("status", "normal")},
+        new_value={"datum": str(schedule_date), "zeit": f"{data['start_time']}-{data['end_time']}", "stunden": hours_diff, "objekt": obj_name, "status": data.get("status", "normal"), "fahrer": schedule.is_driver},
         details=f"Dienstplan: {emp_name}, {schedule_date.strftime('%d.%m.%Y') if schedule_date else '?'}, {data['start_time']}-{data['end_time']}, {obj_name}")
     db.commit()
 
@@ -658,7 +660,7 @@ def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db),
     if not schedule:
         raise HTTPException(status_code=404)
 
-    old_schedule = {"datum": str(schedule.date), "zeit": f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}", "objekt_id": schedule.object_id, "status": schedule.status}
+    old_schedule = {"datum": str(schedule.date), "zeit": f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}", "objekt_id": schedule.object_id, "status": schedule.status, "fahrer": bool(schedule.is_driver)}
 
     # Update date if provided
     if "date" in data:
@@ -697,11 +699,13 @@ def update_schedule(schedule_id: int, data: dict, db: Session = Depends(get_db),
         schedule.employee_id = data["employee_id"]
     if "status" in data:
         schedule.status = data["status"]
+    if "is_driver" in data:
+        schedule.is_driver = bool(data["is_driver"])
 
     from app.services.booking_service import log_audit
     emp = db.query(Employee).filter(Employee.id == schedule.employee_id).first()
     emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(schedule.employee_id)
-    new_schedule = {"datum": str(schedule.date), "zeit": f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}", "objekt_id": schedule.object_id, "status": schedule.status}
+    new_schedule = {"datum": str(schedule.date), "zeit": f"{schedule.start_time.strftime('%H:%M')}-{schedule.end_time.strftime('%H:%M')}", "objekt_id": schedule.object_id, "status": schedule.status, "fahrer": bool(schedule.is_driver)}
     log_audit(db, admin.id, schedule.employee_id, 'schedule_updated',
         entity_type='schedule', entity_id=schedule_id,
         old_value=old_schedule, new_value=new_schedule,
@@ -1145,7 +1149,7 @@ def bulk_update_schedules(
                 results.append({'id': schedule_id, 'status': 'not_found'})
                 continue
         else:
-            schedule = Schedule()
+            schedule = Schedule(is_driver=True)  # Standard wie Maske; 'is_driver' im Update hat Vorrang
             db.add(schedule)
 
         is_new = not schedule_id
@@ -1277,7 +1281,9 @@ def create_replacement(
         end_time=r_end,
         planned_hours=r_hours,
         status='vertretung',
-        replacement_for=original.employee_id
+        replacement_for=original.employee_id,
+        # Fahrer-Haken: aus der Maske, sonst wie die vertretene Schicht
+        is_driver=bool(data['is_driver']) if 'is_driver' in data else bool(original.is_driver),
     )
 
     db.add(replacement)
@@ -1352,6 +1358,8 @@ def quick_assign_schedule(
         existing.start_time = new_start
         existing.end_time = new_end
         existing.planned_hours = planned_hours
+        if 'is_driver' in data:
+            existing.is_driver = bool(data['is_driver'])
         message = "Schicht aktualisiert"
     else:
         schedule = Schedule(
@@ -1364,7 +1372,7 @@ def quick_assign_schedule(
             planned_hours=planned_hours,
             status='normal',
             notes=data.get('notes', ''),
-            is_driver=data.get('is_driver', True),
+            is_driver=bool(data.get('is_driver', True)),
         )
         db.add(schedule)
         message = "Schicht erstellt"
@@ -3718,6 +3726,7 @@ def mark_employee_sick(
                 planned_hours=sched.planned_hours,
                 status='vertretung',
                 replacement_for=employee_id,
+                is_driver=bool(sched.is_driver),  # wie die vertretene Schicht
             )
             db.add(new_schedule)
 
