@@ -35,11 +35,22 @@ export default function Shell({ children }) {
 
   const logout = () => { ['token'].forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); }); nav('/login'); };
   const go = (p) => nav(p);
-  const Brand = (
+  // Mit Logo (Wortmarke aus dem Branding): Logo in voller Breite; ohne Logo: Buchstaben-Quadrat + Firmenname
+  const Brand = brand?.logo_url ? (
+    <div className="ck-brand-mark">
+      <img src={brand.logo_url} alt={brand.firma || ''} />
+      <span>{brand.produkt} {t('app.subtitle')}</span>
+    </div>
+  ) : (
     <div className="ck-brand">
-      <div className="ck-logo">{brand?.logo_url ? <img src={brand.logo_url} alt="" /> : (brand?.firma || ' ').slice(0, 1)}</div>
+      <div className="ck-logo">{(brand?.firma || ' ').slice(0, 1)}</div>
       <div><b>{brand?.firma}</b><span>{brand?.produkt} {t('app.subtitle')}</span></div>
     </div>
+  );
+  const TopLogo = (
+    <a className="ck-topbar-logo" href="/cockpit" onClick={(e) => { e.preventDefault(); go('/cockpit'); }} aria-label={t('nav.heute')}>
+      {brand?.logo_url ? <img src={brand.logo_url} alt={brand.firma || ''} /> : <span className="ck-logo">{(brand?.firma || ' ').slice(0, 1)}</span>}
+    </a>
   );
 
   return (
@@ -62,6 +73,7 @@ export default function Shell({ children }) {
 
       <div className="ck-main">
         <header className="ck-topbar">
+          {TopLogo}
           <button className="ck-search" onClick={() => setCmd(true)} aria-label={t('app.search')}>
             <Search size={18} /><span className="ck-search-long">{t('app.search')}</span><span className="ck-search-short">{t('app.searchShort')}</span><span className="ck-kbd">Strg K</span>
           </button>

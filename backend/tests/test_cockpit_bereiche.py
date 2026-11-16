@@ -126,3 +126,21 @@ def test_pruefpunkte_fuer_abrechnungsmonat(client, db):
     ab = client.get("/api/v1/cockpit/abrechnung?year=2026&month=10", headers=h).json()
     assert sum(z["pruefpunkte"] for z in ab["zeilen"]) == len(r["eintraege"])  # Zahl in der Abrechnung = Liste hinter dem Link
     assert client.get("/api/v1/cockpit/zeiten?pruef=alle&monat=kaputt", headers=h).status_code == 400
+
+
+# ---------- Branding ----------
+
+def test_branding_felder_und_pruefung(client, db):
+    h = token(db, "ADMIN")
+    gut = {"akzent": "#1E537C", "cta": "#F9B233", "cta_text": "#0E2A40", "leiste": "#1E537C", "leiste_text": "#FFFFFF",
+           "logo_url": "/brand/seda24/logo-seda24-weiss.svg", "schrift_css": "/brand/seda24/fonts/fonts.css",
+           "schrift_titel": "Poppins", "schrift_text": "Open Sans"}
+    r = client.put("/api/v1/cockpit/branding", json=gut, headers=h)
+    assert r.status_code == 200, r.text
+    assert {k: r.json()[k] for k in gut} == gut
+    assert client.get("/api/v1/cockpit/branding").json()["cta"] == "#F9B233"
+    for k, v in [("cta", "gold"), ("leiste", "#12345"), ("schrift_css", "https://fonts.example.com/x.css"),
+                 ("schrift_css", "/x.js"), ("schrift_titel", "Poppins'; }"), ("logo_url", "javascript:alert(1)")]:
+        assert client.put("/api/v1/cockpit/branding", json={k: v}, headers=h).status_code == 400, (k, v)
+    assert client.put("/api/v1/cockpit/branding", json={"cta": ""}, headers=h).json()["cta"] == ""  # leer = Standard
+    assert client.put("/api/v1/cockpit/branding", json={"cta": "#000000"}, headers=token(db, "MITARBEITER")).status_code in (401, 403)

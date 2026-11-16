@@ -1,0 +1,5 @@
+SEDA24 Firmen-Look fuer das Cockpit (Branding-Paket, austauschbar ueber Einstellung "branding").
+Quelle: https://seda24.de (abgerufen 16.11.2026); www.seda.de war nicht erreichbar.
+- logo-seda24-weiss.svg  <- https://seda24.de/assets/img/logo-seda24-weiss.svg (weisses Logo fuer dunklen/Navy-Grund)
+- fonts/*                <- https://seda24.de/assets/fonts/ (Poppins 500/600/700, Open Sans variabel; SIL Open Font License)
+- Farben                 <- https://seda24.de/assets/css/design-system.css (:root)

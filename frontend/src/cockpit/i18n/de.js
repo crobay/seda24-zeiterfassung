@@ -100,6 +100,9 @@ export default {
   set: { title: 'Einstellungen', subtitle: 'Firma, Darstellung und Verwaltung', brand: 'Firma & Marke', company: 'Firmenname', product: 'Produktname',
     urlaub: 'Urlaub', km_sub: '{n} Zuweisungen · {f} ohne Strecke', km_search: 'Mitarbeiter oder Objekt', km_only_missing: 'Nur fehlende (Fahrer)',
     km_empty: 'Keine Einträge', km_driver: 'Fahrer · KM-Geld', km_nodriver: 'kein Fahrer',
-    logo: 'Logo-Adresse (URL, optional)', accent: 'Akzentfarbe', saved: 'Einstellungen gespeichert', preview: 'Vorschau',
+    logo: 'Logo (Pfad auf diesem Server oder https-Adresse)', accent: 'Hauptfarbe (Links, Navigation)',
+    cta: 'Aktionsfarbe (Haupt-Knöpfe)', cta_text: 'Schrift auf Aktionsfarbe', side: 'Seitenleiste / Handy-Kopfzeile', side_text: 'Schrift auf Seitenleiste',
+    font_css: 'Schriftdatei (lokaler Pfad, .css)', font_head: 'Schrift Überschriften', font_body: 'Schrift Fließtext',
+    colors: 'Farben', fonts: 'Schriften', empty_default: 'leer = Standard', contrast: 'Kontrast {r}:1 · {ok}', contrast_ok: 'AA erfüllt', contrast_bad: 'unter AA (4,5:1)', saved: 'Einstellungen gespeichert', preview: 'Vorschau',
     km: 'KM-Strecken', assign: 'MA-Objekt-Zuweisungen', telegram: 'Telegram', audit: 'Änderungsprotokoll', only_admin: 'Nur für Administration' },
 };

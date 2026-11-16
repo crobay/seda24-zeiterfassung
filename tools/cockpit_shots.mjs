@@ -15,9 +15,13 @@ for (const [pname, prof] of Object.entries(profiles)) {
   const page = await ctx.newPage(); page.setDefaultTimeout(20000);
   page.on('pageerror', e => console.log('PAGEERROR', e.message));
   await page.goto('https://dev.seda.de/login');
-  await page.fill('input[name=email]', email); await page.fill('input[name=password]', pw);
-  await page.click('button[type=submit]'); await page.waitForURL(/\/(admin|dashboard)/);
-  await page.evaluate((d) => localStorage.setItem('ck_theme', d ? 'dark' : 'light'), !!DARK);
+  if (process.env.CK_TOKEN) {  // DEV-Token aus tools/dev_token.py (Admin-Passwort auf DEV = LIVE-Passwort, hier nicht bekannt)
+    await page.evaluate((tk) => { localStorage.setItem('token', tk); localStorage.setItem('userRole', 'admin'); }, process.env.CK_TOKEN);
+  } else {
+    await page.fill('input[name=email]', email); await page.fill('input[name=password]', pw);
+    await page.click('button[type=submit]'); await page.waitForURL(/\/(admin|dashboard)/);
+  }
+  await page.evaluate((d) => localStorage.setItem('ck_theme_v2', d ? 'dark' : 'light'), !!DARK);
   for (const p of PATHS.split(',')) {
     const [url, action] = p.split('|');
     await page.goto('https://dev.seda.de' + url); await page.waitForLoadState('networkidle'); await page.waitForTimeout(900);

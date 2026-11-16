@@ -790,8 +790,16 @@ def objekt_entziehen(employee_id: int, assignment_id: int, db: Session = Depends
     return {"status": "beendet"}
 
 
-# --- Branding (Produktfaehigkeit: Name, Logo, Akzentfarbe aus einer Einstellung) ---------------
-BRANDING_DEFAULT = {"firma": "SEDA24", "produkt": "stampo24", "logo_url": "", "akzent": "#2563eb", "sprache": "de"}
+# --- Branding (Produktfaehigkeit: Name, Logo, Farben, Schriften aus einer Einstellung) ---------
+# Neutrale Vorgaben (stampo24); der Firmen-Look steht nur in der Einstellung, nicht im Code.
+#   akzent      Hauptfarbe (Links, aktive Navigation, Kennzahlen)
+#   cta         Aktionsfarbe fuer Haupt-Knoepfe, cta_text = Schrift darauf
+#   leiste      Hintergrund Seitenleiste / Handy-Kopfzeile, leiste_text = Schrift darauf
+#   schrift_css lokale Schriftdatei (nur Pfad auf diesem Server), schrift_titel / schrift_text = Familiennamen
+BRANDING_DEFAULT = {"firma": "SEDA24", "produkt": "stampo24", "logo_url": "", "akzent": "#2563eb", "sprache": "de",
+                    "cta": "", "cta_text": "", "leiste": "", "leiste_text": "",
+                    "schrift_css": "", "schrift_titel": "", "schrift_text": ""}
+BRANDING_FARBEN = ("akzent", "cta", "cta_text", "leiste", "leiste_text")
 
 
 def _settings_table(db):
@@ -816,6 +824,16 @@ def branding_speichern(data: dict, db: Session = Depends(get_db), user=Depends(v
     neu = {k: str(data[k]).strip()[:120] for k in BRANDING_DEFAULT if k in data}
     if "akzent" in neu and not re.fullmatch(r"#[0-9a-fA-F]{6}", neu["akzent"]):
         raise HTTPException(400, "Akzentfarbe als #RRGGBB")
+    for k in BRANDING_FARBEN[1:]:
+        if neu.get(k) and not re.fullmatch(r"#[0-9a-fA-F]{6}", neu[k]):
+            raise HTTPException(400, f"Farbe '{k}' als #RRGGBB oder leer")
+    if neu.get("schrift_css") and not re.fullmatch(r"/[A-Za-z0-9_./-]+\.css", neu["schrift_css"]):
+        raise HTTPException(400, "Schriftdatei nur als lokaler Pfad, z. B. /brand/firma/fonts/fonts.css")
+    for k in ("schrift_titel", "schrift_text"):
+        if neu.get(k) and not re.fullmatch(r"[A-Za-z0-9 -]{1,60}", neu[k]):
+            raise HTTPException(400, f"Schriftname '{k}' nur Buchstaben, Ziffern, Leerzeichen")
+    if neu.get("logo_url") and not re.fullmatch(r"(/|https://)[^\s\"'<>()]+", neu["logo_url"]):
+        raise HTTPException(400, "Logo als lokaler Pfad (/...) oder https-Adresse")
     _settings_table(db)
     alt = db.execute(text("SELECT value FROM app_settings WHERE key = 'branding'")).fetchone()
     wert = {**BRANDING_DEFAULT, **(json.loads(alt[0]) if alt else {}), **neu}

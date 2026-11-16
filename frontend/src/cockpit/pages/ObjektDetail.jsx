@@ -47,7 +47,7 @@ export default function ObjektDetail() {
       <Link to="/cockpit/objekte" className="ck-btn ck-btn-ghost ck-btn-sm" style={{ marginBottom: 12, paddingLeft: 4 }}><ArrowLeft size={16} />{t('obj.title')}</Link>
       <div className="ck-page-head">
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-          <div className="ck-kpi-icon" style={{ width: 56, height: 56, background: 'var(--ck-accent-soft)', color: 'var(--ck-accent)', borderRadius: 14 }}><Building2 size={26} /></div>
+          <div className="ck-kpi-icon" style={{ width: 56, height: 56, background: 'var(--ck-accent-soft)', color: 'var(--ck-accent-ink)', borderRadius: 14 }}><Building2 size={26} /></div>
           <div><h1>{s ? s.name : <Skeleton w={220} h={30} />}</h1>
             <p>{s ? <>{s.kunde || '–'} · <Status s={s.is_active ? 'aktiv' : 'inaktiv'} /></> : <Skeleton w={160} h={16} />}</p></div>
         </div>

@@ -1,13 +1,14 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Palette, Building2, Car, Search } from 'lucide-react';
-import { api, apiError, t, useApi, useApp, SkeletonRows, Empty } from '../core';
+import { api, apiError, t, useApi, useApp, SkeletonRows, Empty, Status, brandStyle, contrast } from '../core';
 import { KmEingabe } from './Objekte';
 
 const UrlaubVerwaltungTab = lazy(() => import('../../pages/UrlaubVerwaltungTab'));
 const MitarbeiterObjekteTab = lazy(() => import('../../pages/MitarbeiterObjekteTab'));
 const PushVerwaltungTab = lazy(() => import('../../pages/PushVerwaltungTab'));
 const AuditLogTab = lazy(() => import('../../pages/AuditLogTab'));
+const BRAND_KEYS = ['firma', 'produkt', 'logo_url', 'akzent', 'cta', 'cta_text', 'leiste', 'leiste_text', 'schrift_css', 'schrift_titel', 'schrift_text'];
 const TABS = ['brand', 'km', 'urlaub', 'assign', 'telegram', 'audit'];
 
 export default function Einstellungen() {
@@ -23,12 +24,19 @@ export default function Einstellungen() {
     setBusy(true);
     const before = brand;
     try {
-      const r = await api.put('/branding', { firma: f.firma, produkt: f.produkt, logo_url: f.logo_url, akzent: f.akzent });
+      const r = await api.put('/branding', Object.fromEntries(BRAND_KEYS.map((k) => [k, f[k] || ''])));
       setBrand(r.data);
       toast(t('set.saved'), { undo: async () => { const u = await api.put('/branding', before); setBrand(u.data); } });
     } catch (e) { toast(apiError(e), { tone: 'warn' }); }
     setBusy(false);
   };
+  const farbe = (k, label, fallback) => (  // Funktion statt Komponente: Eingabefeld behaelt beim Tippen den Fokus
+    <label key={k} className="ck-field">{label}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input type="color" value={f[k] || fallback} onChange={(e) => setF({ ...f, [k]: e.target.value })} style={{ width: 52, height: 42, border: '1px solid var(--ck-border)', borderRadius: 10, background: 'none' }} aria-label={label} />
+        <input className="ck-input" value={f[k] || ''} placeholder={t('set.empty_default')} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+      </div></label>);
+  const kontrast = (a, b) => { const r = contrast(a, b); return r ? t('set.contrast', { r: r.toFixed(1).replace('.', ','), ok: r >= 4.5 ? t('set.contrast_ok') : t('set.contrast_bad') }) : ''; };
 
   return (
     <>
@@ -42,20 +50,36 @@ export default function Einstellungen() {
             <div className="ck-dialog-body">
               <label className="ck-field">{t('set.company')}<input className="ck-input" value={f.firma || ''} onChange={(e) => setF({ ...f, firma: e.target.value })} /></label>
               <label className="ck-field">{t('set.product')}<input className="ck-input" value={f.produkt || ''} onChange={(e) => setF({ ...f, produkt: e.target.value })} /></label>
-              <label className="ck-field">{t('set.logo')}<input className="ck-input" value={f.logo_url || ''} onChange={(e) => setF({ ...f, logo_url: e.target.value })} placeholder="https://…/logo.png" /></label>
-              <label className="ck-field">{t('set.accent')}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input type="color" value={f.akzent || '#2563eb'} onChange={(e) => setF({ ...f, akzent: e.target.value })} style={{ width: 52, height: 42, border: '1px solid var(--ck-border)', borderRadius: 10, background: 'none' }} aria-label={t('set.accent')} />
-                  <input className="ck-input" value={f.akzent || ''} onChange={(e) => setF({ ...f, akzent: e.target.value })} />
-                </div></label>
+              <label className="ck-field">{t('set.logo')}<input className="ck-input" value={f.logo_url || ''} onChange={(e) => setF({ ...f, logo_url: e.target.value })} placeholder="/brand/firma/logo.svg" /></label>
+              <h3 style={{ fontSize: 16, marginTop: 8 }}>{t('set.colors')}</h3>
+              {farbe('akzent', t('set.accent'), '#2563eb')}
+              {farbe('cta', t('set.cta'), '#2563eb')}
+              {farbe('cta_text', t('set.cta_text'), '#ffffff')}
+              {farbe('leiste', t('set.side'), '#ffffff')}
+              {farbe('leiste_text', t('set.side_text'), '#0f172a')}
+              <h3 style={{ fontSize: 16, marginTop: 8 }}>{t('set.fonts')}</h3>
+              <label className="ck-field">{t('set.font_css')}<input className="ck-input" value={f.schrift_css || ''} placeholder="/brand/firma/fonts/fonts.css" onChange={(e) => setF({ ...f, schrift_css: e.target.value })} /></label>
+              <label className="ck-field">{t('set.font_head')}<input className="ck-input" value={f.schrift_titel || ''} placeholder="Inter" onChange={(e) => setF({ ...f, schrift_titel: e.target.value })} /></label>
+              <label className="ck-field">{t('set.font_body')}<input className="ck-input" value={f.schrift_text || ''} placeholder="Inter" onChange={(e) => setF({ ...f, schrift_text: e.target.value })} /></label>
             </div>
             <div className="ck-dialog-foot"><button className="ck-btn ck-btn-primary" disabled={busy} onClick={save}>{t('app.save')}</button></div>
           </section>
           <section className="ck-card"><div className="ck-card-head"><h2><Palette size={20} />{t('set.preview')}</h2></div>
-            <div className="ck-card-body" style={{ '--ck-accent': f.akzent, display: 'grid', gap: 16 }}>
-              <div className="ck-brand" style={{ padding: 0 }}><div className="ck-logo" style={{ background: f.akzent }}>{f.logo_url ? <img src={f.logo_url} alt="" /> : (f.firma || ' ').slice(0, 1)}</div>
-                <div><b>{f.firma}</b><span>{f.produkt} {t('app.subtitle')}</span></div></div>
-              <div style={{ display: 'flex', gap: 8 }}><button className="ck-btn ck-btn-primary" style={{ background: f.akzent, borderColor: f.akzent }}>{t('act.genehmigen')}</button><button className="ck-btn">{t('act.ablehnen')}</button></div>
+            <div className="ck-card-body ck-brand-scope" style={{ ...brandStyle(f), display: 'grid', gap: 16 }}>
+              <div style={{ background: 'var(--ck-side-bg)', color: 'var(--ck-side-fg)', borderRadius: 12, padding: 12 }}>
+                {f.logo_url ? <div className="ck-brand-mark" style={{ padding: 0 }}><img src={f.logo_url} alt="" /><span>{f.produkt} {t('app.subtitle')}</span></div>
+                  : <div className="ck-brand" style={{ padding: 0 }}><div className="ck-logo">{(f.firma || ' ').slice(0, 1)}</div><div><b>{f.firma}</b><span>{f.produkt} {t('app.subtitle')}</span></div></div>}
+                <div className="ck-nav-item is-active" style={{ marginTop: 8 }}>{t('nav.heute')}</div>
+                <div className="ck-nav-item">{t('nav.dienstplan')}</div>
+              </div>
+              <h3 style={{ fontSize: 20, color: 'var(--ck-accent-ink)' }}>{f.firma} {t('app.subtitle')}</h3>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="ck-btn ck-btn-primary">{t('act.genehmigen')}</button><button className="ck-btn">{t('act.ablehnen')}</button>
+                <Status s="da" /><Status s="fehlt" /></div>
+              <ul className="ck-subtle" style={{ margin: 0, paddingLeft: 18 }}>
+                <li>{t('set.cta_text')}: {kontrast(f.cta_text || '#ffffff', f.cta || f.akzent || '#2563eb')}</li>
+                <li>{t('set.side_text')}: {kontrast(f.leiste_text || '#0f172a', f.leiste || '#ffffff')}</li>
+                <li>{t('set.accent')}: {kontrast(f.akzent || '#2563eb', '#ffffff')}</li>
+              </ul>
             </div>
           </section>
         </div>

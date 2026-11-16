@@ -82,7 +82,7 @@ export default function Heute() {
                 const b = busy === `${i.typ}${i.id}`;
                 return (
                   <li key={`${i.typ}${i.id}`} className="ck-row">
-                    <div className="ck-kpi-icon" style={{ background: 'var(--ck-accent-soft)', color: 'var(--ck-accent)', flex: 'none' }}><Icon size={18} /></div>
+                    <div className="ck-kpi-icon" style={{ background: 'var(--ck-accent-soft)', color: 'var(--ck-accent-ink)', flex: 'none' }}><Icon size={18} /></div>
                     <div className="ck-row-main">
                       <div className="ck-row-title"><Link to={`/cockpit/mitarbeiter/${i.employee_id}`}>{i.name}</Link><span className="ck-tag">{t(`item.${i.typ}`)}</span></div>
                       <div className="ck-row-meta">{i.text}</div>

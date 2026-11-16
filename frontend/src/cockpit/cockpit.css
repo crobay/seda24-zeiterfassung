@@ -2,10 +2,6 @@
 @import '@fontsource-variable/inter/wght.css';
 
 .ck {
-  /* Akzent kommt aus der Branding-Einstellung (--ck-accent wird zur Laufzeit gesetzt) */
-  --ck-accent: #2563eb;
-  --ck-accent-fg: #ffffff;
-  --ck-accent-soft: color-mix(in srgb, var(--ck-accent) 12%, transparent);
 
   /* Farbenblind-sicher: Status blau (gut) / orange (Achtung) / grau (neutral) */
   --ck-ok: #1d4ed8;        --ck-ok-soft: #dbeafe;
@@ -21,14 +17,12 @@
   --ck-text: #0f172a;
   --ck-text-2: #475569;
   --ck-text-3: #64748b;
-  --ck-focus: color-mix(in srgb, var(--ck-accent) 45%, transparent);
 
   --ck-s1: 4px; --ck-s2: 8px; --ck-s3: 12px; --ck-s4: 16px; --ck-s5: 20px; --ck-s6: 24px; --ck-s8: 32px; --ck-s10: 40px;
   --ck-r-sm: 6px; --ck-r: 10px; --ck-r-lg: 14px; --ck-r-full: 999px;
   --ck-shadow-sm: 0 1px 2px rgba(15, 23, 42, .06);
   --ck-shadow: 0 1px 3px rgba(15, 23, 42, .08), 0 4px 12px rgba(15, 23, 42, .04);
   --ck-shadow-lg: 0 12px 40px rgba(15, 23, 42, .18);
-  --ck-font: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --ck-fs-xs: 13px; --ck-fs-sm: 14px; --ck-fs: 16px; --ck-fs-lg: 18px; --ck-fs-xl: 22px; --ck-fs-2xl: 30px;
   --ck-ease: cubic-bezier(.2, .7, .2, 1);
   --ck-sidebar: 248px;
@@ -60,10 +54,40 @@
   --ck-shadow-lg: 0 16px 48px rgba(0, 0, 0, .6);
   color-scheme: dark;
 }
+/* Abgeleitete Branding-Werte. Auch auf .ck-brand-scope (Vorschau in den Einstellungen), damit dort gesetzte --b-* wirken. */
+.ck, .ck .ck-brand-scope {
+  /* Branding: die Einstellung setzt zur Laufzeit --b-* (siehe brandStyle in core.jsx); ohne Wert gelten neutrale Vorgaben */
+  --ck-accent: var(--b-akzent, #2563eb);
+  --ck-accent-fg: #ffffff;
+  --ck-accent-ink: var(--ck-accent);                       /* Akzent als Schriftfarbe */
+  --ck-cta: var(--b-cta, var(--ck-accent));                /* Haupt-Knoepfe */
+  --ck-cta-fg: var(--b-cta-fg, var(--ck-accent-fg));
+  --ck-side-bg: var(--b-leiste, var(--ck-surface));        /* Seitenleiste + Handy-Kopfzeile */
+  --ck-side-fg: var(--b-leiste-fg, var(--ck-text));
+  --ck-side-muted: color-mix(in srgb, var(--ck-side-fg) 80%, var(--ck-side-bg));
+  --ck-side-hover: color-mix(in srgb, var(--ck-side-fg) 10%, var(--ck-side-bg));
+  --ck-side-active: color-mix(in srgb, var(--ck-side-fg) 12%, var(--ck-side-bg));
+  --ck-side-line: color-mix(in srgb, var(--ck-side-fg) 16%, var(--ck-side-bg));
+  --ck-accent-soft: color-mix(in srgb, var(--ck-accent) 12%, transparent);
+  --ck-focus: color-mix(in srgb, var(--ck-accent) 45%, transparent);
+  --ck-font: var(--b-font, 'Inter Variable'), 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ck-font-head: var(--b-font-head, var(--b-font, 'Inter Variable')), 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+.ck.ck-dark, .ck-dark .ck-brand-scope {
+  --ck-accent-ink: color-mix(in srgb, var(--ck-accent) 40%, white);
+  /* Firmenfarbe der Leiste nur als dunkle Toenung, damit das (weisse) Logo lesbar bleibt */
+  --ck-side-bg: color-mix(in srgb, var(--b-leiste, var(--ck-surface)) 30%, #0b0d12);
+  --ck-side-fg: var(--ck-text);
+  --ck-side-muted: color-mix(in srgb, var(--ck-side-fg) 80%, var(--ck-side-bg));
+  --ck-side-hover: color-mix(in srgb, var(--ck-side-fg) 10%, var(--ck-side-bg));
+  --ck-side-active: color-mix(in srgb, var(--ck-side-fg) 12%, var(--ck-side-bg));
+  --ck-side-line: color-mix(in srgb, var(--ck-side-fg) 16%, var(--ck-side-bg));
+}
 .ck *, .ck *::before, .ck *::after { box-sizing: border-box; }
 .ck button, .ck input, .ck select, .ck textarea { font: inherit; color: inherit; }
 .ck :focus-visible { outline: 3px solid var(--ck-focus); outline-offset: 2px; border-radius: var(--ck-r-sm); }
-.ck h1, .ck h2, .ck h3 { margin: 0; letter-spacing: -.015em; }
+.ck h1, .ck h2, .ck h3 { margin: 0; letter-spacing: -.015em; font-family: var(--ck-font-head); }
+.ck .ck-page-head h1 { color: var(--ck-accent-ink); }
 .ck .ck-muted { color: var(--ck-text-2); }
 .ck .ck-subtle { color: var(--ck-text-3); font-size: var(--ck-fs-sm); }
 .ck .ck-num { font-variant-numeric: tabular-nums; }
@@ -72,7 +96,7 @@
 .ck-shell { display: grid; grid-template-columns: var(--ck-sidebar) 1fr; min-height: 100vh; }
 .ck-sidebar {
   position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: var(--ck-s1);
-  padding: var(--ck-s4) var(--ck-s3); background: var(--ck-surface); border-right: 1px solid var(--ck-border);
+  padding: var(--ck-s4) var(--ck-s3); background: var(--ck-side-bg); color: var(--ck-side-fg); border-right: 1px solid var(--ck-side-line);
 }
 .ck-brand { display: flex; align-items: center; gap: var(--ck-s3); padding: var(--ck-s2) var(--ck-s2) var(--ck-s5); }
 .ck-logo {
@@ -81,15 +105,22 @@
 }
 .ck-logo img { width: 100%; height: 100%; object-fit: cover; }
 .ck-brand b { display: block; font-size: var(--ck-fs); line-height: 1.2; }
-.ck-brand span { font-size: var(--ck-fs-xs); color: var(--ck-text-3); }
+.ck-brand span { font-size: var(--ck-fs-xs); color: var(--ck-side-muted); }
+/* Wortmarke aus dem Branding (z. B. SEDA24-Logo): volle Breite statt Quadrat */
+.ck-brand-mark { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: var(--ck-s2) var(--ck-s2) var(--ck-s5); }
+.ck-brand-mark img { height: 40px; width: auto; max-width: 100%; display: block; }
+.ck-brand-mark span { font-size: var(--ck-fs-xs); color: var(--ck-side-muted); letter-spacing: .02em; }
 .ck-nav-item {
   display: flex; align-items: center; gap: var(--ck-s3); padding: 10px var(--ck-s3); border-radius: var(--ck-r);
-  color: var(--ck-text-2); text-decoration: none; font-weight: 500; font-size: 15px; border: 0; background: none;
+  color: var(--ck-side-muted); text-decoration: none; font-weight: 500; font-size: 15px; border: 0; background: none;
   cursor: pointer; width: 100%; text-align: left; transition: background .15s var(--ck-ease), color .15s var(--ck-ease);
 }
-.ck-nav-item:hover { background: var(--ck-surface-2); color: var(--ck-text); }
-.ck-nav-item.is-active { background: var(--ck-accent-soft); color: var(--ck-accent); font-weight: 600; }
-.ck-dark .ck-nav-item.is-active { color: color-mix(in srgb, var(--ck-accent) 60%, white); }
+.ck-nav-item:hover { background: var(--ck-side-hover); color: var(--ck-side-fg); }
+.ck-nav-item.is-active { background: var(--ck-side-active); color: var(--ck-side-fg); font-weight: 600; box-shadow: inset 3px 0 0 var(--ck-cta); }
+/* Navigation im Mehr-Menue (Handy) liegt auf normaler Flaeche */
+.ck-dialog .ck-nav-item { color: var(--ck-text-2); }
+.ck-dialog .ck-nav-item:hover { background: var(--ck-surface-2); color: var(--ck-text); }
+.ck-dialog .ck-brand-mark { background: var(--ck-side-bg); border-radius: var(--ck-r); padding: var(--ck-s3); margin-bottom: var(--ck-s3); }
 .ck-nav-count {
   margin-left: auto; min-width: 22px; padding: 0 7px; border-radius: var(--ck-r-full); font-size: 12px; font-weight: 600;
   background: var(--ck-warn-soft); color: var(--ck-warn); text-align: center; line-height: 20px;
@@ -107,6 +138,7 @@
   border: 1px solid var(--ck-border); border-radius: var(--ck-r); background: var(--ck-surface); color: var(--ck-text-3);
   cursor: pointer; font-size: 15px; text-align: left;
 }
+.ck .ck-search { color: var(--ck-text-3); }
 .ck-search:hover { border-color: var(--ck-border-strong); }
 .ck-kbd {
   margin-left: auto; font-size: 12px; padding: 1px 6px; border: 1px solid var(--ck-border); border-radius: 5px;
@@ -143,7 +175,7 @@
 .tone-ok .ck-kpi-icon { background: var(--ck-ok-soft); color: var(--ck-ok); }
 .tone-warn .ck-kpi-icon { background: var(--ck-warn-soft); color: var(--ck-warn); }
 .tone-info .ck-kpi-icon { background: var(--ck-info-soft); color: var(--ck-info); }
-.tone-accent .ck-kpi-icon { background: var(--ck-accent-soft); color: var(--ck-accent); }
+.tone-accent .ck-kpi-icon { background: var(--ck-accent-soft); color: var(--ck-accent-ink); }
 .tone-warn.ck-kpi.is-alert { border-color: color-mix(in srgb, var(--ck-warn) 45%, var(--ck-border)); }
 
 .ck-btn {
@@ -154,8 +186,8 @@
 .ck-btn:hover { background: var(--ck-surface-2); border-color: var(--ck-border-strong); }
 .ck-btn:active { transform: translateY(1px); }
 .ck-btn:disabled { opacity: .55; cursor: default; }
-.ck-btn-primary { background: var(--ck-accent); border-color: var(--ck-accent); color: var(--ck-accent-fg); }
-.ck-btn-primary:hover { background: color-mix(in srgb, var(--ck-accent) 88%, black); border-color: transparent; }
+.ck-btn-primary { background: var(--ck-cta); border-color: var(--ck-cta); color: var(--ck-cta-fg); font-weight: 650; }
+.ck-btn-primary:hover { background: color-mix(in srgb, var(--ck-cta) 88%, black); border-color: transparent; }
 .ck-btn-ghost { border-color: transparent; background: transparent; }
 .ck-btn-sm { height: 32px; padding: 0 10px; font-size: 14px; }
 .ck-btn-icon { width: 38px; padding: 0; }
@@ -192,7 +224,7 @@
 @keyframes ck-shimmer { to { transform: translateX(100%); } }
 
 .ck-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--ck-s2); padding: var(--ck-s10) var(--ck-s6); color: var(--ck-text-2); }
-.ck-empty-icon { width: 52px; height: 52px; border-radius: var(--ck-r-full); display: grid; place-items: center; background: var(--ck-accent-soft); color: var(--ck-accent); margin-bottom: var(--ck-s2); }
+.ck-empty-icon { width: 52px; height: 52px; border-radius: var(--ck-r-full); display: grid; place-items: center; background: var(--ck-accent-soft); color: var(--ck-accent-ink); margin-bottom: var(--ck-s2); }
 .ck-empty b { color: var(--ck-text); font-size: var(--ck-fs-lg); }
 
 /* Toasts */
@@ -224,7 +256,7 @@
 .ck-cmd-list { max-height: 50vh; overflow: auto; padding: var(--ck-s2); }
 .ck-cmd-group { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--ck-text-3); padding: var(--ck-s3) var(--ck-s3) var(--ck-s1); }
 .ck-cmd-item { display: flex; align-items: center; gap: var(--ck-s3); padding: 10px var(--ck-s3); border-radius: var(--ck-r); cursor: pointer; font-size: 16px; }
-.ck-cmd-item.is-sel { background: var(--ck-accent-soft); color: var(--ck-accent); }
+.ck-cmd-item.is-sel { background: var(--ck-accent-soft); color: var(--ck-accent-ink); }
 .ck-cmd-item small { margin-left: auto; color: var(--ck-text-3); font-size: 13px; }
 
 /* Tabellen (nur wo nötig) */
@@ -238,7 +270,7 @@
 .ck-toolbar .ck-input { height: 38px; width: auto; min-width: 200px; }
 .ck-seg { display: inline-flex; border: 1px solid var(--ck-border); border-radius: var(--ck-r); overflow: hidden; }
 .ck-seg button { border: 0; background: var(--ck-surface); padding: 6px 12px; cursor: pointer; font-weight: 550; font-size: 14px; }
-.ck-seg button.is-on { background: var(--ck-accent-soft); color: var(--ck-accent); }
+.ck-seg button.is-on { background: var(--ck-accent-soft); color: var(--ck-accent-ink); }
 
 .ck-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--ck-s4); }
 .ck-tile { padding: var(--ck-s5); display: flex; flex-direction: column; gap: var(--ck-s2); text-decoration: none; color: inherit; transition: box-shadow .15s, transform .15s; }
@@ -257,10 +289,18 @@
 .ck-embed { padding: var(--ck-s4); background: #fff; color: #111; border-radius: 0 0 var(--ck-r-lg) var(--ck-r-lg); overflow-x: auto; }
 
 /* ---------- Handy ---------- */
+/* Handy-Kopfzeile: Logo links, Firmenfarbe als Hintergrund */
+.ck-topbar-logo { display: none; }
 @media (max-width: 900px) {
   .ck-shell { grid-template-columns: 1fr; }
   .ck-sidebar { display: none; }
-  .ck-topbar { padding: var(--ck-s3) var(--ck-s4); }
+  .ck-topbar { padding: var(--ck-s3) var(--ck-s4); background: var(--ck-side-bg); color: var(--ck-side-fg); border-bottom-color: var(--ck-side-line); backdrop-filter: none; }
+  .ck-topbar-logo { display: flex; align-items: center; flex: none; }
+  .ck-topbar-logo img { height: 30px; width: auto; display: block; }
+  .ck-topbar-logo .ck-logo { width: 32px; height: 32px; }
+  .ck-topbar .ck-search { max-width: none; min-width: 0; }
+  .ck-topbar .ck-kbd { display: none; }
+  .ck-topbar .ck-avatar { color: var(--ck-text); }
   .ck-topbar .ck-search span.ck-search-long { display: none; }
   .ck-content { padding: var(--ck-s4) var(--ck-s4) 96px; }
   .ck-page-head h1 { font-size: 26px; }
@@ -283,7 +323,7 @@
   }
   .ck-bottomnav button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border: 0; background: none;
     color: var(--ck-text-3); font-size: 12px; font-weight: 600; cursor: pointer; position: relative; }
-  .ck-bottomnav button.is-active { color: var(--ck-accent); }
+  .ck-bottomnav button.is-active { color: var(--ck-accent-ink); }
   .ck-bottomnav .ck-nav-count { position: absolute; top: 0; right: 18%; margin: 0; min-width: 18px; line-height: 18px; font-size: 11px; padding: 0 5px; }
 }
 @media (prefers-reduced-motion: reduce) { .ck * { animation: none !important; transition: none !important; } }
@@ -305,7 +345,7 @@
 .ck-dash > * { min-width: 0; }
 .span-12 { grid-column: span 12; } .span-7 { grid-column: span 7; } .span-5 { grid-column: span 5; } .span-6 { grid-column: span 6; }
 .ck-stack { display: grid; gap: var(--ck-s5); }
-.ck-card-head .ck-link-more { font-size: 14px; font-weight: 600; color: var(--ck-accent); text-decoration: none; display: inline-flex; align-items: center; gap: 2px; }
+.ck-card-head .ck-link-more { font-size: 14px; font-weight: 600; color: var(--ck-accent-ink); text-decoration: none; display: inline-flex; align-items: center; gap: 2px; }
 .ck-card-head .ck-link-more:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .ck-objgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--ck-s3); padding: var(--ck-s4) var(--ck-s5) var(--ck-s5); }
@@ -366,7 +406,7 @@
 .ck-feed li a:hover { background: var(--ck-surface-2); }
 .ck-feed-ic { width: 30px; height: 30px; border-radius: 999px; display: grid; place-items: center; background: var(--ck-surface-2); border: 1px solid var(--ck-border); color: var(--ck-text-2); }
 .ck-feed-ic.f-in { background: var(--ck-ok-soft); color: var(--ck-ok); border-color: transparent; }
-.ck-feed-ic.f-edit { background: var(--ck-accent-soft); color: var(--ck-accent); border-color: transparent; }
+.ck-feed-ic.f-edit { background: var(--ck-accent-soft); color: var(--ck-accent-ink); border-color: transparent; }
 .ck-feed-t { font-size: 15px; line-height: 1.35; } .ck-feed-t small { display: block; color: var(--ck-text-3); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ck-feed-time { font-size: 13px; color: var(--ck-text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 

@@ -39,20 +39,47 @@ export function useApi(path, deps = []) {
 
 /* ---------- App-Kontext: Branding, Theme, Benutzer, Toasts ---------- */
 const Ctx = createContext(null);
+const THEME_KEY = 'ck_theme_v2';  // neuer Schluessel: alte automatisch gespeicherte Werte gelten nicht mehr
+
+// Branding-Einstellung -> CSS-Variablen; leere Werte = neutrale Vorgaben aus cockpit.css
+const BRAND_VARS = { akzent: '--b-akzent', cta: '--b-cta', cta_text: '--b-cta-fg', leiste: '--b-leiste', leiste_text: '--b-leiste-fg' };
+// WCAG-Kontrastverhaeltnis zweier #RRGGBB-Farben (null bei ungueltiger Eingabe)
+export function contrast(a, b) {
+  const lum = (h) => {
+    if (!/^#[0-9a-f]{6}$/i.test(h || '')) return null;
+    const [r, g, bl] = [1, 3, 5].map((i) => { const c = parseInt(h.slice(i, i + 2), 16) / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const x = lum(a), y = lum(b);
+  if (x == null || y == null) return null;
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+export function brandStyle(b) {
+  if (!b) return undefined;
+  const st = {};
+  Object.entries(BRAND_VARS).forEach(([k, v]) => { if (b[k]) st[v] = b[k]; });
+  if (b.schrift_text) st['--b-font'] = `'${b.schrift_text}'`;
+  if (b.schrift_titel) st['--b-font-head'] = `'${b.schrift_titel}'`;
+  return st;
+}
 export const useApp = () => useContext(Ctx);
 
 export function AppProvider({ children }) {
   const [brand, setBrand] = useState(null);
   const [me, setMe] = useState(null);
-  const [dark, setDark] = useState(() => {
-    const s = localStorage.getItem('ck_theme');
-    return s ? s === 'dark' : window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-  });
+  // Standard ist der helle Firmen-Look; dunkel nur, wenn der Benutzer selbst umgeschaltet hat
+  const [dark, setDarkState] = useState(() => localStorage.getItem(THEME_KEY) === 'dark');
+  const setDark = useCallback((d) => { localStorage.setItem(THEME_KEY, d ? 'dark' : 'light'); setDarkState(d); }, []);
   const [toasts, setToasts] = useState([]);
   const [counts, setCounts] = useState({});
   const timers = useRef({});
 
-  useEffect(() => { localStorage.setItem('ck_theme', dark ? 'dark' : 'light'); }, [dark]);
+  useEffect(() => {  // Schriften des Brandings lokal nachladen (z. B. /brand/seda24/fonts/fonts.css)
+    if (!brand?.schrift_css || document.getElementById('ck-brand-fonts')) return;
+    const l = document.createElement('link'); l.id = 'ck-brand-fonts'; l.rel = 'stylesheet'; l.href = brand.schrift_css;
+    document.head.appendChild(l);
+  }, [brand?.schrift_css]);
   const loadBrand = useCallback(() => api.get('/branding').then((r) => { setBrand(r.data); setLang(r.data.sprache || 'de'); }).catch(() => setBrand({ firma: '', akzent: '#2563eb' })), []);
   useEffect(() => { loadBrand(); api.get('/me').then((r) => setMe(r.data)).catch(() => setMe(false)); }, [loadBrand]);
 
@@ -64,7 +91,7 @@ export function AppProvider({ children }) {
   }, [dismiss]);
 
   const value = useMemo(() => ({ brand, setBrand, loadBrand, me, dark, setDark, toast, counts, setCounts }), [brand, me, dark, toast, counts, loadBrand]);
-  const style = brand?.akzent ? { '--ck-accent': brand.akzent } : undefined;
+  const style = brandStyle(brand);
   return (
     <Ctx.Provider value={value}>
       <div className={`ck${dark ? ' ck-dark' : ''}`} style={style}>
