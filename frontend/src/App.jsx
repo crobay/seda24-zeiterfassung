@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -9,6 +9,7 @@ import EmployeeManagement from './pages/EmployeeManagement';
 import MonthlyConfirmation from './pages/MonthlyConfirmation';
 import SommerfestPage from './pages/SommerfestPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+const Cockpit = lazy(() => import('./cockpit'));
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -77,6 +78,7 @@ function App() {
         <Route path="/fest" element={<SommerfestPage />} />
         <Route path="/" element={<Navigate to="/dashboard" />} />
         <Route path="/admin" element={<ProtectedAdminRoute><AdminDashboard /></ProtectedAdminRoute>} />
+        <Route path="/cockpit/*" element={<ProtectedAdminRoute><Suspense fallback={null}><Cockpit /></Suspense></ProtectedAdminRoute>} />
         <Route path="/employees" element={<EmployeeManagement />} />
       </Routes>
     </Router>
