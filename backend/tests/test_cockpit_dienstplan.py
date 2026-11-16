@@ -172,3 +172,13 @@ def test_rueckgaengig_laesst_gestempelte_stehen(client, db):
     u = client.delete(f"{API}/dienstplan/kopie/{r['kopie_id']}", headers=h).json()
     assert u == {"entfernt": 1, "behalten_gestempelt": 1}
     assert q(db, "SELECT 1 FROM schedules WHERE id = :i", i=r["ids"][0])
+
+
+def test_sonntage_ruzica_ab_2027_werden_nicht_kopiert(client, db):
+    h = token(db, "ADMIN")
+    ruz = q(db, "SELECT e.id FROM employees e WHERE e.personal_nr = 'D0002'")[0][0]
+    obj = q(db, "SELECT object_id FROM employee_object_assignments WHERE employee_id = :e AND object_id NOT IN (19, 999) LIMIT 1", e=ruz)[0][0]
+    so = date(2027, 3, 7)                                     # Sonntag
+    sid = _schicht(client, h, ruz, obj, so - timedelta(days=6))  # Montag davor
+    v = client.post(f"{API}/dienstplan/kopieren", json={"schicht_ids": [sid], "ziel_von": so.isoformat()}, headers=h).json()
+    assert v["anzulegen"] == 0 and "Sonntagsregel" in v["eintraege"][0]["grund"]

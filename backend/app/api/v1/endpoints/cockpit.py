@@ -730,6 +730,7 @@ def _kopie_plan(db, data):
                           AND coalesce(s.status,'normal') NOT IN ('storniert')""", a=ziel0, b=ziel1, e=list(emps)):
         best.setdefault((r["employee_id"], r["date"]), []).append(r)
     heute = date.today()
+    from app.services import sonntag_d0002 as _so   # gleiche Ausnahme wie beim klassischen Wochenkopieren
     out, geplant = [], {}
     for n in sorted(neu, key=lambda x: (x["datum"], x["start"], x["employee_id"])):
         key = (n["employee_id"], n["datum"])
@@ -737,6 +738,8 @@ def _kopie_plan(db, data):
         grund = None
         if n["datum"] < heute:
             grund = "liegt in der Vergangenheit"
+        elif _so.applies(n["employee_id"], n["datum"]):
+            grund = "Sonntag wird automatisch angelegt (Sonntagsregel)"
         elif not m or not m["is_active"]:
             grund = "Mitarbeiter nicht aktiv"
         elif key in abw:
