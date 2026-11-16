@@ -1,8 +1,7 @@
 """Admin-Cockpit (Prototyp): Heute, Dienstplan, Mitarbeiter-Akte, Objekte, Zeiten.
 
-Alle Abfragen laufen ueber den Sichtbereich aus ol_scope: Admin sieht alles, Objektleitung nur
-ihre Objekte und deren Mitarbeiter. Aktionen (Genehmigen, Ablehnen, ...) pruefen den Bereich und
-rufen danach die bestehende Logik auf, statt sie nachzubauen.
+Admin und Objektleitung haben dieselben Rechte; einzige Ausnahme: Kunden-Umsaetze nur Admin
+(ol_scope.can_see_revenue). Aktionen (Genehmigen, Ablehnen, ...) rufen die bestehende Logik auf.
 """
 from calendar import monthrange
 from datetime import date, datetime, timedelta
@@ -72,7 +71,7 @@ def me(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)
     emp = _q(db, "SELECT first_name, last_name FROM employees WHERE user_id = :u", u=user.id)
     name = f"{emp[0]['first_name']} {emp[0]['last_name']}" if emp else user.email
     return {"role": ol_scope.role_of(user), "name": name, "objekte": [dict(o) for o in objs],
-            "alle_objekte": obj is None}
+            "alle_objekte": obj is None, "rechte": ol_scope.rights(user)}
 
 
 @router.get("/heute")
@@ -349,7 +348,7 @@ def akte(employee_id: int, db: Session = Depends(get_db), user=Depends(verify_ad
              "stempelart": {"A": "Automatisch", "B": "Knopf", "C": "Auto-Stempel"}.get(e["tracking_mode"], e["tracking_mode"]),
              "aktiv": bool(e["is_active"]), "beschaeftigung": e["employment_type"],
              "telegram": bool(e["telegram_chat_id"]), "seit": e["created_at"].date().isoformat() if e["created_at"] else None}
-    if ol_scope.is_admin(user):
+    if ol_scope.is_manager(user):
         stamm["stundenlohn"] = e["hourly_rate"]
     objekte = _q(db, f"""
         SELECT a.id, a.object_id, o.name, a.tracking_category, a.is_driver, a.is_active, k.distance_km
@@ -388,7 +387,7 @@ def akte(employee_id: int, db: Session = Depends(get_db), user=Depends(verify_ad
                  for s in plan],
         "monat": {"von": m0.isoformat(), "bis": m1.isoformat(), "einsaetze": len(te),
                   "stunden": round(sum(_net_hours(t["check_in"], t["check_out"], t["billed_hours"], t["brk"]) for t in te), 2),
-                  "km": float(km["km"]), "km_betrag": float(km["betrag"]) if ol_scope.is_admin(user) else None,
+                  "km": float(km["km"]), "km_betrag": float(km["betrag"]) if ol_scope.is_manager(user) else None,
                   "fahrten": km["fahrten"]},
         "urlaub": {"jahr": today.year, **({k: float(v or 0) for k, v in url[0].items()} if url else
                                           {"days_entitled": 0, "days_taken": 0, "days_remaining": 0}),
@@ -537,8 +536,8 @@ def branding(db: Session = Depends(get_db)):
 @router.put("/branding")
 def branding_speichern(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
     import json, re
-    if not ol_scope.is_admin(user):
-        raise HTTPException(403, "Nur Admin")
+    if not ol_scope.is_manager(user):
+        raise HTTPException(403, "Kein Zugriff")
     neu = {k: str(data[k]).strip()[:120] for k in BRANDING_DEFAULT if k in data}
     if "akzent" in neu and not re.fullmatch(r"#[0-9a-fA-F]{6}", neu["akzent"]):
         raise HTTPException(400, "Akzentfarbe als #RRGGBB")

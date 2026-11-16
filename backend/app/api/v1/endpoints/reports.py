@@ -297,7 +297,7 @@ def export_excel(
     current_user: User = Depends(get_current_user)
 ):
     """Excel-Export"""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         raise HTTPException(status_code=403, detail="Nur für Admins")
     
     start_date = datetime(year, month, 1)

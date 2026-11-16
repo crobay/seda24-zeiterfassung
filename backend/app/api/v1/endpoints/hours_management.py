@@ -62,7 +62,7 @@ def update_customer_hours(
     current_user = Depends(get_current_user)
 ):
     """Sollstunden für einen Kunden ändern (Admin only)"""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         raise HTTPException(status_code=403, detail="Nur für Admins")
     
     # Check ob Kunde existiert
@@ -134,7 +134,7 @@ def create_special_rule(
     current_user = Depends(get_current_user)
 ):
     """Neue Spezialregel anlegen (Admin only)"""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         raise HTTPException(status_code=403, detail="Nur für Admins")
     
     # Validierung
@@ -176,7 +176,7 @@ def delete_special_rule(
     current_user = Depends(get_current_user)
 ):
     """Spezialregel deaktivieren (soft delete)"""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         raise HTTPException(status_code=403, detail="Nur für Admins")
     
     rule = db.query(SpecialRule).filter(SpecialRule.id == rule_id).first()

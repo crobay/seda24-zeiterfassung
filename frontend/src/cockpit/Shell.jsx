@@ -9,8 +9,8 @@ export const NAV = [
   { key: 'mitarbeiter', path: '/cockpit/mitarbeiter', Icon: Users },
   { key: 'objekte', path: '/cockpit/objekte', Icon: Building2 },
   { key: 'zeiten', path: '/cockpit/zeiten', Icon: Clock3 },
-  { key: 'abrechnung', path: '/cockpit/abrechnung', Icon: Wallet, admin: true },
-  { key: 'einstellungen', path: '/cockpit/einstellungen', Icon: Settings, admin: true },
+  { key: 'abrechnung', path: '/cockpit/abrechnung', Icon: Wallet, right: 'verwalten' },
+  { key: 'einstellungen', path: '/cockpit/einstellungen', Icon: Settings, right: 'verwalten' },
 ];
 const MOBILE = ['heute', 'dienstplan', 'mitarbeiter', 'zeiten'];
 
@@ -24,8 +24,7 @@ export default function Shell({ children }) {
   const loc = useLocation().pathname;
   const [cmd, setCmd] = useState(false);
   const [more, setMore] = useState(false);
-  const isAdmin = me?.role === 'admin';
-  const items = NAV.filter((n) => !n.admin || isAdmin);
+  const items = NAV.filter((n) => !n.right || me?.rechte?.[n.right]);
 
   useEffect(() => {
     const k = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setCmd((c) => !c); } };

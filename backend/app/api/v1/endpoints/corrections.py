@@ -83,7 +83,7 @@ def get_all_corrections(
     query = db.query(CorrectionRequest)
     
     # Wenn nicht Admin, nur eigene anzeigen
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
         if employee:
             query = query.filter(CorrectionRequest.employee_id == employee.id)
@@ -96,7 +96,7 @@ def get_all_corrections(
     
     # Zähle pending für Admins
     pending_count = 0
-    if current_user.role == "admin":
+    if current_user.role in ("admin", "objektleiter"):
         pending_count = db.query(CorrectionRequest).filter(
             CorrectionRequest.status == "pending"
         ).count()
@@ -126,7 +126,7 @@ def process_correction(
     """Admin genehmigt oder lehnt Korrektur ab"""
     
     # Nur Admins dürfen das
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         raise HTTPException(
             status_code=403,
             detail="Nur Admins können Korrekturen bearbeiten"

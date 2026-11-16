@@ -51,7 +51,7 @@ export default {
     hours: 'Std.', way: 'Weg', hint: 'Hinweis', filter: 'Filtern …', only_hints: 'Nur mit Hinweis', empty_title: 'Keine Einträge',
     empty: 'Im gewählten Zeitraum gibt es keine Buchungen.', sum: '{n} Einträge · {h} Std.', week: '7 Tage', month: 'Monat',
     approvals: 'Genehmigungen (klassisch)' },
-  abr: { title: 'Abrechnung', subtitle: 'Lohnübersicht, Zeitnachweise und Lexware-Export', lohn: 'Lohnübersicht', pdf: 'Zeitnachweise & Lexware',
+  abr: { title: 'Abrechnung', subtitle: 'Lohnübersicht, Zeitnachweise und Lexware-Export', lohn: 'Lohnübersicht', pdf: 'Zeitnachweise & Lexware', umsatz: 'Kunden-Umsätze',
     hint: 'Diese Bereiche nutzen vorerst die bewährten Funktionen aus der klassischen Ansicht.' },
   set: { title: 'Einstellungen', subtitle: 'Firma, Darstellung und Verwaltung', brand: 'Firma & Marke', company: 'Firmenname', product: 'Produktname',
     logo: 'Logo-Adresse (URL, optional)', accent: 'Akzentfarbe', saved: 'Einstellungen gespeichert', preview: 'Vorschau',

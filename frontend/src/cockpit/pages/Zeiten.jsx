@@ -33,7 +33,7 @@ export default function Zeiten() {
         <div><h1>{t('zeiten.title')}</h1><p>{data ? t('zeiten.subtitle', { from: fmtDate(data.von), to: fmtDate(data.bis, { day: '2-digit', month: '2-digit', year: 'numeric' }) }) : <Skeleton w={160} h={16} />}</p></div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <div className="ck-seg">{['week', 'month'].map((k) => <button key={k} className={range === k ? 'is-on' : ''} onClick={() => setRange(k)}>{t(`zeiten.${k}`)}</button>)}</div>
-          {me?.role === 'admin' && <button className="ck-btn" onClick={() => setClassic(!classic)}><ClipboardCheck size={16} />{t('zeiten.approvals')}</button>}
+          {me?.rechte?.verwalten && <button className="ck-btn" onClick={() => setClassic(!classic)}><ClipboardCheck size={16} />{t('zeiten.approvals')}</button>}
         </div>
       </div>
       {classic ? (

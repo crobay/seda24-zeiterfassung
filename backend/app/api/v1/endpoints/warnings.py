@@ -19,7 +19,7 @@ def get_all_warnings(
     current_user = Depends(get_current_user)
 ):
     """Alle Warnungen abrufen (nur Admin)"""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         raise HTTPException(status_code=403, detail="Nur Admins können alle Warnungen sehen")
     
     query = db.query(Warning)
@@ -52,7 +52,7 @@ def run_all_checks(
     current_user = Depends(get_current_user)
 ):
     """Alle Validierungen manuell ausführen (Admin only)"""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         raise HTTPException(status_code=403, detail="Nur Admins")
     
     results = {
@@ -69,7 +69,7 @@ def resolve_warning(
     current_user = Depends(get_current_user)
 ):
     """Warnung als erledigt markieren"""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "objektleiter"):
         raise HTTPException(status_code=403, detail="Nur Admins")
     
     warning = db.query(Warning).filter(Warning.id == warning_id).first()

@@ -195,7 +195,7 @@ def get_expired_notifications(
     db: Session = Depends(get_db)
 ):
     """Admin: Alle abgelaufenen/unbearbeiteten Notifications."""
-    if current_user.role.value != 'admin':
+    if current_user.role.value not in ('admin', 'objektleiter'):
         raise HTTPException(status_code=403, detail="Nur fuer Admins")
 
     expired = db.query(PushNotification).filter(

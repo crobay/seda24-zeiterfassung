@@ -13,11 +13,11 @@ const Zeiten = lazy(() => import('./pages/Zeiten'));
 const Abrechnung = lazy(() => import('./pages/Abrechnung'));
 const Einstellungen = lazy(() => import('./pages/Einstellungen'));
 
-function Guard({ admin, children }) {
+function Guard({ right, children }) {
   const { me } = useApp();
   if (me === null) return <SkeletonRows n={5} />;
   if (me === false) return <Navigate to="/login" replace />;
-  if (admin && me.role !== 'admin') return <Navigate to="/cockpit" replace />;
+  if (right && !me.rechte?.[right]) return <Navigate to="/cockpit" replace />;
   return children;
 }
 
@@ -34,8 +34,8 @@ export default function Cockpit() {
               <Route path="mitarbeiter/:id" element={<Akte />} />
               <Route path="objekte" element={<Objekte />} />
               <Route path="zeiten" element={<Zeiten />} />
-              <Route path="abrechnung" element={<Guard admin><Abrechnung /></Guard>} />
-              <Route path="einstellungen" element={<Guard admin><Einstellungen /></Guard>} />
+              <Route path="abrechnung" element={<Guard right="verwalten"><Abrechnung /></Guard>} />
+              <Route path="einstellungen" element={<Guard right="verwalten"><Einstellungen /></Guard>} />
               <Route path="*" element={<Navigate to="/cockpit" replace />} />
             </Routes>
           </Guard>

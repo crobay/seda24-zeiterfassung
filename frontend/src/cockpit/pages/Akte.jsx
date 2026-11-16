@@ -72,7 +72,7 @@ export default function Akte() {
                 <dt>{t('ma.employment')}</dt><dd>{s.beschaeftigung || '–'}</dd>
                 <dt>{t('ma.telegram')}</dt><dd>{s.telegram ? t('ma.yes') : t('ma.no')}</dd>
                 <dt>{t('ma.since')}</dt><dd>{fmtDate(s.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}</dd>
-                {me?.role === 'admin' && s.stundenlohn != null && <><dt>{t('ma.rate')}</dt><dd>{fmtNum(s.stundenlohn, 2)} €</dd></>}
+                {me?.rechte?.verwalten && s.stundenlohn != null && <><dt>{t('ma.rate')}</dt><dd>{fmtNum(s.stundenlohn, 2)} €</dd></>}
               </dl>)}</div>
           </section>
           <section className="ck-card"><div className="ck-card-head"><h2><Palmtree size={20} />{t('ma.vacation', { year: data?.urlaub.jahr || '' })}</h2></div>

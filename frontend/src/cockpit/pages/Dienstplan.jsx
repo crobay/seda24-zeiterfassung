@@ -22,7 +22,7 @@ export default function Dienstplan() {
           <button className="ck-btn ck-btn-icon" onClick={() => shift(-7)} aria-label={t('dienstplan.prev')}><ChevronLeft size={18} /></button>
           <button className="ck-btn" onClick={() => setStart(today)}>{t('dienstplan.today')}</button>
           <button className="ck-btn ck-btn-icon" onClick={() => shift(7)} aria-label={t('dienstplan.next')}><ChevronRight size={18} /></button>
-          {me?.role === 'admin' && <button className="ck-btn" onClick={() => setClassic(!classic)}><Pencil size={16} />{t('dienstplan.edit_classic')}</button>}
+          {me?.rechte?.verwalten && <button className="ck-btn" onClick={() => setClassic(!classic)}><Pencil size={16} />{t('dienstplan.edit_classic')}</button>}
         </div>
       </div>
       {classic ? (

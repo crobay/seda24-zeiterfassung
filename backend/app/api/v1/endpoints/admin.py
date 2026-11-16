@@ -219,7 +219,7 @@ def verify_admin(authorization: str = Header(None), db: Session = Depends(get_db
     except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
     user = db.query(User).filter(User.email == payload.get("sub")).first()
-    if not user or user.role != "admin":
+    if not user or user.role not in ("admin", "objektleiter"):  # Objektleitung = Admin minus Kunden-Umsaetze (ol_guard)
         raise HTTPException(status_code=403, detail="Not an admin")
     return user
 

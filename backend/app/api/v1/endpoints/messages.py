@@ -30,7 +30,7 @@ def _get_employee(db: Session, user: User) -> Employee:
 
 
 def _verify_admin(current_user: User = Depends(get_current_user)):
-    if current_user.role.value != 'admin':
+    if current_user.role.value not in ('admin', 'objektleiter'):
         raise HTTPException(status_code=403, detail="Nur Admin")
     return current_user
 

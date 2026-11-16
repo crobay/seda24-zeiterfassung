@@ -119,7 +119,7 @@ app.include_router(km.router, prefix="/api/v1/km", tags=["km"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(ol_guard)])
 app.include_router(cockpit.router, prefix="/api/v1/cockpit", tags=["cockpit"])
 app.include_router(schedule.router, prefix="/api/v1/schedule", tags=["schedule"])
-app.include_router(vacation.router, prefix="/api/v1/vacation", tags=["vacation"], dependencies=[Depends(ol_guard)])
+app.include_router(vacation.router, prefix="/api/v1/vacation", tags=["vacation"])
 
 # V3.0 Routers
 app.include_router(push.router, prefix="/api/v1/push", tags=["push"])

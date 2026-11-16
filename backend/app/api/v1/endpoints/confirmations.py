@@ -26,7 +26,7 @@ def get_employee_for_user(db: Session, user: User) -> Employee:
 
 
 def verify_admin(current_user: User = Depends(get_current_active_user)):
-    if current_user.role.value != 'admin':
+    if current_user.role.value not in ('admin', 'objektleiter'):
         raise HTTPException(status_code=403, detail="Nur fuer Admins")
     return current_user
 

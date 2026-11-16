@@ -24,7 +24,7 @@ async def get_employee_schedule(
     Hole Dienstplan für einen Mitarbeiter
     """
     # Prüfe Berechtigung
-    if current_user["role"] != "admin" and current_user.get("employee_id") != employee_id:
+    if current_user["role"] not in ("admin", "objektleiter") and current_user.get("employee_id") != employee_id:
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
     
     # Query aufbauen
