@@ -28,7 +28,8 @@ export default function Akte() {
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <div className="ck-avatar" style={{ width: 56, height: 56, fontSize: 20 }}>{s ? initials(s.name) : ''}</div>
           <div><h1>{s ? s.name : <Skeleton w={220} h={30} />}</h1>
-            <p>{s ? <>{s.personal_nr} · {t(`kat.${s.kategorie || 'C'}`)} · <Status s={s.aktiv ? 'aktiv' : 'inaktiv'} /></> : <Skeleton w={160} h={16} />}</p></div>
+            <p>{s ? <>{s.personal_nr} · {t(`kat.${s.kategorie || 'C'}`)} · <Status s={s.aktiv ? 'aktiv' : 'inaktiv'} />
+              {s.rolle && s.rolle !== 'mitarbeiter' && <span className="ck-tag ck-tag-role" style={{ marginLeft: 8 }}>{t(`app.role_${s.rolle}`)}</span>}</> : <Skeleton w={160} h={16} />}</p></div>
         </div>
         <button className="ck-btn ck-btn-primary" disabled={!data} onClick={() => setAssign(true)}><Plus size={18} />{t('ma.assign')}</button>
       </div>

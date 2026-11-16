@@ -9,7 +9,7 @@ export default function Mitarbeiter() {
   const [aktiv, setAktiv] = useState('aktiv');
   const list = useMemo(() => (data || []).filter((m) =>
     (aktiv === 'alle' || (aktiv === 'aktiv') === !!m.is_active) &&
-    `${m.first_name} ${m.last_name} ${m.personal_nr} ${m.objekte || ''}`.toLowerCase().includes(q.trim().toLowerCase())), [data, q, aktiv]);
+    `${m.first_name} ${m.last_name} ${m.personal_nr} ${m.objekte || ''} ${m.rolle && m.rolle !== 'mitarbeiter' ? t(`app.role_${m.rolle}`) : ''}`.toLowerCase().includes(q.trim().toLowerCase())), [data, q, aktiv]);
 
   return (
     <>
@@ -33,6 +33,7 @@ export default function Mitarbeiter() {
                 <div className="ck-avatar" style={{ width: 42, height: 42, fontSize: 15 }}>{initials(`${m.first_name} ${m.last_name}`)}</div>
                 <div style={{ minWidth: 0 }}><div style={{ fontWeight: 650, fontSize: 17 }}>{m.first_name} {m.last_name}</div>
                   <div className="ck-subtle">{m.personal_nr} · {t(`kat.${m.category || 'C'}`)}</div></div>
+                {m.rolle && m.rolle !== 'mitarbeiter' && <span className="ck-tag ck-tag-role" style={{ marginLeft: 'auto' }}>{t(`app.role_${m.rolle}`)}</span>}
               </div>
               <div className="ck-muted" style={{ fontSize: 15 }}>{m.objekte || t('ma.no_objects')}</div>
               <div><Status s={m.is_active ? 'aktiv' : 'inaktiv'} /></div>

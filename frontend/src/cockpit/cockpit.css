@@ -201,6 +201,7 @@
 .ck-status.s-info { background: var(--ck-info-soft); color: var(--ck-info); }
 .ck-status.s-done { background: var(--ck-done-soft); color: var(--ck-done); }
 .ck-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: var(--ck-r-full); font-size: 13px; font-weight: 550; background: var(--ck-surface-2); border: 1px solid var(--ck-border); color: var(--ck-text-2); }
+.ck-tag-role { background: var(--ck-accent-soft); border-color: transparent; color: var(--ck-accent-ink); font-weight: 650; }
 
 .ck-list { list-style: none; margin: 0; padding: 0; }
 .ck-row { display: flex; align-items: center; gap: var(--ck-s4); padding: 14px var(--ck-s5); border-bottom: 1px solid var(--ck-border); transition: background .12s; }
@@ -243,7 +244,7 @@
   border: 1px solid var(--ck-border); animation: ck-pop .18s var(--ck-ease); overflow: hidden; }
 @keyframes ck-pop { from { opacity: 0; transform: translateY(-6px) scale(.985); } }
 .ck-dialog-body { padding: var(--ck-s5); display: flex; flex-direction: column; gap: var(--ck-s4); }
-.ck-dialog-foot { display: flex; justify-content: flex-end; gap: var(--ck-s2); padding: var(--ck-s4) var(--ck-s5); border-top: 1px solid var(--ck-border); background: var(--ck-surface-2); }
+.ck-dialog-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--ck-s2); padding: var(--ck-s4) var(--ck-s5); border-top: 1px solid var(--ck-border); background: var(--ck-surface-2); }
 .ck-field { display: flex; flex-direction: column; gap: 6px; font-weight: 550; font-size: 15px; }
 .ck-input { height: 42px; padding: 0 12px; border-radius: var(--ck-r); border: 1px solid var(--ck-border-strong); background: var(--ck-surface); font-size: 16px; width: 100%; }
 .ck-input:focus { outline: 3px solid var(--ck-focus); border-color: var(--ck-accent); }
@@ -432,3 +433,48 @@
 .ck-shift-btn:disabled { cursor: default; opacity: .85; }
 .ck-km-inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 @media (max-width: 900px) { .ck-km-inline { width: 100%; justify-content: flex-start; } }
+
+/* ---------- Dienstplan: Ziehen & Ablegen, Mitarbeiter-Ansicht, Kopieren ---------- */
+.ck-dp-toolbar { border: 0; padding: 0 0 var(--ck-s4); }
+.ck-dp-toolbar .ck-seg button { display: inline-flex; align-items: center; gap: 6px; }
+.ck-dp-hint { display: inline-flex; align-items: center; gap: 6px; }
+.ck-dp-busy { opacity: .7; pointer-events: none; transition: opacity .15s; }
+.ck-callout-info { background: var(--ck-ok-soft); color: var(--ck-ok); align-items: center; flex-wrap: wrap; }
+/* Touch: kurzes Wischen scrollt, langes Druecken zieht; kein iOS-Kontextmenue / keine Textauswahl */
+.ck-drag { position: relative; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; padding-right: 36px; }
+.ck-drag.is-dragging { opacity: .35; }
+.ck-shift-abw { opacity: .85; }
+.ck-day.is-over, .ck-matrix td.is-over { outline: 2px dashed var(--ck-accent); outline-offset: -2px; background: var(--ck-accent-soft); }
+.ck-day-empty { padding: 4px 6px; min-height: 40px; }
+.ck-shift-drag { box-shadow: var(--ck-shadow-lg); background: var(--ck-surface); border-color: var(--ck-accent); cursor: grabbing; width: 220px; }
+.ck-shift-drag.is-copy { border-color: var(--ck-cta); border-style: dashed; }
+.ck-drag-mode { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--ck-accent-ink); margin-bottom: 2px; }
+.ck-shift-drag.is-copy .ck-drag-mode { color: var(--ck-text); }
+.ck-shift-more { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: var(--ck-r-sm); border: 0; background: transparent;
+  color: var(--ck-text-3); display: grid; place-items: center; cursor: pointer; }
+.ck-shift-more:hover, .ck-shift-more:focus-visible { background: var(--ck-surface); color: var(--ck-accent-ink); }
+.ck-matrix-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ck-matrix { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 980px; font-size: 14px; }
+.ck-matrix th, .ck-matrix td { border-bottom: 1px solid var(--ck-border); border-right: 1px solid var(--ck-border); padding: 6px; vertical-align: top; }
+.ck-matrix thead th { position: sticky; top: 0; background: var(--ck-surface-2); font-weight: 600; text-align: left; white-space: nowrap; z-index: 1; }
+.ck-matrix thead th.is-today { box-shadow: inset 0 -3px 0 var(--ck-accent); }
+.ck-matrix tbody th { position: sticky; left: 0; background: var(--ck-surface); z-index: 1; text-align: left; min-width: 150px; font-weight: 600; }
+.ck-matrix tbody th .ck-subtle { display: block; font-weight: 400; font-size: 12px; }
+.ck-matrix thead th:first-child { position: sticky; left: 0; z-index: 2; }
+.ck-matrix td { min-width: 118px; height: 56px; position: relative; }
+.ck-matrix td .ck-shift { margin-bottom: 4px; padding: 6px 30px 6px 8px; font-size: 13px; }
+.ck-cell-add { position: absolute; right: 4px; bottom: 4px; width: 24px; height: 24px; border-radius: 6px; border: 1px dashed var(--ck-border-strong);
+  background: transparent; color: var(--ck-text-3); display: grid; place-items: center; cursor: pointer; opacity: 0; }
+.ck-matrix td:hover .ck-cell-add, .ck-cell-add:focus-visible { opacity: 1; }
+@media (hover: none) { .ck-cell-add { opacity: .6; } }
+.ck-two-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ck-kopie-vorschau { border: 1px solid var(--ck-border); border-radius: var(--ck-r); overflow: hidden; }
+.ck-kopie-sum { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; background: var(--ck-surface-2); border-bottom: 1px solid var(--ck-border); }
+.ck-kopie-list { max-height: 300px; overflow-y: auto; }
+.ck-kopie-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--ck-border); font-size: 14px; }
+.ck-kopie-row.is-skip > span:nth-child(2) { color: var(--ck-text-3); text-decoration: line-through; }
+@media (max-width: 900px) {
+  .ck-dp-hint { width: 100%; order: 3; }
+  .ck-kopie-row { grid-template-columns: 1fr; gap: 2px; }
+  .ck-two-inputs { grid-template-columns: 1fr; }
+}

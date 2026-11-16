@@ -312,16 +312,23 @@ def dienstplan(start: str = Query(None), db: Session = Depends(get_db), user=Dep
     return {"start": d0.isoformat(), "tage": tage}
 
 
+# Wer nicht die Rolle Mitarbeiter hat (z. B. Objektleitung), erscheint in der Mitarbeiter-Liste, sobald er/sie
+# eingesetzt wird: Schicht oder Stempelung in den letzten 12 Monaten oder kuenftig geplant (alte Admin-Testbuchungen nicht).
+_EINGESETZT = """(EXISTS (SELECT 1 FROM schedules s WHERE s.employee_id = e.id AND s.date >= current_date - 365)
+                 OR EXISTS (SELECT 1 FROM time_entries t WHERE t.employee_id = e.id AND t.check_in >= current_date - 365))"""
+
+
 @router.get("/mitarbeiter")
 def mitarbeiter(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
     obj, emp = _scope(db, user)
     rows = _q(db, f"""
-        SELECT e.id, e.personal_nr, e.first_name, e.last_name, e.is_active, u.category,
+        SELECT e.id, e.personal_nr, e.first_name, e.last_name, e.is_active, u.category, lower(u.role::text) AS rolle,
                (SELECT string_agg(o.name, ', ' ORDER BY o.name) FROM employee_object_assignments a
                   JOIN objects o ON o.id = a.object_id
                  WHERE a.employee_id = e.id AND coalesce(a.is_active,true) AND {_flt('a.object_id', obj)}) AS objekte
           FROM employees e JOIN users u ON u.id = e.user_id
-         WHERE NOT coalesce(e.is_test,false) AND u.role = 'MITARBEITER' AND {_flt('e.id', emp)}
+         WHERE NOT coalesce(e.is_test,false) AND {_flt('e.id', emp)}
+           AND (u.role = 'MITARBEITER' OR {_EINGESETZT})
          ORDER BY e.is_active DESC, e.last_name, e.first_name""", **_params(obj, emp))
     return [dict(r) for r in rows]
 
@@ -335,7 +342,7 @@ def _month_bounds(today):
 def akte(employee_id: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
     ol_scope.require_employee(db, user, employee_id)
     obj, _ = _scope(db, user)
-    e = _q(db, """SELECT e.*, u.email, u.category, u.is_active AS login_aktiv FROM employees e
+    e = _q(db, """SELECT e.*, u.email, u.category, u.is_active AS login_aktiv, lower(u.role::text) AS rolle FROM employees e
                   JOIN users u ON u.id = e.user_id WHERE e.id = :i""", i=employee_id)
     if not e:
         raise HTTPException(404, "Mitarbeiter nicht gefunden")
@@ -344,7 +351,7 @@ def akte(employee_id: int, db: Session = Depends(get_db), user=Depends(verify_ad
     m0, m1 = _month_bounds(today)
     p = _params(obj, None, i=employee_id, a=m0, b=m1, d=today, y=today.year)
     stamm = {"id": e["id"], "personal_nr": e["personal_nr"], "name": f"{e['first_name']} {e['last_name']}",
-             "email": e["email"], "adresse": e["address"], "kategorie": e["category"],
+             "email": e["email"], "adresse": e["address"], "kategorie": e["category"], "rolle": e["rolle"],
              "stempelart": {"A": "Automatisch", "B": "Knopf", "C": "Auto-Stempel"}.get(e["tracking_mode"], e["tracking_mode"]),
              "aktiv": bool(e["is_active"]), "beschaeftigung": e["employment_type"],
              "telegram": bool(e["telegram_chat_id"]), "seit": e["created_at"].date().isoformat() if e["created_at"] else None}
@@ -638,6 +645,216 @@ def schicht_loeschen(schedule_id: int, db: Session = Depends(get_db), user=Depen
     alt = schicht(schedule_id, db=db, user=user)
     delete_schedule(schedule_id, db=db, admin=user)
     return {"status": "geloescht", "alt": alt}
+
+
+# --- Dienstplan: Kopieren (Vorschau + Konflikte + Rueckgaengig) und Verschieben -------------------
+MAX_KOPIE = 500          # neue Schichten je Kopiervorgang
+MAX_ZIEL_TAGE = 92       # Zielzeitraum hoechstens ~3 Monate
+
+
+def _d(v, feld):
+    try:
+        return date.fromisoformat(str(v))
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"{feld}: Datum als JJJJ-MM-TT")
+
+
+def _min(t):
+    return t.hour * 60 + t.minute
+
+
+def _ueberlappt(a0, a1, b0, b1):
+    """Zeiten in Minuten; Ende <= Beginn = ueber Mitternacht."""
+    a1 = a1 if a1 > a0 else a1 + 1440
+    b1 = b1 if b1 > b0 else b1 + 1440
+    return a0 < b1 and b0 < a1
+
+
+def _quellschichten(db, data):
+    """Quell-Schichten (nur echte Einsaetze, keine Urlaub/Krank-Eintraege) + Quellzeitraum."""
+    ids = [int(x) for x in (data.get("schicht_ids") or [])][:MAX_KOPIE]
+    if ids:
+        rows = _q(db, f"""SELECT s.* FROM schedules s WHERE s.id = ANY(:ids) AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                          AND coalesce(s.status,'normal') NOT IN ('storniert','urlaub','krank','abwesend') ORDER BY s.date, s.start_time""", ids=ids)
+        if not rows:
+            raise HTTPException(404, "Schicht nicht gefunden")
+        return rows, min(r["date"] for r in rows), max(r["date"] for r in rows)
+    von, bis = _d(data.get("quelle_von"), "quelle_von"), _d(data.get("quelle_bis") or data.get("quelle_von"), "quelle_bis")
+    if bis < von or (bis - von).days > 30:
+        raise HTTPException(400, "Quellzeitraum: 1 bis 31 Tage")
+    rows = _q(db, f"""SELECT s.* FROM schedules s JOIN employees e ON e.id = s.employee_id
+                      WHERE s.date BETWEEN :a AND :b AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK}) AND NOT coalesce(e.is_test,false)
+                        AND coalesce(s.status,'normal') NOT IN ('storniert','urlaub','krank','abwesend') ORDER BY s.date, s.start_time""", a=von, b=bis)
+    return rows, von, bis
+
+
+def _kopie_plan(db, data):
+    """Was wuerde angelegt? Je neue Schicht: ok oder Grund zum Ueberspringen."""
+    rows, q0, q1 = _quellschichten(db, data)
+    ziel0 = _d(data.get("ziel_von"), "ziel_von")
+    laenge = (q1 - q0).days + 1          # Rhythmus: Quell-Tage (Schicht/Tag = 1, Woche = 7)
+    ziel1 = _d(data["ziel_bis"], "ziel_bis") if data.get("ziel_bis") else ziel0 + timedelta(days=laenge - 1)
+    if ziel1 < ziel0 or (ziel1 - ziel0).days >= MAX_ZIEL_TAGE:
+        raise HTTPException(400, f"Zielzeitraum: 1 bis {MAX_ZIEL_TAGE} Tage")
+    if ziel0 <= q1 and q0 <= ziel1 and not data.get("employee_id"):
+        raise HTTPException(400, "Ziel ueberschneidet sich mit der Quelle")
+    ma = int(data["employee_id"]) if data.get("employee_id") else None
+
+    # Muster wird im Rhythmus der Quelllaenge wiederholt (Woche -> woechentlich, Tag -> taeglich)
+    neu = []
+    k = 0
+    while True:
+        basis = ziel0 + timedelta(days=k * laenge)
+        if basis > ziel1:
+            break
+        for r in rows:
+            d = basis + (r["date"] - q0)
+            if ziel0 <= d <= ziel1:
+                neu.append({"quelle_id": r["id"], "employee_id": ma or r["employee_id"], "object_id": r["object_id"], "datum": d,
+                            "start": r["start_time"], "ende": r["end_time"], "fahrer": bool(r["is_driver"])})
+        k += 1
+    if len(neu) > MAX_KOPIE:
+        raise HTTPException(400, f"Zu viele Schichten ({len(neu)}), hoechstens {MAX_KOPIE} je Vorgang")
+    if not neu:
+        return {"ziel_von": ziel0.isoformat(), "ziel_bis": ziel1.isoformat(), "eintraege": [], "anzulegen": 0, "uebersprungen": 0}
+
+    emps = {n["employee_id"] for n in neu}
+    namen = {r["id"]: r for r in _q(db, """SELECT e.id, e.first_name || ' ' || e.last_name AS name, e.personal_nr, e.is_active
+                                              FROM employees e WHERE e.id = ANY(:i)""", i=list(emps))}
+    objs = {r["id"]: r["name"] for r in _q(db, "SELECT id, name FROM objects WHERE id = ANY(:i)", i=list({n['object_id'] for n in neu}))}
+    abw = _abwesend_map(db, ziel0, ziel1)
+    best = {}
+    for r in _q(db, f"""SELECT s.employee_id, s.date, s.start_time, s.end_time, s.object_id, o.name AS objekt FROM schedules s
+                        LEFT JOIN objects o ON o.id = s.object_id
+                        WHERE s.date BETWEEN :a AND :b AND s.employee_id = ANY(:e) AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                          AND coalesce(s.status,'normal') NOT IN ('storniert')""", a=ziel0, b=ziel1, e=list(emps)):
+        best.setdefault((r["employee_id"], r["date"]), []).append(r)
+    heute = date.today()
+    out, geplant = [], {}
+    for n in sorted(neu, key=lambda x: (x["datum"], x["start"], x["employee_id"])):
+        key = (n["employee_id"], n["datum"])
+        m = namen.get(n["employee_id"])
+        grund = None
+        if n["datum"] < heute:
+            grund = "liegt in der Vergangenheit"
+        elif not m or not m["is_active"]:
+            grund = "Mitarbeiter nicht aktiv"
+        elif key in abw:
+            grund = abw[key]
+        else:
+            s0, s1 = _min(n["start"]), _min(n["ende"])
+            for b in best.get(key, []):
+                if b["object_id"] == n["object_id"] and b["start_time"] == n["start"] and b["end_time"] == n["ende"]:
+                    grund = "bereits vorhanden"; break
+                if _ueberlappt(s0, s1, _min(b["start_time"]), _min(b["end_time"])):
+                    grund = f"Doppelbelegung: {b['objekt']} {_hm(b['start_time'])}–{_hm(b['end_time'])}"; break
+            if not grund:
+                for b in geplant.get(key, []):
+                    if _ueberlappt(s0, s1, _min(b["start"]), _min(b["ende"])):
+                        grund = "Doppelbelegung innerhalb der Kopie"; break
+        if not grund:
+            geplant.setdefault(key, []).append(n)
+        out.append({"quelle_id": n["quelle_id"], "datum": n["datum"].isoformat(), "tag": WOCHENTAG[n["datum"].weekday()],
+                    "employee_id": n["employee_id"], "name": m["name"] if m else "?", "object_id": n["object_id"],
+                    "objekt": objs.get(n["object_id"], "?"), "beginn": _hm(n["start"]), "ende": _hm(n["ende"]), "fahrer": n["fahrer"],
+                    "status": "ok" if not grund else ("abwesend" if grund in ("Urlaub", "Krank") else "konflikt"), "grund": grund})
+    return {"ziel_von": ziel0.isoformat(), "ziel_bis": ziel1.isoformat(), "eintraege": out,
+            "anzulegen": sum(1 for o in out if o["status"] == "ok"), "uebersprungen": sum(1 for o in out if o["status"] != "ok")}
+
+
+@router.post("/dienstplan/kopieren")
+def dienstplan_kopieren(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Kopiert Schichten (einzeln, Tag, Woche oder Zeitraum). vorschau=true: nur anzeigen, nichts speichern.
+    Ohne Vorschau: alle 'ok'-Eintraege in EINER Transaktion; Konflikte werden uebersprungen. Rueckgabe mit kopie_id."""
+    import uuid
+    from app.api.v1.endpoints.admin import check_vacation_conflict, check_and_reset_confirmation
+    plan = _kopie_plan(db, data)
+    if data.get("vorschau", True):
+        return {**plan, "vorschau": True}
+    kopie_id = uuid.uuid4().hex[:12]
+    angelegt = []
+    try:
+        for e in plan["eintraege"]:
+            if e["status"] != "ok":
+                continue
+            d = date.fromisoformat(e["datum"])
+            if check_vacation_conflict(db, e["employee_id"], d):      # gleiche Pruefung wie beim Einzel-Anlegen
+                e["status"], e["grund"] = "abwesend", "Urlaub"
+                continue
+            b, en = datetime.strptime(e["beginn"], "%H:%M"), datetime.strptime(e["ende"], "%H:%M")
+            std = ((en - b).total_seconds() / 3600) % 24 or 24
+            sid = db.execute(text("""INSERT INTO schedules (employee_id, object_id, date, weekday, start_time, end_time, planned_hours,
+                                         status, is_driver, created_by, created_at, updated_at)
+                                     VALUES (:e, :o, :d, :w, :s, :en, :h, 'normal', :f, :u, now(), now()) RETURNING id"""),
+                             {"e": e["employee_id"], "o": e["object_id"], "d": d, "w": d.weekday(), "s": e["beginn"], "en": e["ende"],
+                              "h": std, "f": e["fahrer"], "u": user.id}).scalar()
+            e["id"] = sid
+            angelegt.append(e)
+            log_audit(db, user.id, e["employee_id"], "schedule_copied", entity_type="schedule", entity_id=sid,
+                      new_value={"datum": e["datum"], "zeit": f"{e['beginn']}-{e['ende']}", "objekt": e["objekt"], "quelle": e["quelle_id"]},
+                      details=f"Schicht kopiert [Kopie {kopie_id}]: {e['name']}, {d.strftime('%d.%m.%Y')}, {e['beginn']}-{e['ende']}, {e['objekt']}")
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    for e in angelegt:
+        check_and_reset_confirmation(db, e["employee_id"], date.fromisoformat(e["datum"]))
+    return {**plan, "vorschau": False, "kopie_id": kopie_id, "angelegt": len(angelegt),
+            "uebersprungen": len(plan["eintraege"]) - len(angelegt), "ids": [e["id"] for e in angelegt]}
+
+
+@router.delete("/dienstplan/kopie/{kopie_id}")
+def kopie_rueckgaengig(kopie_id: str, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Nimmt einen ganzen Kopiervorgang zurueck. Schichten, auf die schon gestempelt wurde, bleiben stehen."""
+    import re
+    if not re.fullmatch(r"[0-9a-f]{12}", kopie_id):
+        raise HTTPException(400, "Ungueltige Kopie")
+    ids = [r["entity_id"] for r in _q(db, """SELECT entity_id FROM audit_log WHERE action = 'schedule_copied' AND entity_type = 'schedule'
+                                               AND details LIKE :m""", m=f"%[Kopie {kopie_id}]%")]
+    if not ids:
+        raise HTTPException(404, "Kopiervorgang nicht gefunden")
+    gestempelt = {r["schedule_id"] for r in _q(db, "SELECT DISTINCT schedule_id FROM time_entries WHERE schedule_id = ANY(:i)", i=ids)}
+    weg = 0
+    for sid in ids:
+        if sid in gestempelt:
+            continue
+        r = _q(db, "SELECT employee_id, date FROM schedules WHERE id = :i", i=sid)
+        if not r:
+            continue
+        db.execute(text("UPDATE schedules SET partner_schedule_id = NULL WHERE partner_schedule_id = :i"), {"i": sid})
+        db.execute(text("DELETE FROM schedules WHERE id = :i"), {"i": sid})
+        log_audit(db, user.id, r[0]["employee_id"], "schedule_deleted", entity_type="schedule", entity_id=sid,
+                  details=f"Kopieren rueckgaengig [Kopie {kopie_id}]: Schicht {r[0]['date'].strftime('%d.%m.%Y')} entfernt")
+        weg += 1
+    db.commit()
+    return {"entfernt": weg, "behalten_gestempelt": len(gestempelt)}
+
+
+@router.post("/dienstplan/{schedule_id}/verschieben")
+def schicht_verschieben(schedule_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Drag & Drop: Schicht auf anderen Tag und/oder anderen MA. Prueft Urlaub/Krank, Doppelbelegung und ob schon gestempelt."""
+    from app.api.v1.endpoints.admin import update_schedule
+    alt = schicht(schedule_id, db=db, user=user)
+    if alt["object_id"] in (OBJ_URLAUB, OBJ_KRANK):
+        raise HTTPException(400, "Urlaub/Krank-Eintraege werden nicht verschoben")
+    if _q(db, "SELECT 1 FROM time_entries WHERE schedule_id = :i LIMIT 1", i=schedule_id):
+        raise HTTPException(409, "Auf diese Schicht wurde schon gestempelt – nicht verschiebbar")
+    ziel = _d(data.get("datum") or alt["datum"], "datum")
+    ma = int(data.get("employee_id") or alt["employee_id"])
+    if ziel < date.today():
+        raise HTTPException(409, "Ziel liegt in der Vergangenheit")
+    grund = _abwesend_map(db, ziel, ziel).get((ma, ziel))
+    if grund:
+        raise HTTPException(409, f"Am Zieltag {grund}")
+    b0, b1 = _min(datetime.strptime(alt["beginn"], "%H:%M")), _min(datetime.strptime(alt["ende"], "%H:%M"))
+    for r in _q(db, f"""SELECT s.start_time, s.end_time, o.name FROM schedules s LEFT JOIN objects o ON o.id = s.object_id
+                        WHERE s.employee_id = :e AND s.date = :d AND s.id <> :i AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                          AND coalesce(s.status,'normal') <> 'storniert'""", e=ma, d=ziel, i=schedule_id):
+        if _ueberlappt(b0, b1, _min(r["start_time"]), _min(r["end_time"])):
+            raise HTTPException(409, f"Doppelbelegung: {r['name']} {_hm(r['start_time'])}–{_hm(r['end_time'])}")
+    update_schedule(schedule_id, {"employee_id": ma, "object_id": alt["object_id"], "date": ziel.isoformat(),
+                                  "start_time": alt["beginn"], "end_time": alt["ende"], "is_driver": alt["fahrer"]}, db=db, admin=user)
+    return {"alt": alt, "neu": schicht(schedule_id, db=db, user=user)}
 
 
 @router.get("/auswahl")
