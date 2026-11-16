@@ -383,3 +383,12 @@
   .ck-bar-val { min-width: 0; }
   .ck-cmp-row { grid-template-columns: 110px minmax(0, 1fr) 60px; }
 }
+
+/* Bearbeiten: klickbare Zeilen/Schichten, Inline-KM */
+.ck-table-click tbody tr { cursor: pointer; }
+.ck-table-click tbody tr:focus-visible td { background: var(--ck-accent-soft); }
+.ck-shift-btn { display: block; width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s, background .15s; }
+.ck-shift-btn:hover:not(:disabled) { border-color: var(--ck-accent); background: var(--ck-accent-soft); }
+.ck-shift-btn:disabled { cursor: default; opacity: .85; }
+.ck-km-inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 900px) { .ck-km-inline { width: 100%; justify-content: flex-start; } }

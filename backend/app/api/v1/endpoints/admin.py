@@ -3162,6 +3162,9 @@ def get_lohn_uebersicht(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # Lohndaten aller MA: nur Verwaltung (vorher reichte jeder Login)
+    if (current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)) not in ("admin", "objektleiter"):
+        raise HTTPException(status_code=403, detail="Kein Zugriff")
     first_day = date(year, month, 1)
     last_day = date(year, month, monthrange(year, month)[1])
 

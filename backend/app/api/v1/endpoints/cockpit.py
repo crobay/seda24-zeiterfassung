@@ -308,7 +308,7 @@ def dienstplan(start: str = Query(None), db: Session = Depends(get_db), user=Dep
             "id": r["id"], "name": r["name"], "personal_nr": r["personal_nr"], "employee_id": r["employee_id"],
             "objekt": "Urlaub" if r["object_id"] == OBJ_URLAUB else ("Krank" if r["object_id"] == OBJ_KRANK else r["objekt"]),
             "beginn": _hm(r["start_time"]), "ende": _hm(r["end_time"]), "status": r["status"],
-            "fahrer": bool(r["is_driver"])})
+            "fahrer": bool(r["is_driver"]), "object_id": r["object_id"]})
     return {"start": d0.isoformat(), "tage": tage}
 
 
@@ -454,8 +454,9 @@ def objekte(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektle
     rows = _q(db, f"""
         SELECT o.id, o.name, o.address, o.is_active, c.name AS kunde,
                (SELECT count(*) FROM employee_object_assignments a WHERE a.object_id = o.id AND coalesce(a.is_active,true)) AS ma,
-               (SELECT count(*) FROM employee_object_assignments a WHERE a.object_id = o.id AND coalesce(a.is_active,true)
-                  AND NOT EXISTS (SELECT 1 FROM km_distances k WHERE k.employee_id = a.employee_id AND k.object_id = o.id)) AS ohne_km,
+               (SELECT count(*) FROM employee_object_assignments a JOIN employees e ON e.id = a.employee_id
+                 WHERE a.object_id = o.id AND coalesce(a.is_active,true) AND coalesce(a.is_driver,false) AND e.is_active
+                   AND NOT EXISTS (SELECT 1 FROM km_distances k WHERE k.employee_id = a.employee_id AND k.object_id = o.id)) AS ohne_km,
                (SELECT count(*) FROM schedules s WHERE s.object_id = o.id AND s.date = :d
                   AND s.status IN ('normal','vertretung')) AS schichten_heute
           FROM objects o LEFT JOIN customers c ON c.id = o.customer_id
@@ -464,37 +465,311 @@ def objekte(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektle
     return [dict(r) for r in rows]
 
 
-@router.get("/zeiten")
-def zeiten(von: str = Query(None), bis: str = Query(None), db: Session = Depends(get_db),
-           user=Depends(verify_admin_or_objektleiter)):
-    obj, _ = _scope(db, user)
-    d1 = date.fromisoformat(bis) if bis else date.today()
-    d0 = date.fromisoformat(von) if von else d1 - timedelta(days=6)
-    rows = _q(db, f"""
-        SELECT t.id, t.check_in, t.check_out, t.billed_hours, t.notes, t.is_manual_entry, o.name AS objekt,
-               e.first_name || ' ' || e.last_name AS name, e.personal_nr, t.employee_id,
+PRUEF_SQL = {
+    "gehen_vor_kommen": "t.check_out < t.check_in",
+    "negative_stunden": "t.billed_hours < 0",
+    "ohne_gehen": "t.check_out IS NULL AND t.check_in < now() - interval '14 hours'",
+}
+PRUEF_SQL["alle"] = "(" + " OR ".join(f"({v})" for v in PRUEF_SQL.values()) + ")"
+
+
+def _zeile(r):
+    hint = []
+    if r["check_out"] is None:
+        hint.append("ohne Gehen")
+    elif r["check_out"] < r["check_in"]:
+        hint.append("Gehen vor Kommen")
+    if r["billed_hours"] is not None and r["billed_hours"] < 0:
+        hint.append("negative Stunden")
+    return {"id": r["id"], "datum": r["check_in"].date().isoformat(), "name": r["name"], "personal_nr": r["personal_nr"],
+            "employee_id": r["employee_id"], "object_id": r["object_id"], "objekt": r["objekt"],
+            "kommen": _hm(r["check_in"]), "gehen": _hm(r["check_out"]),
+            "check_in": r["check_in"].isoformat(), "check_out": r["check_out"].isoformat() if r["check_out"] else None,
+            "gehen_datum": r["check_out"].date().isoformat() if r["check_out"] else None,
+            "stunden": round(_net_hours(r["check_in"], r["check_out"], r["billed_hours"], r["brk"]), 2),
+            "billed_hours": r["billed_hours"], "notes": r["notes"], "service_type": r["service_type"], "schedule_id": r["schedule_id"],
+            "weg": (r["notes"] or "").split(" - ")[0][:40] if r["notes"] else ("App" if r["is_manual_entry"] is False else "Manuell"),
+            "hinweis": ", ".join(hint)}
+
+
+_ZEIT_SELECT = f"""
+        SELECT t.id, t.check_in, t.check_out, t.billed_hours, t.notes, t.is_manual_entry, t.object_id, t.service_type, t.schedule_id,
+               o.name AS objekt, e.first_name || ' ' || e.last_name AS name, e.personal_nr, t.employee_id,
                (SELECT coalesce(sum(extract(epoch FROM b.end_time - b.start_time)),0) FROM break_entries b
                  WHERE b.time_entry_id = t.id AND b.end_time IS NOT NULL) AS brk
-          FROM time_entries t JOIN employees e ON e.id = t.employee_id LEFT JOIN objects o ON o.id = t.object_id
-         WHERE t.check_in::date BETWEEN :a AND :b AND NOT coalesce(e.is_test,false)
-           AND coalesce(t.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK}) AND {_flt('t.object_id', obj)}
-         ORDER BY t.check_in DESC""", **_params(obj, None, a=d0, b=d1))
-    out = []
-    for r in rows:
-        hint = []
-        if r["check_out"] is None:
-            hint.append("ohne Gehen")
-        elif r["check_out"] < r["check_in"]:
-            hint.append("Gehen vor Kommen")
-        if r["billed_hours"] is not None and r["billed_hours"] < 0:
-            hint.append("negative Stunden")
-        out.append({"id": r["id"], "datum": r["check_in"].date().isoformat(), "name": r["name"],
-                    "personal_nr": r["personal_nr"], "employee_id": r["employee_id"], "objekt": r["objekt"],
-                    "kommen": _hm(r["check_in"]), "gehen": _hm(r["check_out"]),
-                    "stunden": round(_net_hours(r["check_in"], r["check_out"], r["billed_hours"], r["brk"]), 2),
-                    "weg": (r["notes"] or "").split(" - ")[0][:40] if r["notes"] else ("App" if r["is_manual_entry"] is False else "Manuell"),
-                    "hinweis": ", ".join(hint)})
-    return {"von": d0.isoformat(), "bis": d1.isoformat(), "eintraege": out}
+          FROM time_entries t JOIN employees e ON e.id = t.employee_id LEFT JOIN objects o ON o.id = t.object_id"""
+
+
+@router.get("/zeiten")
+def zeiten(von: str = Query(None), bis: str = Query(None), pruef: str = Query(None), monat: str = Query(None),
+           db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    d1 = date.fromisoformat(bis) if bis else date.today()
+    d0 = date.fromisoformat(von) if von else d1 - timedelta(days=6)
+    if pruef in PRUEF_SQL:  # Pruefpunkte: ganzer Monat (Standard: laufender), Kommen- ODER Gehen-Datum im Monat
+        try:
+            ref = date.fromisoformat(f"{monat}-01") if monat else date.today()
+        except ValueError:
+            raise HTTPException(400, "Monat als JJJJ-MM")
+        d0, d1 = _month_bounds(ref)
+        where = f"(t.check_in::date BETWEEN :a AND :b OR t.check_out::date BETWEEN :a AND :b) AND {PRUEF_SQL[pruef]}"
+    else:
+        where = "t.check_in::date BETWEEN :a AND :b"
+    rows = _q(db, f"""{_ZEIT_SELECT}
+         WHERE {where} AND NOT coalesce(e.is_test,false) AND coalesce(t.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+         ORDER BY t.check_in DESC""", a=d0, b=d1)
+    return {"von": d0.isoformat(), "bis": d1.isoformat(), "pruef": pruef, "monat": d0.strftime("%Y-%m"),
+            "eintraege": [_zeile(r) for r in rows]}
+
+
+@router.get("/zeiten/{entry_id}")
+def zeit(entry_id: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    rows = _q(db, f"{_ZEIT_SELECT} WHERE t.id = :i", i=entry_id)
+    if not rows:
+        raise HTTPException(404, "Buchung nicht gefunden")
+    return _zeile(rows[0])
+
+
+def _pruefe_zeiten(data):
+    """Kommen/Gehen aus Datum + Uhrzeiten. Gehen vor Kommen = naechster Tag (Nachtschicht). Max. 16 h."""
+    try:
+        d = date.fromisoformat(data["datum"])
+        ci = datetime.combine(d, datetime.strptime(data["kommen"], "%H:%M").time())
+        co = datetime.combine(d, datetime.strptime(data["gehen"], "%H:%M").time())
+    except (KeyError, ValueError):
+        raise HTTPException(400, "Datum, Kommen und Gehen angeben (TT.MM.JJJJ / HH:MM)")
+    if co <= ci:
+        co += timedelta(days=1)
+    if (co - ci) > timedelta(hours=16):
+        raise HTTPException(400, "Mehr als 16 Stunden – bitte Zeiten prüfen")
+    if ci > datetime.now() + timedelta(hours=1):
+        raise HTTPException(400, "Kommen liegt in der Zukunft")
+    return ci, co
+
+
+@router.put("/zeiten/{entry_id}")
+def zeit_aendern(entry_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Buchung bearbeiten. Datum gilt fuer Kommen UND Gehen (verhindert Gehen-vor-Kommen)."""
+    from app.api.v1.endpoints.admin import update_booking
+    ci, co = _pruefe_zeiten(data)
+    body = {"check_in": ci.isoformat(), "check_out": co.isoformat()}
+    for k in ("object_id", "notes", "employee_id"):
+        if k in data and data[k] not in (None, ""):
+            body[k] = data[k]
+    update_booking(entry_id, body, db=db, admin=user)
+    return zeit(entry_id, db=db, user=user)
+
+
+@router.post("/zeiten")
+def zeit_anlegen(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    from app.api.v1.endpoints.admin import create_manual_booking
+    ci, co = _pruefe_zeiten(data)
+    if not data.get("employee_id") or not data.get("object_id"):
+        raise HTTPException(400, "Mitarbeiter und Objekt angeben")
+    r = create_manual_booking({"employee_id": int(data["employee_id"]), "object_id": int(data["object_id"]),
+                               "check_in": ci.isoformat(), "check_out": co.isoformat(),
+                               "check_in_time": ci.strftime("%H:%M"), "check_out_time": co.strftime("%H:%M"),
+                               "service_type": data.get("service_type") or "Unterhaltsreinigung",
+                               "notes": data.get("notes") or "Im Cockpit nachgetragen"}, db=db, admin=user)
+    if data.get("schedule_id"):
+        db.execute(text("UPDATE time_entries SET schedule_id = :s WHERE id = :i AND schedule_id IS NULL"),
+                   {"s": int(data["schedule_id"]), "i": r["id"]})
+        db.commit()
+    return zeit(r["id"], db=db, user=user)
+
+
+@router.delete("/zeiten/{entry_id}")
+def zeit_loeschen(entry_id: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    from app.api.v1.endpoints.admin import delete_booking
+    alt = zeit(entry_id, db=db, user=user)
+    delete_booking(entry_id, db=db, admin=user)
+    return {"status": "geloescht", "alt": alt}
+
+
+@router.get("/schicht/{schedule_id}")
+def schicht(schedule_id: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    r = _q(db, """SELECT s.id, s.date, s.start_time, s.end_time, s.employee_id, s.object_id, s.status, s.is_driver, s.notes,
+                         o.name AS objekt, e.first_name || ' ' || e.last_name AS name
+                    FROM schedules s JOIN employees e ON e.id = s.employee_id LEFT JOIN objects o ON o.id = s.object_id
+                   WHERE s.id = :i""", i=schedule_id)
+    if not r:
+        raise HTTPException(404, "Schicht nicht gefunden")
+    r = r[0]
+    return {"id": r["id"], "datum": r["date"].isoformat(), "beginn": _hm(r["start_time"]), "ende": _hm(r["end_time"]),
+            "employee_id": r["employee_id"], "object_id": r["object_id"], "status": r["status"], "fahrer": bool(r["is_driver"]),
+            "notes": r["notes"], "objekt": r["objekt"], "name": r["name"]}
+
+
+def _pruefe_schicht(data):
+    try:
+        date.fromisoformat(data["datum"])
+        b = datetime.strptime(data["beginn"], "%H:%M")
+        e = datetime.strptime(data["ende"], "%H:%M")
+    except (KeyError, ValueError):
+        raise HTTPException(400, "Datum, Beginn und Ende angeben")
+    if e <= b:
+        raise HTTPException(400, "Ende muss nach Beginn liegen")
+    if not data.get("employee_id") or not data.get("object_id"):
+        raise HTTPException(400, "Mitarbeiter und Objekt angeben")
+
+
+@router.post("/dienstplan")
+def schicht_anlegen(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    from app.api.v1.endpoints.admin import create_schedule
+    _pruefe_schicht(data)
+    r = create_schedule({"employee_id": int(data["employee_id"]), "object_id": int(data["object_id"]), "date": data["datum"],
+                         "start_time": data["beginn"], "end_time": data["ende"], "is_driver": bool(data.get("fahrer", True)),
+                         "status": data.get("status") or "normal"}, db=db, admin=user)
+    return schicht(r["id"], db=db, user=user)
+
+
+@router.put("/dienstplan/{schedule_id}")
+def schicht_aendern(schedule_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    from app.api.v1.endpoints.admin import update_schedule
+    _pruefe_schicht(data)
+    update_schedule(schedule_id, {"employee_id": int(data["employee_id"]), "object_id": int(data["object_id"]), "date": data["datum"],
+                                  "start_time": data["beginn"], "end_time": data["ende"], "is_driver": bool(data.get("fahrer", True))},
+                    db=db, admin=user)
+    return schicht(schedule_id, db=db, user=user)
+
+
+@router.delete("/dienstplan/{schedule_id}")
+def schicht_loeschen(schedule_id: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    from app.api.v1.endpoints.admin import delete_schedule
+    alt = schicht(schedule_id, db=db, user=user)
+    delete_schedule(schedule_id, db=db, admin=user)
+    return {"status": "geloescht", "alt": alt}
+
+
+@router.get("/auswahl")
+def auswahl(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Listen fuer Auswahlfelder (aktive MA, aktive Objekte)."""
+    ma = _q(db, """SELECT e.id, e.first_name || ' ' || e.last_name AS name, e.personal_nr FROM employees e JOIN users u ON u.id = e.user_id
+                   WHERE e.is_active AND NOT coalesce(e.is_test,false) AND u.role <> 'ADMIN' ORDER BY e.last_name, e.first_name""")
+    ob = _q(db, f"""SELECT id, name FROM objects WHERE coalesce(is_active,true) AND NOT coalesce(is_test,false)
+                    AND id NOT IN ({OBJ_URLAUB},{OBJ_KRANK}) ORDER BY name""")
+    return {"mitarbeiter": [dict(x) for x in ma], "objekte": [dict(x) for x in ob]}
+
+
+# --- Objekt-Detail -----------------------------------------------------------------------------
+OBJ_EDIT = ("name", "address", "contact_person", "phone", "email", "emergency_phone", "key_location", "alarm_code",
+            "special_instructions", "cleaning_days", "cleaning_interval", "notes", "is_active")
+OBJ_UMSATZ = ("monthly_amount", "monthly_amount_netto", "monthly_amount_brutto", "vat_rate", "payment_terms", "invoice_day", "invoice_type")
+
+
+@router.get("/objekte/{object_id}")
+def objekt(object_id: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    o = _q(db, """SELECT o.*, c.name AS kunde, c.id AS kunde_id FROM objects o LEFT JOIN customers c ON c.id = o.customer_id
+                  WHERE o.id = :i""", i=object_id)
+    if not o:
+        raise HTTPException(404, "Objekt nicht gefunden")
+    o = o[0]
+    today = date.today()
+    m0, m1 = _month_bounds(today)
+    stamm = {k: o[k] for k in OBJ_EDIT}
+    stamm.update({"id": o["id"], "kunde": o["kunde"], "start_time": _hm(o["start_time"]), "end_time": _hm(o["end_time"]),
+                  "planned_hours": float(o["planned_hours"]) if o["planned_hours"] is not None else None,
+                  "radius_m": o["radius_m"] or o["radius_meters"], "gps": bool(o["gps_lat"] and o["gps_lng"]),
+                  "contract_start": o["contract_start"].isoformat() if o["contract_start"] else None,
+                  "contract_end": o["contract_end"].isoformat() if o["contract_end"] else None})
+    if ol_scope.can_see_revenue(user):
+        stamm["umsatz"] = {k: (float(o[k]) if isinstance(o[k], (int, float)) or hasattr(o[k], "is_finite") else o[k]) for k in OBJ_UMSATZ}
+    ma = _q(db, """SELECT a.id, a.employee_id, e.first_name || ' ' || e.last_name AS name, a.tracking_category, a.is_driver,
+                          k.id AS km_id, k.distance_km
+                     FROM employee_object_assignments a JOIN employees e ON e.id = a.employee_id
+                     LEFT JOIN km_distances k ON k.employee_id = a.employee_id AND k.object_id = a.object_id
+                    WHERE a.object_id = :i AND coalesce(a.is_active,true) AND e.is_active ORDER BY e.last_name""", i=object_id)
+    plan = _q(db, """SELECT s.id, s.date, s.start_time, s.end_time, s.employee_id, e.first_name || ' ' || e.last_name AS name
+                       FROM schedules s JOIN employees e ON e.id = s.employee_id
+                      WHERE s.object_id = :i AND s.date BETWEEN :d AND :d + 13 AND s.status IN ('normal','vertretung')
+                      ORDER BY s.date, s.start_time""", i=object_id, d=today)
+    te = _q(db, """SELECT t.check_in, t.check_out, t.billed_hours,
+                          (SELECT coalesce(sum(extract(epoch FROM b.end_time - b.start_time)),0) FROM break_entries b
+                            WHERE b.time_entry_id = t.id AND b.end_time IS NOT NULL) AS brk
+                     FROM time_entries t WHERE t.object_id = :i AND t.check_in::date BETWEEN :a AND :b""", i=object_id, a=m0, b=m1)
+    soll = _q(db, """SELECT coalesce(sum(planned_hours),0) AS h FROM schedules WHERE object_id = :i AND date BETWEEN :a AND :b
+                     AND status IN ('normal','vertretung')""", i=object_id, a=m0, b=m1)[0]["h"]
+    return {"stamm": stamm,
+            "mitarbeiter": [{**dict(m), "distance_km": float(m["distance_km"]) if m["distance_km"] is not None else None} for m in ma],
+            "plan": [{"id": s["id"], "datum": s["date"].isoformat(), "tag": WOCHENTAG[s["date"].weekday()], "beginn": _hm(s["start_time"]),
+                      "ende": _hm(s["end_time"]), "employee_id": s["employee_id"], "name": s["name"]} for s in plan],
+            "monat": {"ist": round(sum(_net_hours(t["check_in"], t["check_out"], t["billed_hours"], t["brk"]) for t in te), 1),
+                      "soll": round(float(soll), 1), "einsaetze": len(te)}}
+
+
+@router.put("/objekte/{object_id}")
+def objekt_aendern(object_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    alt = _q(db, f"SELECT {', '.join(OBJ_EDIT)} FROM objects WHERE id = :i", i=object_id)
+    if not alt:
+        raise HTTPException(404, "Objekt nicht gefunden")
+    neu = {k: data[k] for k in OBJ_EDIT if k in data}
+    if not neu:
+        raise HTTPException(400, "Keine Änderung")
+    if "name" in neu and not str(neu["name"]).strip():
+        raise HTTPException(400, "Name darf nicht leer sein")
+    db.execute(text(f"UPDATE objects SET {', '.join(f'{k} = :{k}' for k in neu)} WHERE id = :id"), {**neu, "id": object_id})
+    log_audit(db, user.id, None, "object_updated", entity_type="object", entity_id=object_id,
+              old_value={k: alt[0][k] for k in neu}, new_value=neu, details=f"Objekt {object_id} im Cockpit geaendert")
+    db.commit()
+    return {"status": "ok", "alt": {k: alt[0][k] for k in neu}}
+
+
+# --- KM-Strecken -------------------------------------------------------------------------------
+@router.get("/km-strecken")
+def km_strecken(fehlend: bool = Query(False), db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Alle Zuweisungen MA->Objekt mit hinterlegter (oder fehlender) KM-Strecke."""
+    rows = _q(db, f"""
+        SELECT a.employee_id, e.first_name || ' ' || e.last_name AS name, e.personal_nr, a.object_id, o.name AS objekt,
+               coalesce(a.is_driver,false) AS fahrer, k.id AS km_id, k.distance_km
+          FROM employee_object_assignments a JOIN employees e ON e.id = a.employee_id JOIN objects o ON o.id = a.object_id
+          LEFT JOIN km_distances k ON k.employee_id = a.employee_id AND k.object_id = a.object_id
+         WHERE coalesce(a.is_active,true) AND e.is_active AND NOT coalesce(e.is_test,false) AND coalesce(o.is_active,true)
+           AND a.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK}) {"AND k.id IS NULL AND coalesce(a.is_driver,false)" if fehlend else ""}
+         ORDER BY e.last_name, o.name""")
+    return [{**dict(r), "distance_km": float(r["distance_km"]) if r["distance_km"] is not None else None} for r in rows]
+
+
+@router.put("/km-strecken")
+def km_strecke_setzen(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    try:
+        emp, obj = int(data["employee_id"]), int(data["object_id"])
+        dist = round(float(str(data["distance_km"]).replace(",", ".")), 1)
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(400, "Mitarbeiter, Objekt und KM angeben")
+    if dist < 0 or dist > 300:
+        raise HTTPException(400, "KM-Strecke muss zwischen 0 und 300 liegen")
+    alt = _q(db, "SELECT id, distance_km FROM km_distances WHERE employee_id = :e AND object_id = :o", e=emp, o=obj)
+    if alt:
+        db.execute(text("UPDATE km_distances SET distance_km = :k, updated_at = now() WHERE id = :i"), {"k": dist, "i": alt[0]["id"]})
+        kid, action, old = alt[0]["id"], "km_distance_changed", {"distance_km": float(alt[0]["distance_km"])}
+    else:
+        kid = db.execute(text("""INSERT INTO km_distances (employee_id, object_id, distance_km, rate_per_km, created_at)
+                                 VALUES (:e, :o, :k, 0.30, now()) RETURNING id"""), {"e": emp, "o": obj, "k": dist}).scalar()
+        action, old = "km_distance_created", None
+    log_audit(db, user.id, emp, action, entity_type="km_distance", entity_id=kid, old_value=old,
+              new_value={"object_id": obj, "distance_km": dist}, details=f"KM-Strecke im Cockpit: {dist} km")
+    db.commit()
+    return {"id": kid, "distance_km": dist, "alt": old}
+
+
+# --- Abrechnung --------------------------------------------------------------------------------
+@router.get("/abrechnung")
+def abrechnung(year: int = Query(...), month: int = Query(...), db: Session = Depends(get_db),
+               user=Depends(verify_admin_or_objektleiter)):
+    from app.api.v1.endpoints.admin import get_lohn_uebersicht
+    from app.services.export_termine import exporttag
+    rows = get_lohn_uebersicht(year, month, db=db, current_user=user)
+    conf = {r["employee_id"]: r["status"] for r in _q(db, "SELECT employee_id, status FROM monthly_confirmations WHERE year = :y AND month = :m",
+                                                       y=year, m=month)}
+    m0 = date(year, month, 1)
+    m1 = date(year, month, monthrange(year, month)[1])
+    pruef = {r["employee_id"]: r["n"] for r in _q(db, """SELECT employee_id, count(*) AS n FROM time_entries
+        WHERE (check_in::date BETWEEN :a AND :b OR check_out::date BETWEEN :a AND :b)
+          AND (check_out < check_in OR billed_hours < 0 OR (check_out IS NULL AND check_in < now() - interval '14 hours'))
+        GROUP BY 1""", a=m0, b=m1)}
+    out = [{**r, "bestaetigung": conf.get(r["employee_id"]), "pruefpunkte": pruef.get(r["employee_id"], 0)} for r in rows]
+    return {"monat": f"{year}-{month:02d}", "exporttag": exporttag(f"{year}-{month:02d}").isoformat(), "zeilen": out,
+            "summe": {k: round(sum((r.get(k) or 0) for r in rows), 2) for k in
+                      ("normal_hours", "sonder_hours", "sonntag_hours", "feiertag_hours", "urlaub_hours", "km_amount", "gesamt")}}
 
 
 @router.delete("/mitarbeiter/{employee_id}/objekte/{assignment_id}")

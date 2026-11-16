@@ -138,6 +138,14 @@ def test_mitarbeiter_weiter_ohne_adminrechte(client, db):
     assert client.get("/api/v1/admin/customer-revenues?year=2026&month=10", headers=ma).status_code == 403
 
 
+def test_lohnuebersicht_nicht_fuer_mitarbeiter(client, db):
+    """Lohndaten aller MA: vorher reichte jeder Login (LIVE-Luecke), jetzt nur Verwaltung."""
+    url = "/api/v1/admin/lohn-uebersicht?year=2026&month=10"
+    assert client.get(url, headers=token(db, "MITARBEITER")).status_code == 403
+    assert client.get(url, headers=ol_headers(db)).status_code == 200
+    assert client.get(url, headers=token(db, "ADMIN")).status_code == 200
+
+
 # ---------- KM-Pruefung beim Zuteilen ----------
 
 def _emp_obj_ohne_km(db):

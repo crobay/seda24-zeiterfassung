@@ -1,16 +1,20 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { Palette, Building2 } from 'lucide-react';
-import { api, apiError, t, useApp, SkeletonRows } from '../core';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Palette, Building2, Car, Search } from 'lucide-react';
+import { api, apiError, t, useApi, useApp, SkeletonRows, Empty } from '../core';
+import { KmEingabe } from './Objekte';
 
-const KmVerwaltungTab = lazy(() => import('../../components/KmVerwaltungTab'));
+const UrlaubVerwaltungTab = lazy(() => import('../../pages/UrlaubVerwaltungTab'));
 const MitarbeiterObjekteTab = lazy(() => import('../../pages/MitarbeiterObjekteTab'));
 const PushVerwaltungTab = lazy(() => import('../../pages/PushVerwaltungTab'));
 const AuditLogTab = lazy(() => import('../../pages/AuditLogTab'));
-const TABS = ['brand', 'km', 'assign', 'telegram', 'audit'];
+const TABS = ['brand', 'km', 'urlaub', 'assign', 'telegram', 'audit'];
 
 export default function Einstellungen() {
   const { brand, setBrand, toast } = useApp();
-  const [tab, setTab] = useState('brand');
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.includes(params.get('tab')) ? params.get('tab') : 'brand';
+  const setTab = (k) => setParams({ tab: k }, { replace: true });
   const [f, setF] = useState(brand || {});
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (brand) setF(brand); }, [brand]);
@@ -55,15 +59,42 @@ export default function Einstellungen() {
             </div>
           </section>
         </div>
-      ) : (
+      ) : tab === 'km' ? <KmStrecken /> : (
         <section className="ck-card"><div className="ck-card-head"><h2>{t(`set.${tab}`)}</h2><span className="ck-tag">{t('app.classic')}</span></div>
           <div className="ck-embed"><Suspense fallback={<SkeletonRows n={6} />}>
-            {tab === 'km' && <KmVerwaltungTab showToast={(m) => toast(m)} />}
+            {tab === 'urlaub' && <UrlaubVerwaltungTab />}
             {tab === 'assign' && <MitarbeiterObjekteTab />}
             {tab === 'telegram' && <PushVerwaltungTab />}
             {tab === 'audit' && <AuditLogTab />}
           </Suspense></div></section>
       )}
     </>
+  );
+}
+
+function KmStrecken() {
+  const { data, loading, reload } = useApi('/km-strecken');
+  const [q, setQ] = useState('');
+  const [nur, setNur] = useState(false);
+  const rows = useMemo(() => (data || []).filter((r) => (!nur || (r.distance_km == null && r.fahrer))
+    && `${r.name} ${r.personal_nr} ${r.objekt}`.toLowerCase().includes(q.trim().toLowerCase())), [data, q, nur]);
+  const fehlt = (data || []).filter((r) => r.distance_km == null && r.fahrer).length;
+  return (
+    <section className="ck-card">
+      <div className="ck-card-head"><h2><Car size={20} />{t('set.km')}</h2><span className="ck-subtle">{t('set.km_sub', { n: (data || []).length, f: fehlt })}</span></div>
+      <div className="ck-toolbar">
+        <label className="ck-search" style={{ cursor: 'text', minWidth: 240, maxWidth: 360 }}><Search size={18} />
+          <input style={{ border: 0, outline: 0, background: 'transparent', flex: 1 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('set.km_search')} aria-label={t('set.km_search')} /></label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 500 }}><input type="checkbox" checked={nur} onChange={(e) => setNur(e.target.checked)} style={{ width: 18, height: 18 }} />{t('set.km_only_missing')}</label>
+      </div>
+      {loading ? <SkeletonRows n={6} /> : rows.length === 0 ? <Empty icon={Car} title={t('set.km_empty')} text="" /> : (
+        <ul className="ck-list">{rows.map((r) => (
+          <li key={`${r.employee_id}-${r.object_id}`} className="ck-row">
+            <div className="ck-row-main"><div className="ck-row-title"><Link to={`/cockpit/mitarbeiter/${r.employee_id}`}>{r.name}</Link><span className="ck-subtle">→</span>
+              <Link to={`/cockpit/objekte/${r.object_id}`}>{r.objekt}</Link></div>
+              <div className="ck-row-meta">{r.fahrer ? t('set.km_driver') : t('set.km_nodriver')}</div></div>
+            <KmEingabe emp={r.employee_id} obj={r.object_id} km={r.distance_km} name={r.name} onSaved={reload} />
+          </li>))}</ul>)}
+    </section>
   );
 }

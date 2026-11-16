@@ -23,8 +23,11 @@ for (const [pname, prof] of Object.entries(profiles)) {
     await page.goto('https://dev.seda.de' + url); await page.waitForLoadState('networkidle'); await page.waitForTimeout(900);
     if (action === 'cmdk') { await page.keyboard.press('Control+k'); await page.waitForTimeout(400); await page.keyboard.type('le'); await page.waitForTimeout(500); }
     if (action === 'assignkm') { await page.getByRole('button', { name: /Objekt zuteilen/ }).first().click(); await page.waitForTimeout(500); const sel = page.locator('.ck-dialog select').first(); const opts = await sel.locator('option').allTextContents(); await sel.selectOption({ index: 1 }); await page.locator('.ck-dialog-foot .ck-btn-primary').click(); await page.waitForTimeout(800); }
+    if (action === 'editzeit') { await page.locator('.ck-table-click tbody tr').first().click(); await page.waitForTimeout(700); }
+    if (action === 'editschicht') { await page.locator('.ck-shift-btn:not([disabled])').first().click(); await page.waitForTimeout(900); }
+    if (action === 'objedit') { await page.getByRole('button', { name: /^Bearbeiten$/ }).first().click(); await page.waitForTimeout(500); }
     if (action === 'assign') { await page.getByRole('button', { name: /Objekt zuteilen/ }).first().click(); await page.waitForTimeout(500); }
-    const name = `${PREFIX}_${(url.replace(/^\/cockpit\/?/, '') || 'heute').replace(/[\/#]/g, '-')}${action ? '_' + action : ''}_${pname}${DARK ? '_dunkel' : ''}.png`;
+    const name = `${PREFIX}_${(url.replace(/^\/cockpit\/?/, '') || 'heute').replace(/[\/#?=&]/g, '-')}${action ? '_' + action : ''}_${pname}${DARK ? '_dunkel' : ''}.png`;
     await page.screenshot({ path: path.join(OUT, name), fullPage: false });
     if (process.env.TALL && !action) {  // Gesamtansicht: Seitenleiste/Navigationsleiste statisch, ganze Seite
       await page.addStyleTag({ content: '.ck-sidebar{position:static!important;height:auto!important;min-height:100%}.ck-bottomnav{position:static!important}.ck-topbar{position:static!important}' });
