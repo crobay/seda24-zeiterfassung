@@ -551,3 +551,162 @@ def branding_speichern(data: dict, db: Session = Depends(get_db), user=Depends(v
               new_value=wert, details="Branding im Cockpit geaendert")
     db.commit()
     return wert
+
+
+# --- Leitstelle: alles auf einen Blick -----------------------------------------------------------
+WT_KURZ = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+
+def _abwesend_map(db, d0, d1):
+    """{(employee_id, datum): 'Urlaub'|'Krank'} fuer den Zeitraum."""
+    rows = _q(db, f"""
+        SELECT employee_id, date AS d, CASE WHEN object_id = {OBJ_KRANK} THEN 'Krank' ELSE 'Urlaub' END AS grund
+          FROM schedules WHERE date BETWEEN :a AND :b AND object_id IN ({OBJ_URLAUB},{OBJ_KRANK})
+        UNION
+        SELECT v.employee_id, g::date, 'Urlaub' FROM vacation_requests v,
+               generate_series(greatest(v.start_date, :a), least(v.end_date, :b), interval '1 day') g
+         WHERE v.status = 'approved' AND v.end_date >= :a AND v.start_date <= :b
+        UNION
+        SELECT s.employee_id, g::date, 'Krank' FROM sick_notes s,
+               generate_series(greatest(s.start_date, :a), least(s.end_date, :b), interval '1 day') g
+         WHERE coalesce(s.status,'') <> 'rejected' AND s.end_date >= :a AND s.start_date <= :b""", a=d0, b=d1)
+    out = {}
+    for r in rows:
+        if out.get((r["employee_id"], r["d"])) != "Krank":
+            out[(r["employee_id"], r["d"])] = r["grund"]
+    return out
+
+
+@router.get("/leitstelle")
+def leitstelle(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    from app.services.export_termine import exporttag
+    today = date.today()
+    now = datetime.now()
+    m0, m1 = _month_bounds(today)
+    names = {r["id"]: r["name"] for r in _q(db, """SELECT id, first_name || ' ' || last_name AS name FROM employees""")}
+
+    # 2) Woche: Schichten, Luecken, Urlaub/Krank
+    w1 = today + timedelta(days=6)
+    abw = _abwesend_map(db, today, w1)
+    sched = _q(db, f"""SELECT s.id, s.date, s.employee_id, s.object_id, s.start_time, o.name AS objekt FROM schedules s
+                       JOIN employees e ON e.id = s.employee_id LEFT JOIN objects o ON o.id = s.object_id
+                       WHERE s.date BETWEEN :a AND :b AND s.status IN ('normal','vertretung') AND NOT coalesce(e.is_test,false)
+                         AND coalesce(s.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})""", a=today, b=w1)
+    # Ueblicher Rhythmus: Objekt war in den letzten 8 Wochen an diesem Wochentag mind. 3x besetzt
+    rhythmus = _q(db, f"""SELECT s.object_id, extract(isodow FROM s.date)::int - 1 AS wd, o.name, count(DISTINCT s.date) AS n
+                          FROM schedules s JOIN objects o ON o.id = s.object_id
+                          WHERE s.date BETWEEN :a AND :b AND s.status IN ('normal','vertretung') AND coalesce(o.is_active,true)
+                            AND NOT coalesce(o.is_test,false) AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                          GROUP BY 1, 2, 3 HAVING count(DISTINCT s.date) >= 3""", a=today - timedelta(days=56), b=today - timedelta(days=1))
+    woche = []
+    for i in range(7):
+        d = today + timedelta(days=i)
+        day_s = [s for s in sched if s["date"] == d]
+        besetzt = {s["object_id"] for s in day_s}
+        luecken = [{"typ": "unbesetzt", "object_id": r["object_id"], "objekt": r["name"],
+                    "text": f"{r['name']}: keine Schicht (sonst {WT_KURZ[d.weekday()]} besetzt)"}
+                   for r in rhythmus if r["wd"] == d.weekday() and r["object_id"] not in besetzt]
+        luecken += [{"typ": "abwesend", "object_id": s["object_id"], "schicht_id": s["id"], "employee_id": s["employee_id"],
+                     "objekt": s["objekt"], "text": f"{s['objekt']}: {names.get(s['employee_id'])} hat {abw[(s['employee_id'], d)]}"}
+                    for s in day_s if (s["employee_id"], d) in abw]
+        weg = [{"employee_id": k[0], "name": names.get(k[0]), "grund": v} for k, v in abw.items() if k[1] == d]
+        woche.append({"datum": d.isoformat(), "tag": WT_KURZ[d.weekday()], "schichten": len(day_s), "luecken": luecken,
+                      "urlaub": [x for x in weg if x["grund"] == "Urlaub"], "krank": [x for x in weg if x["grund"] == "Krank"]})
+
+    # 3) Monatsabschluss
+    monat = today.strftime("%Y-%m")
+    ex = exporttag(monat)
+    aktive_ma = _q(db, f"""SELECT DISTINCT s.employee_id FROM schedules s JOIN employees e ON e.id = s.employee_id
+                           WHERE s.date BETWEEN :a AND :b AND s.status IN ('normal','vertretung') AND NOT coalesce(e.is_test,false)
+                             AND coalesce(s.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})""", a=m0, b=m1)
+    bestaetigt = _q(db, "SELECT count(*) AS n FROM monthly_confirmations WHERE year = :y AND month = :m AND status = 'confirmed'",
+                    y=today.year, m=today.month)[0]["n"]
+    te_mon = """FROM time_entries t JOIN employees e ON e.id = t.employee_id
+                WHERE NOT coalesce(e.is_test,false) AND (t.check_in::date BETWEEN :a AND :b OR t.check_out::date BETWEEN :a AND :b)"""
+    p_gvk = _q(db, f"SELECT count(*) AS n {te_mon} AND t.check_out < t.check_in", a=m0, b=m1)[0]["n"]
+    p_neg = _q(db, f"SELECT count(*) AS n {te_mon} AND t.billed_hours < 0", a=m0, b=m1)[0]["n"]
+    p_ohne = _q(db, f"SELECT count(*) AS n {te_mon} AND t.check_out IS NULL AND t.check_in < now() - interval '14 hours'", a=m0, b=m1)[0]["n"]
+    p_km = _q(db, """SELECT count(*) AS n FROM employee_object_assignments a JOIN employees e ON e.id = a.employee_id
+                     WHERE coalesce(a.is_active,true) AND coalesce(a.is_driver,false) AND e.is_active AND NOT coalesce(e.is_test,false)
+                       AND a.object_id NOT IN (19, 999)
+                       AND NOT EXISTS (SELECT 1 FROM km_distances k WHERE k.employee_id = a.employee_id AND k.object_id = a.object_id)""")[0]["n"]
+    p_nach = _q(db, "SELECT count(*) AS n FROM pending_bookings WHERE status = 'offen'")[0]["n"]
+    pruef = [
+        {"key": "gehen_vor_kommen", "n": p_gvk, "link": "/cockpit/zeiten?pruef=gehen_vor_kommen"},
+        {"key": "negative_stunden", "n": p_neg, "link": "/cockpit/zeiten?pruef=negative_stunden"},
+        {"key": "ohne_gehen", "n": p_ohne, "link": "/cockpit/zeiten?pruef=ohne_gehen"},
+        {"key": "km_fehlt", "n": p_km, "link": "/cockpit/objekte?pruef=km_fehlt"},
+        {"key": "nachtraege", "n": p_nach, "link": "/cockpit#todo"},
+    ]
+    abschluss = {"monat": monat, "exporttag": ex.isoformat(), "tage_bis_export": (ex - today).days,
+                 "ma_gesamt": len(aktive_ma), "ma_bestaetigt": bestaetigt, "pruefpunkte": pruef,
+                 "offen_gesamt": sum(x["n"] for x in pruef)}
+
+    # 4) Stunden je MA: Soll (Plan ganzer Monat / bis heute) und Ist
+    plan = _q(db, f"""SELECT s.employee_id, s.date, s.start_time, s.end_time, s.planned_hours FROM schedules s
+                      JOIN employees e ON e.id = s.employee_id
+                      WHERE s.date BETWEEN :a AND :b AND s.status IN ('normal','vertretung') AND NOT coalesce(e.is_test,false)
+                        AND coalesce(s.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})""", a=m0, b=m1)
+    ist = _q(db, f"""SELECT t.employee_id, t.check_in, t.check_out, t.billed_hours,
+                       (SELECT coalesce(sum(extract(epoch FROM b.end_time - b.start_time)),0) FROM break_entries b
+                         WHERE b.time_entry_id = t.id AND b.end_time IS NOT NULL) AS brk
+                     FROM time_entries t JOIN employees e ON e.id = t.employee_id
+                     WHERE t.check_in::date BETWEEN :a AND :b AND NOT coalesce(e.is_test,false)
+                       AND coalesce(t.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})""", a=m0, b=m1)
+    st = {}
+
+    def ph(s):
+        if s["planned_hours"]:
+            return float(s["planned_hours"])
+        if s["start_time"] and s["end_time"]:
+            return max(0.0, (datetime.combine(today, s["end_time"]) - datetime.combine(today, s["start_time"])).total_seconds() / 3600)
+        return 0.0
+    for s in plan:
+        x = st.setdefault(s["employee_id"], {"soll": 0.0, "soll_bis_heute": 0.0, "ist": 0.0})
+        x["soll"] += ph(s)
+        if s["date"] < today or (s["date"] == today and s["end_time"] and s["end_time"] <= now.time()):
+            x["soll_bis_heute"] += ph(s)
+    for tt in ist:
+        x = st.setdefault(tt["employee_id"], {"soll": 0.0, "soll_bis_heute": 0.0, "ist": 0.0})
+        x["ist"] += _net_hours(tt["check_in"], tt["check_out"], tt["billed_hours"], tt["brk"])
+    stunden = sorted([{"employee_id": k, "name": names.get(k), **{a: round(b, 1) for a, b in v.items()}} for k, v in st.items()],
+                     key=lambda r: -max(r["soll"], r["ist"]))
+
+    # KM gesamt mit Trend (gleicher Zeitraum Vormonat)
+    pm1 = m0 - timedelta(days=1)
+    pm0 = pm1.replace(day=1)
+    pm_bis = min(pm0 + timedelta(days=today.day - 1), pm1)
+    km_q = """SELECT coalesce(sum(distance_km),0) AS km, coalesce(sum(amount),0) AS eur FROM km_daily_entries
+              WHERE date BETWEEN :a AND :b AND is_longest_trip AND is_billable"""
+    km_now = _q(db, km_q, a=m0, b=today)[0]
+    km_prev = _q(db, km_q, a=pm0, b=pm_bis)[0]
+    km_prev_full = _q(db, km_q, a=pm0, b=pm1)[0]
+    km = {"km": float(km_now["km"]), "eur": float(km_now["eur"]), "vormonat_gleicher_zeitraum": float(km_prev["km"]),
+          "vormonat_gesamt": float(km_prev_full["km"]),
+          "trend_prozent": round((float(km_now["km"]) / float(km_prev["km"]) - 1) * 100) if km_prev["km"] else None}
+
+    # 5) Live-Aktivitaet: Stempel + Aenderungen
+    feed = []
+    for r in _q(db, f"""SELECT t.id, t.employee_id, t.check_in, t.check_out, o.name AS objekt, t.is_manual_entry, t.notes
+                        FROM time_entries t JOIN employees e ON e.id = t.employee_id LEFT JOIN objects o ON o.id = t.object_id
+                        WHERE NOT coalesce(e.is_test,false) AND coalesce(t.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                          AND t.check_in <= now() AND (t.check_in > now() - interval '2 days' OR t.check_out > now() - interval '2 days')"""):
+        auto = (r["notes"] or "").startswith(("Auto-Booking", "Automatische Buchung", "Push-Bestaetigung", "War anwesend"))
+        if r["check_in"] and r["check_in"] > now - timedelta(days=2) and not auto:
+            feed.append({"zeit": r["check_in"].isoformat(), "art": "kommen", "employee_id": r["employee_id"], "name": names.get(r["employee_id"]),
+                         "text": r["objekt"] or "", "link": f"/cockpit/zeiten?eintrag={r['id']}"})
+        if r["check_out"] and now - timedelta(days=2) < r["check_out"] <= now:
+            feed.append({"zeit": r["check_out"].isoformat(), "art": "auto" if auto else "gehen", "employee_id": r["employee_id"],
+                         "name": names.get(r["employee_id"]), "text": r["objekt"] or "", "link": f"/cockpit/zeiten?eintrag={r['id']}"})
+    for r in _q(db, """SELECT a.id, a.created_at, a.action, a.employee_id, a.details, u.email,
+                              ue.first_name || ' ' || ue.last_name AS wer
+                         FROM audit_log a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN employees ue ON ue.user_id = u.id
+                        WHERE a.created_at > now() - interval '3 days' AND a.action NOT IN ('export_abruf', 'export_abruf_abgelehnt')
+                        ORDER BY a.created_at DESC LIMIT 20"""):
+        feed.append({"zeit": r["created_at"].isoformat(), "art": "aenderung", "employee_id": r["employee_id"],
+                     "name": names.get(r["employee_id"]) if r["employee_id"] else None, "wer": r["wer"] or r["email"],
+                     "aktion": r["action"], "text": (r["details"] or "")[:140],
+                     "link": f"/cockpit/mitarbeiter/{r['employee_id']}" if r["employee_id"] else "/cockpit/einstellungen"})
+    feed.sort(key=lambda x: x["zeit"], reverse=True)
+
+    return {"woche": woche, "abschluss": abschluss, "stunden": stunden, "km": km, "feed": feed[:25]}

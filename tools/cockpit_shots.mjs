@@ -26,6 +26,11 @@ for (const [pname, prof] of Object.entries(profiles)) {
     if (action === 'assign') { await page.getByRole('button', { name: /Objekt zuteilen/ }).first().click(); await page.waitForTimeout(500); }
     const name = `${PREFIX}_${(url.replace(/^\/cockpit\/?/, '') || 'heute').replace(/[\/#]/g, '-')}${action ? '_' + action : ''}_${pname}${DARK ? '_dunkel' : ''}.png`;
     await page.screenshot({ path: path.join(OUT, name), fullPage: false });
+    if (process.env.TALL && !action) {  // Gesamtansicht: Seitenleiste/Navigationsleiste statisch, ganze Seite
+      await page.addStyleTag({ content: '.ck-sidebar{position:static!important;height:auto!important;min-height:100%}.ck-bottomnav{position:static!important}.ck-topbar{position:static!important}' });
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(OUT, name.replace('.png', '_gesamt.png')), fullPage: true });
+    }
     if (pname === 'handy' && !action) { await page.evaluate(() => window.scrollBy(0, 700)); await page.waitForTimeout(300); await page.screenshot({ path: path.join(OUT, name.replace('_handy', '_handy_2')) }); }
     console.log(name);
   }
