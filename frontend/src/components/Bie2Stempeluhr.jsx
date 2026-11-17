@@ -422,6 +422,8 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
 
     setErreichbar(r.art !== 'offen');
     if (r.art === 'ok') {
+      // Bestaetigtes Kommen sofort merken (nicht erst nach /current), damit es ohne Netz sichtbar bleibt
+      if (action === 'check_in') saveOfflineState({ action: 'checked_in', objectId, checkInTime: item.timestamp });
       merkeBestaetigt(item);
       setLetzterStempel(getLetzterBestaetigt());
       // Mehr als 10 Min nach Schichtende: gezaehlt bis Schichtende, Mehrzeit als Antrag gemeldet
