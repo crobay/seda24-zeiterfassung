@@ -309,7 +309,10 @@ def dienstplan(start: str = Query(None), db: Session = Depends(get_db), user=Dep
             "objekt": "Urlaub" if r["object_id"] == OBJ_URLAUB else ("Krank" if r["object_id"] == OBJ_KRANK else r["objekt"]),
             "beginn": _hm(r["start_time"]), "ende": _hm(r["end_time"]), "status": r["status"],
             "fahrer": bool(r["is_driver"]), "object_id": r["object_id"]})
-    return {"start": d0.isoformat(), "tage": tage}
+    from app.services import plan_vorlage as pv
+    for lu in pv.luecken(db, d0, d0 + timedelta(days=6), obj):
+        tage[(date.fromisoformat(lu["datum"]) - d0).days].setdefault("luecken", []).append(lu)
+    return {"start": d0.isoformat(), "tage": tage, "plan": pv.wochen_status(db, d0, obj)}
 
 
 # Wer nicht die Rolle Mitarbeiter hat (z. B. Objektleitung), erscheint in der Mitarbeiter-Liste, sobald er/sie
@@ -713,20 +716,28 @@ def _kopie_plan(db, data):
                 neu.append({"quelle_id": r["id"], "employee_id": ma or r["employee_id"], "object_id": r["object_id"], "datum": d,
                             "start": r["start_time"], "ende": r["end_time"], "fahrer": bool(r["is_driver"])})
         k += 1
+    return _pruefe_neue(db, neu, ziel0, ziel1)
+
+
+def _pruefe_neue(db, neu, ziel0, ziel1):
+    """Je geplante neue Schicht: ok oder Grund zum Ueberspringen (Vergangenheit, Sonntagsregel, Urlaub/Krank/Absage,
+    schon vorhanden, Doppelbelegung). Gemeinsam fuer Kopieren, Woche aus Vorlage und Kontingent verteilen."""
     if len(neu) > MAX_KOPIE:
         raise HTTPException(400, f"Zu viele Schichten ({len(neu)}), hoechstens {MAX_KOPIE} je Vorgang")
     if not neu:
         return {"ziel_von": ziel0.isoformat(), "ziel_bis": ziel1.isoformat(), "eintraege": [], "anzulegen": 0, "uebersprungen": 0}
+    from app.services import plan_vorlage as _pv
 
     emps = {n["employee_id"] for n in neu}
     namen = {r["id"]: r for r in _q(db, """SELECT e.id, e.first_name || ' ' || e.last_name AS name, e.personal_nr, e.is_active
                                               FROM employees e WHERE e.id = ANY(:i)""", i=list(emps))}
     objs = {r["id"]: r["name"] for r in _q(db, "SELECT id, name FROM objects WHERE id = ANY(:i)", i=list({n['object_id'] for n in neu}))}
-    abw = _abwesend_map(db, ziel0, ziel1)
+    abw = {**_pv.absagen(db, ziel0, ziel1), **_abwesend_map(db, ziel0, ziel1)}
     best = {}
     for r in _q(db, f"""SELECT s.employee_id, s.date, s.start_time, s.end_time, s.object_id, o.name AS objekt FROM schedules s
                         LEFT JOIN objects o ON o.id = s.object_id
                         WHERE s.date BETWEEN :a AND :b AND s.employee_id = ANY(:e) AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                          AND s.start_time IS NOT NULL AND s.end_time IS NOT NULL
                           AND coalesce(s.status,'normal') NOT IN ('storniert')""", a=ziel0, b=ziel1, e=list(emps)):
         best.setdefault((r["employee_id"], r["date"]), []).append(r)
     heute = date.today()
@@ -757,10 +768,10 @@ def _kopie_plan(db, data):
                         grund = "Doppelbelegung innerhalb der Kopie"; break
         if not grund:
             geplant.setdefault(key, []).append(n)
-        out.append({"quelle_id": n["quelle_id"], "datum": n["datum"].isoformat(), "tag": WOCHENTAG[n["datum"].weekday()],
+        out.append({"quelle_id": n.get("quelle_id"), "vorlage_id": n.get("vorlage_id"), "datum": n["datum"].isoformat(), "tag": WOCHENTAG[n["datum"].weekday()],
                     "employee_id": n["employee_id"], "name": m["name"] if m else "?", "object_id": n["object_id"],
                     "objekt": objs.get(n["object_id"], "?"), "beginn": _hm(n["start"]), "ende": _hm(n["ende"]), "fahrer": n["fahrer"],
-                    "status": "ok" if not grund else ("abwesend" if grund in ("Urlaub", "Krank") else "konflikt"), "grund": grund})
+                    "status": "ok" if not grund else ("abwesend" if grund in ("Urlaub", "Krank", "Absage") else "konflikt"), "grund": grund})
     return {"ziel_von": ziel0.isoformat(), "ziel_bis": ziel1.isoformat(), "eintraege": out,
             "anzulegen": sum(1 for o in out if o["status"] == "ok"), "uebersprungen": sum(1 for o in out if o["status"] != "ok")}
 
@@ -769,11 +780,17 @@ def _kopie_plan(db, data):
 def dienstplan_kopieren(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
     """Kopiert Schichten (einzeln, Tag, Woche oder Zeitraum). vorschau=true: nur anzeigen, nichts speichern.
     Ohne Vorschau: alle 'ok'-Eintraege in EINER Transaktion; Konflikte werden uebersprungen. Rueckgabe mit kopie_id."""
-    import uuid
-    from app.api.v1.endpoints.admin import check_vacation_conflict, check_and_reset_confirmation
     plan = _kopie_plan(db, data)
     if data.get("vorschau", True):
         return {**plan, "vorschau": True}
+    return _anlegen(db, user, plan, "Schicht kopiert")
+
+
+def _anlegen(db, user, plan, was):
+    """Alle 'ok'-Eintraege eines Plans in EINER Transaktion anlegen. Audit mit [Kopie id] -> ganzer Vorgang ist
+    ueber DELETE /dienstplan/kopie/{id} rueckgaengig zu machen."""
+    import uuid
+    from app.api.v1.endpoints.admin import check_vacation_conflict, check_and_reset_confirmation
     kopie_id = uuid.uuid4().hex[:12]
     angelegt = []
     try:
@@ -794,8 +811,9 @@ def dienstplan_kopieren(data: dict, db: Session = Depends(get_db), user=Depends(
             e["id"] = sid
             angelegt.append(e)
             log_audit(db, user.id, e["employee_id"], "schedule_copied", entity_type="schedule", entity_id=sid,
-                      new_value={"datum": e["datum"], "zeit": f"{e['beginn']}-{e['ende']}", "objekt": e["objekt"], "quelle": e["quelle_id"]},
-                      details=f"Schicht kopiert [Kopie {kopie_id}]: {e['name']}, {d.strftime('%d.%m.%Y')}, {e['beginn']}-{e['ende']}, {e['objekt']}")
+                      new_value={"datum": e["datum"], "zeit": f"{e['beginn']}-{e['ende']}", "objekt": e["objekt"],
+                                 "quelle": e.get("quelle_id"), "vorlage": e.get("vorlage_id")},
+                      details=f"{was} [Kopie {kopie_id}]: {e['name']}, {d.strftime('%d.%m.%Y')}, {e['beginn']}-{e['ende']}, {e['objekt']}")
         db.commit()
     except Exception:
         db.rollback()
@@ -852,7 +870,7 @@ def schicht_verschieben(schedule_id: int, data: dict, db: Session = Depends(get_
     b0, b1 = _min(datetime.strptime(alt["beginn"], "%H:%M")), _min(datetime.strptime(alt["ende"], "%H:%M"))
     for r in _q(db, f"""SELECT s.start_time, s.end_time, o.name FROM schedules s LEFT JOIN objects o ON o.id = s.object_id
                         WHERE s.employee_id = :e AND s.date = :d AND s.id <> :i AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
-                          AND coalesce(s.status,'normal') <> 'storniert'""", e=ma, d=ziel, i=schedule_id):
+                          AND s.start_time IS NOT NULL AND s.end_time IS NOT NULL AND coalesce(s.status,'normal') <> 'storniert'""", e=ma, d=ziel, i=schedule_id):
         if _ueberlappt(b0, b1, _min(r["start_time"]), _min(r["end_time"])):
             raise HTTPException(409, f"Doppelbelegung: {r['name']} {_hm(r['start_time'])}–{_hm(r['end_time'])}")
     update_schedule(schedule_id, {"employee_id": ma, "object_id": alt["object_id"], "date": ziel.isoformat(),
@@ -1222,4 +1240,315 @@ def leitstelle(db: Session = Depends(get_db), user=Depends(verify_admin_or_objek
                      "link": f"/cockpit/mitarbeiter/{r['employee_id']}" if r["employee_id"] else "/cockpit/einstellungen"})
     feed.sort(key=lambda x: x["zeit"], reverse=True)
 
-    return {"woche": woche, "abschluss": abschluss, "stunden": stunden, "km": km, "feed": feed[:25]}
+    from app.services import plan_vorlage as pv
+    plan_nw = pv.wochen_status(db, pv.montag(today) + timedelta(days=7))
+    return {"woche": woche, "abschluss": abschluss, "stunden": stunden, "km": km, "feed": feed[:25], "plan_naechste_woche": plan_nw}
+
+
+# --- Plan aus Vorlage (Stamm-Dienstplan), Luecken, Kontingent, "Plan naechste Woche" -------------
+def _hhmm(v, feld):
+    try:
+        return datetime.strptime(str(v), "%H:%M").time()
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"{feld}: Uhrzeit als HH:MM")
+
+
+def _vorlage_json(m):
+    return {"id": m["id"], "employee_id": m["employee_id"], "name": m["name"], "personal_nr": m["personal_nr"],
+            "object_id": m["object_id"], "objekt": m["objekt"], "wochentag": m["weekday"], "tag": WOCHENTAG[m["weekday"]],
+            "beginn": _hm(m["start_time"]), "ende": _hm(m["end_time"]), "fahrer": bool(m["is_driver"]),
+            "rhythmus": m["rhythm"], "monatswoche": m["month_week"], "stunden": round(_vl_std(m["start_time"], m["end_time"]), 2)}
+
+
+def _vl_std(b, e):
+    return ((_min(e) - _min(b)) % 1440 or 1440) / 60
+
+
+@router.get("/vorlage")
+def vorlage_liste(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Vorlage (Stamm-Dienstplan) mit Wochenstunden je MA (woechentliche Eintraege voll, 14-taegl. halb, monatl. 1/4)."""
+    from app.services import plan_vorlage as pv
+    obj, _ = _scope(db, user)
+    rows = [_vorlage_json(m) for m in pv.vorlage(db, obj)]
+    faktor = {"weekly": 1, "biweekly_even": 0.5, "biweekly_odd": 0.5, "monthly": 0.25}
+    std = {}
+    for r in rows:
+        std[r["employee_id"]] = round(std.get(r["employee_id"], 0) + r["stunden"] * faktor.get(r["rhythmus"], 1), 2)
+    return {"eintraege": rows, "wochenstunden": std}
+
+
+def _vorlage_daten(db, data, alt=None):
+    alt = alt or {}
+    v = {"employee_id": int(data.get("employee_id") or alt.get("employee_id") or 0),
+         "object_id": int(data.get("object_id") or alt.get("object_id") or 0),
+         "weekday": int(data["wochentag"]) if data.get("wochentag") is not None else alt.get("weekday"),
+         "start_time": _hhmm(data.get("beginn") or _hm(alt.get("start_time")), "beginn"),
+         "end_time": _hhmm(data.get("ende") or _hm(alt.get("end_time")), "ende"),
+         "is_driver": bool(data["fahrer"]) if "fahrer" in data else bool(alt.get("is_driver", True)),
+         "rhythm": data.get("rhythmus") or alt.get("rhythm") or "weekly",
+         "month_week": data.get("monatswoche") if "monatswoche" in data else alt.get("month_week")}
+    from app.services.plan_vorlage import RHYTHMEN
+    if not v["employee_id"] or not v["object_id"]:
+        raise HTTPException(400, "Mitarbeiter und Objekt angeben")
+    if v["weekday"] not in range(7):
+        raise HTTPException(400, "Wochentag 0 (Mo) bis 6 (So)")
+    if v["start_time"] == v["end_time"]:
+        raise HTTPException(400, "Ende muss nach Beginn liegen")
+    if v["rhythm"] not in RHYTHMEN:
+        raise HTTPException(400, "Unbekannter Rhythmus")
+    if v["rhythm"] == "monthly" and v["month_week"] not in (1, 2, 3, 4, -1):
+        v["month_week"] = 1
+    if v["rhythm"] != "monthly":
+        v["month_week"] = None
+    if not _q(db, "SELECT 1 FROM employees WHERE id = :i AND is_active", i=v["employee_id"]):
+        raise HTTPException(400, "Mitarbeiter nicht aktiv")
+    if not _q(db, f"SELECT 1 FROM objects WHERE id = :i AND id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})", i=v["object_id"]):
+        raise HTTPException(400, "Objekt nicht gefunden")
+    # Doppelbelegung in der Vorlage (gleicher MA, gleicher Wochentag, Zeiten ueberschneiden sich)
+    for r in _q(db, """SELECT m.id, m.start_time, m.end_time, o.name FROM master_schedule_entries m JOIN objects o ON o.id = m.object_id
+                       WHERE m.employee_id = :e AND m.weekday = :w AND coalesce(m.is_active,true) AND m.id <> :i""",
+                e=v["employee_id"], w=v["weekday"], i=alt.get("id") or 0):
+        if _ueberlappt(_min(v["start_time"]), _min(v["end_time"]), _min(r["start_time"]), _min(r["end_time"])):
+            raise HTTPException(409, f"Doppelbelegung in der Vorlage: {r['name']} {_hm(r['start_time'])}–{_hm(r['end_time'])}")
+    v["planned_hours"] = round(_vl_std(v["start_time"], v["end_time"]), 2)
+    return v
+
+
+def _vorlage_eintrag(db, vid):
+    from app.services import plan_vorlage as pv
+    r = [m for m in pv.vorlage(db) if m["id"] == vid]
+    if not r:
+        raise HTTPException(404, "Vorlage-Eintrag nicht gefunden")
+    return r[0]
+
+
+def _vl_text(v, db):
+    n = _q(db, "SELECT first_name || ' ' || last_name AS n FROM employees WHERE id = :i", i=v["employee_id"])[0]["n"]
+    o = _q(db, "SELECT name FROM objects WHERE id = :i", i=v["object_id"])[0]["name"]
+    return f"{n}, {WOCHENTAG[v['weekday']]} {_hm(v['start_time'])}-{_hm(v['end_time'])}, {o}"
+
+
+@router.post("/vorlage")
+def vorlage_anlegen(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    v = _vorlage_daten(db, data)
+    if _q(db, """SELECT 1 FROM master_schedule_entries WHERE employee_id = :employee_id AND object_id = :object_id
+                 AND weekday = :weekday AND coalesce(rhythm,'weekly') = :rhythm""", **v):
+        raise HTTPException(409, "Diesen Eintrag gibt es in der Vorlage schon (gleicher MA, Objekt, Wochentag, Rhythmus)")
+    vid = db.execute(text("""INSERT INTO master_schedule_entries (employee_id, object_id, weekday, start_time, end_time, planned_hours,
+                                    is_driver, is_active, rhythm, month_week, created_at)
+                             VALUES (:employee_id, :object_id, :weekday, :start_time, :end_time, :planned_hours, :is_driver, true,
+                                     :rhythm, :month_week, now()) RETURNING id"""), v).scalar()
+    log_audit(db, user.id, v["employee_id"], "vorlage_angelegt", entity_type="master_schedule", entity_id=vid,
+              details=f"Vorlage: {_vl_text(v, db)}")
+    db.commit()
+    return _vorlage_json(_vorlage_eintrag(db, vid))
+
+
+@router.put("/vorlage/{vid}")
+def vorlage_aendern(vid: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    alt = _q(db, "SELECT * FROM master_schedule_entries WHERE id = :i", i=vid)
+    if not alt:
+        raise HTTPException(404, "Vorlage-Eintrag nicht gefunden")
+    alt = dict(alt[0])
+    altjson = _vorlage_json(_vorlage_eintrag(db, vid))
+    v = _vorlage_daten(db, data, alt)
+    if _q(db, """SELECT 1 FROM master_schedule_entries WHERE employee_id = :employee_id AND object_id = :object_id
+                 AND weekday = :weekday AND coalesce(rhythm,'weekly') = :rhythm AND id <> :id""", **v, id=vid):
+        raise HTTPException(409, "Diesen Eintrag gibt es in der Vorlage schon (gleicher MA, Objekt, Wochentag, Rhythmus)")
+    db.execute(text("""UPDATE master_schedule_entries SET employee_id = :employee_id, object_id = :object_id, weekday = :weekday,
+                              start_time = :start_time, end_time = :end_time, planned_hours = :planned_hours, is_driver = :is_driver,
+                              rhythm = :rhythm, month_week = :month_week WHERE id = :id"""), {**v, "id": vid})
+    log_audit(db, user.id, v["employee_id"], "vorlage_geaendert", entity_type="master_schedule", entity_id=vid,
+              old_value=altjson, details=f"Vorlage geaendert: {_vl_text(v, db)}")
+    db.commit()
+    return {"alt": altjson, "neu": _vorlage_json(_vorlage_eintrag(db, vid))}
+
+
+@router.delete("/vorlage/{vid}")
+def vorlage_loeschen(vid: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    alt = _vorlage_json(_vorlage_eintrag(db, vid))
+    db.execute(text("DELETE FROM master_schedule_entries WHERE id = :i"), {"i": vid})
+    log_audit(db, user.id, alt["employee_id"], "vorlage_geloescht", entity_type="master_schedule", entity_id=vid, old_value=alt,
+              details=f"Vorlage geloescht: {alt['name']}, {alt['tag']} {alt['beginn']}-{alt['ende']}, {alt['objekt']}")
+    db.commit()
+    return {"status": "geloescht", "alt": alt}
+
+
+@router.post("/vorlage/aus-woche")
+def vorlage_aus_woche(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Vorlage aus einer vorhandenen Planwoche fuellen (woechentlich). vorschau=true: nur anzeigen.
+    Schon vorhandene Vorlage-Eintraege (MA/Objekt/Wochentag) und Sonntage der Sonntagsregel werden ausgelassen."""
+    from app.services import plan_vorlage as pv, sonntag_d0002 as so
+    mo = pv.montag(_d(data.get("woche"), "woche"))
+    obj, _ = _scope(db, user)
+    nur_obj = int(data["object_id"]) if data.get("object_id") else None
+    rows = _q(db, f"""SELECT s.employee_id, s.object_id, s.date, s.start_time, s.end_time, s.is_driver, o.name AS objekt,
+                             e.first_name || ' ' || e.last_name AS name
+                        FROM schedules s JOIN employees e ON e.id = s.employee_id JOIN objects o ON o.id = s.object_id
+                       WHERE s.date BETWEEN :a AND :b AND s.status IN ('normal','vertretung') AND e.is_active AND NOT coalesce(e.is_test,false)
+                         AND s.start_time IS NOT NULL AND s.end_time IS NOT NULL
+                         AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK}) AND {_flt('s.object_id', obj)}
+                       ORDER BY s.date, s.start_time, name""", **_params(obj, None, a=mo, b=mo + timedelta(days=6)))
+    da = {(r["employee_id"], r["object_id"], r["weekday"]) for r in _q(db, """SELECT employee_id, object_id, weekday
+                                                                              FROM master_schedule_entries WHERE coalesce(is_active,true)""")}
+    out, neu = [], set()
+    for r in rows:
+        if nur_obj and r["object_id"] != nur_obj:
+            continue
+        k = (r["employee_id"], r["object_id"], r["date"].weekday())
+        grund = ("Sonntag kommt aus der Sonntagsautomatik" if r["employee_id"] == so.RULE_EMPLOYEE_ID and r["date"].weekday() == 6
+                 else "schon in der Vorlage" if k in da else "doppelt in der Woche" if k in neu else None)
+        if not grund:
+            neu.add(k)
+        out.append({"employee_id": r["employee_id"], "name": r["name"], "object_id": r["object_id"], "objekt": r["objekt"],
+                    "wochentag": r["date"].weekday(), "tag": WOCHENTAG[r["date"].weekday()], "beginn": _hm(r["start_time"]),
+                    "ende": _hm(r["end_time"]), "fahrer": bool(r["is_driver"]), "status": "ok" if not grund else "konflikt", "grund": grund})
+    res = {"woche": mo.isoformat(), "eintraege": out, "anzulegen": sum(1 for o in out if o["status"] == "ok"),
+           "uebersprungen": sum(1 for o in out if o["status"] != "ok")}
+    if data.get("vorschau", True):
+        return {**res, "vorschau": True}
+    ids = []
+    for o in out:
+        if o["status"] != "ok":
+            continue
+        v = _vorlage_daten(db, {"employee_id": o["employee_id"], "object_id": o["object_id"], "wochentag": o["wochentag"],
+                                "beginn": o["beginn"], "ende": o["ende"], "fahrer": o["fahrer"]})
+        vid = db.execute(text("""INSERT INTO master_schedule_entries (employee_id, object_id, weekday, start_time, end_time, planned_hours,
+                                        is_driver, is_active, rhythm, created_at)
+                                 VALUES (:employee_id, :object_id, :weekday, :start_time, :end_time, :planned_hours, :is_driver, true,
+                                         'weekly', now()) RETURNING id"""), v).scalar()
+        ids.append(vid)
+        log_audit(db, user.id, v["employee_id"], "vorlage_angelegt", entity_type="master_schedule", entity_id=vid,
+                  details=f"Vorlage aus Woche {mo.strftime('%d.%m.%Y')}: {_vl_text(v, db)}")
+    db.commit()
+    return {**res, "vorschau": False, "ids": ids}
+
+
+@router.post("/dienstplan/aus-vorlage")
+def woche_aus_vorlage(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Woche nur aus der Vorlage erzeugen (nicht aus der Vorwoche). Urlaub/Krank/Absage: keine Schicht, sondern offene Luecke.
+    vorschau=true (Standard): nur anzeigen. Speichern in EINER Transaktion, Rueckgaengig ueber /dienstplan/kopie/{id}."""
+    from app.services import plan_vorlage as pv
+    mo = pv.montag(_d(data.get("woche"), "woche"))
+    obj, _ = _scope(db, user)
+    soll = pv.soll(db, mo, mo + timedelta(days=6), obj)
+    if not soll:
+        raise HTTPException(400, "Die Vorlage ist leer – bitte zuerst Vorlage anlegen")
+    neu = [{"vorlage_id": m["id"], "employee_id": m["employee_id"], "object_id": m["object_id"], "datum": d,
+            "start": m["start_time"], "ende": m["end_time"], "fahrer": bool(m["is_driver"])} for m, d in soll]
+    plan = _pruefe_neue(db, neu, mo, mo + timedelta(days=6))
+    plan["luecken"] = sum(1 for e in plan["eintraege"] if e["status"] == "abwesend")
+    if data.get("vorschau", True):
+        return {**plan, "woche": mo.isoformat(), "vorschau": True}
+    r = _anlegen(db, user, plan, "Schicht aus Vorlage")
+    return {**r, "woche": mo.isoformat(), "luecken": plan["luecken"]}
+
+
+@router.post("/dienstplan/fertig")
+def woche_fertig(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Planwoche als fertig melden (fertig=false: wieder oeffnen)."""
+    from app.services import plan_vorlage as pv
+    return pv.fertig_setzen(db, pv.montag(_d(data.get("woche"), "woche")), user, bool(data.get("fertig", True)))
+
+
+# --- Kontingent (Festgehalt): Soll / verplant / Rest, Rest gleichmaessig auf Werktage verteilen -----
+def _monat(v):
+    try:
+        y, m = map(int, str(v).split("-"))
+        return date(y, m, 1)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "monat als JJJJ-MM")
+
+
+def _plan_std(r):
+    if r["planned_hours"] is not None:
+        return float(r["planned_hours"])
+    return _vl_std(r["start_time"], r["end_time"])
+
+
+def _kontingent_person(db, eid, m0):
+    from app.services import festgehalt, sonntag_d0002 as so
+    m1 = (m0 + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    fg = festgehalt.active_on(db, eid, m0)
+    if not fg:
+        return None
+    rows = _q(db, f"""SELECT date, start_time, end_time, planned_hours FROM schedules WHERE employee_id = :e AND date BETWEEN :a AND :b
+                      AND status IN ('normal','vertretung') AND object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                      AND start_time IS NOT NULL AND end_time IS NOT NULL""", e=eid, a=m0, b=m1)
+    sonntage, werk = {}, 0.0
+    for r in rows:
+        if r["date"].weekday() == 6:
+            spanne = _vl_std(r["start_time"], r["end_time"])
+            h = spanne - so.BREAK_MINUTES / 60 if spanne > so.BREAK_FROM_HOURS else spanne   # wie die Sonntagsbuchung
+            sonntage[r["date"]] = {"datum": r["date"].isoformat(), "stunden": round(h, 2), "angelegt": True}
+        else:
+            werk += _plan_std(r)
+    if not sonntage and so.applies(eid, m0 + timedelta(days=(6 - m0.weekday()) % 7)):
+        # Sonntagsautomatik legt die ersten 3 Sonntage am 20. des Vormonats an - bis dahin als erwartet zeigen
+        d = m0 + timedelta(days=(6 - m0.weekday()) % 7)
+        spanne = _vl_std(so.FILL_START, so.FILL_END)
+        for _ in range(so.MAX_SUNDAYS):
+            sonntage[d] = {"datum": d.isoformat(), "stunden": round(spanne - so.BREAK_MINUTES / 60, 2), "angelegt": False}
+            d += timedelta(days=7)
+    so_h = round(sum(x["stunden"] for x in sonntage.values()), 2)
+    name = _q(db, "SELECT first_name || ' ' || last_name AS n, personal_nr FROM employees WHERE id = :i", i=eid)[0]
+    soll = float(fg.monatsstunden or 0)
+    return {"employee_id": eid, "name": name["n"], "personal_nr": name["personal_nr"], "monat": m0.strftime("%Y-%m"),
+            "soll": soll, "sonntag_stunden": so_h, "sonntage": sorted(sonntage.values(), key=lambda x: x["datum"]),
+            "sonntage_automatisch": eid == so.RULE_EMPLOYEE_ID and m1 >= so.RULE_START,
+            "werktag_stunden": round(werk, 2), "verplant": round(so_h + werk, 2), "rest": round(soll - so_h - werk, 2)}
+
+
+@router.get("/kontingent")
+def kontingent(monat: str = Query(None), db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Monatskontingent fuer MA mit Festgehalt: Soll, Sonntage, Werktage, verplant, Rest."""
+    from app.services import festgehalt
+    m0 = _monat(monat) if monat else date.today().replace(day=1)
+    out = [_kontingent_person(db, eid, m0) for eid in sorted(festgehalt.active_employee_ids(db, m0.year, m0.month))]
+    return {"monat": m0.strftime("%Y-%m"), "personen": [p for p in out if p]}
+
+
+@router.post("/kontingent/verteilen")
+def kontingent_verteilen(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Rest-Stunden gleichmaessig auf die freien Werktage (Mo-Fr, ohne Feiertag/Urlaub/Krank/Absage, ab heute) verteilen.
+    Objekt und Beginn je Wochentag aus der Vorlage, sonst aus den letzten 8 Wochen. vorschau=true: nur anzeigen.
+    Gespeichert wird wie beim Kopieren (Rueckgaengig ueber /dienstplan/kopie/{id}). Am Gehalt aendert sich nichts."""
+    from app.services import plan_vorlage as pv
+    from app.services.holidays_bw import is_feiertag_bw
+    eid = int(data.get("employee_id") or 0)
+    m0 = _monat(data.get("monat"))
+    m1 = (m0 + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    p = _kontingent_person(db, eid, m0)
+    if not p:
+        raise HTTPException(400, "Für diesen Monat ist kein Festgehalt hinterlegt")
+    von = max(m0, date.today())
+    belegt = {r["date"] for r in _q(db, "SELECT date FROM schedules WHERE employee_id = :e AND date BETWEEN :a AND :b", e=eid, a=von, b=m1)}
+    sperre = {**pv.absagen(db, von, m1), **_abwesend_map(db, von, m1)}
+    tage = [von + timedelta(days=i) for i in range((m1 - von).days + 1)]
+    tage = [d for d in tage if d.weekday() < 5 and not is_feiertag_bw(d) and d not in belegt and (eid, d) not in sperre]
+    res = {"monat": p["monat"], "rest": p["rest"], "tage": len(tage), "eintraege": [], "anzulegen": 0, "uebersprungen": 0}
+    if p["rest"] <= 0 or not tage:
+        return {**res, "vorschau": True, "hinweis": "Kein Rest zu verteilen" if p["rest"] <= 0 else "Keine freien Werktage mehr im Monat"}
+    viertel = round(p["rest"] * 4)                          # in Viertelstunden, Rest auf die ersten Tage
+    je, ueber = divmod(viertel, len(tage))
+    vl = {}
+    for m in pv.vorlage(db):
+        if m["employee_id"] == eid:
+            vl.setdefault(m["weekday"], m)
+    ueblich = _q(db, f"""SELECT object_id, start_time, count(*) AS n FROM schedules WHERE employee_id = :e AND date BETWEEN :a AND :b
+                         AND extract(isodow FROM date) < 6 AND status IN ('normal','vertretung') AND object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                         GROUP BY 1, 2 ORDER BY n DESC LIMIT 1""", e=eid, a=date.today() - timedelta(days=56), b=date.today())
+    neu = []
+    for i, d in enumerate(tage):
+        h = (je + (1 if i < ueber else 0)) / 4
+        if h <= 0:
+            continue
+        q = vl.get(d.weekday())
+        obj_id = q["object_id"] if q else (ueblich[0]["object_id"] if ueblich else 1)
+        beginn = q["start_time"] if q else (ueblich[0]["start_time"] if ueblich else datetime.strptime("13:00", "%H:%M").time())
+        ende = (datetime.combine(d, beginn) + timedelta(hours=h)).time()
+        neu.append({"employee_id": eid, "object_id": obj_id, "datum": d, "start": beginn, "ende": ende, "fahrer": bool(q and q["is_driver"])})
+    plan = _pruefe_neue(db, neu, von, m1)
+    if data.get("vorschau", True):
+        return {**res, **plan, "vorschau": True}
+    return {**res, **_anlegen(db, user, plan, "Kontingent verteilt")}

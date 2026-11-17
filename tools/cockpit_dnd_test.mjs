@@ -59,7 +59,9 @@ async function touch(page, typ, x, y) {
   await cdp.send('Input.dispatchTouchEvent', { type: typ, touchPoints: typ === 'touchEnd' ? [] : [{ x, y }] });
 }
 async function touchZiehen(page, von, nach, halten = 500) {
+  await nach.scrollIntoViewIfNeeded(); await von.scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
   const a = await von.boundingBox(), b = await nach.boundingBox();
+  if (process.env.DEBUG) { console.log('    touch', JSON.stringify(a), '->', JSON.stringify(b), page.viewportSize()); await page.screenshot({ path: '/tmp/claude-10015/-home-claude-dev/8982f5c6-79c8-488a-82c1-b29b75ca7fbd/scratchpad/dbg2.png' }); }
   const x0 = a.x + 30, y0 = a.y + a.height / 2, x1 = b.x + b.width / 2, y1 = b.y + 30;
   await touch(page, 'touchStart', x0, y0); await page.waitForTimeout(halten);
   for (let i = 1; i <= 12; i++) { await touch(page, 'touchMove', x0 + (x1 - x0) * i / 12, y0 + (y1 - y0) * i / 12); await page.waitForTimeout(25); }

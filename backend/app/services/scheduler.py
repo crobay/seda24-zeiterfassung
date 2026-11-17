@@ -152,8 +152,17 @@ def init_scheduler():
         max_instances=1,
     )
 
+    # Job 14: Dienstplan naechste Woche noch offen? Telegram-Erinnerung an die Objektleitung (Freitag 09:00)
+    scheduler.add_job(
+        remind_plan_next_week,
+        CronTrigger(day_of_week='fri', hour=9, minute=0),
+        id='remind_plan_next_week',
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
-    logger.info("APScheduler gestartet mit 13 Jobs")
+    logger.info("APScheduler gestartet mit 14 Jobs")
 
 
 def shutdown_scheduler():
@@ -1288,3 +1297,17 @@ def check_export_fetched():
         notify_admin(f"\u26a0\ufe0f Zeiterfassungs-Export {name} wurde abgerufen, aber der PC hat nicht bestaetigt, "
                      f"dass sie in Q: liegt. Bitte Protokoll %LOCALAPPDATA%\\SEDA24-Export\\abruf.log pruefen.",
                      category="sonstiges")
+
+
+def remind_plan_next_week():
+    """Freitag 09:00: Plan fuer die naechste Woche nicht als fertig gemeldet -> Erinnerung an die Objektleitung."""
+    from app.services.plan_vorlage import erinnerung_freitag
+    db = SessionLocal()
+    try:
+        r = erinnerung_freitag(db)
+        logger.info(f"Dienstplan-Erinnerung: {r}")
+    except Exception as e:
+        logger.error(f"Fehler in remind_plan_next_week: {e}")
+        db.rollback()
+    finally:
+        db.close()

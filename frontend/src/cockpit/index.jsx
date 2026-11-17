@@ -6,6 +6,7 @@ import Shell from './Shell';
 import Heute from './pages/Heute';
 
 const Dienstplan = lazy(() => import('./pages/Dienstplan'));
+const Vorlage = lazy(() => import('./pages/Vorlage'));
 const Mitarbeiter = lazy(() => import('./pages/Mitarbeiter'));
 const Akte = lazy(() => import('./pages/Akte'));
 const Objekte = lazy(() => import('./pages/Objekte'));
@@ -31,6 +32,7 @@ export default function Cockpit() {
             <Routes>
               <Route index element={<Heute />} />
               <Route path="dienstplan" element={<Dienstplan />} />
+              <Route path="vorlage" element={<Vorlage />} />
               <Route path="mitarbeiter" element={<Mitarbeiter />} />
               <Route path="mitarbeiter/:id" element={<Akte />} />
               <Route path="objekte" element={<Objekte />} />

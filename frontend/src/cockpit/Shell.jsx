@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Sun, CalendarDays, Users, Building2, Clock3, Wallet, Settings, Search, Moon, LogOut, LayoutGrid, User, CornerDownLeft } from 'lucide-react';
+import { Sun, CalendarDays, CalendarCog, Users, Building2, Clock3, Wallet, Settings, Search, Moon, LogOut, LayoutGrid, User, CornerDownLeft } from 'lucide-react';
 import { api, t, useApp, initials } from './core';
 
 export const NAV = [
   { key: 'heute', path: '/cockpit', Icon: Sun },
   { key: 'dienstplan', path: '/cockpit/dienstplan', Icon: CalendarDays },
+  { key: 'vorlage', path: '/cockpit/vorlage', Icon: CalendarCog },
   { key: 'mitarbeiter', path: '/cockpit/mitarbeiter', Icon: Users },
   { key: 'objekte', path: '/cockpit/objekte', Icon: Building2 },
   { key: 'zeiten', path: '/cockpit/zeiten', Icon: Clock3 },

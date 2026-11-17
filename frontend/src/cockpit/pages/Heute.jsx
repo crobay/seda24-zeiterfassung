@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   UserCheck, UserX, ListChecks, Timer, Inbox, CalendarCheck2, PartyPopper, Check, X, MessageSquare, Palmtree, Thermometer,
   Building2, CalendarRange, AlertTriangle, ChevronRight, FileCheck2, CheckCircle2, Car, TrendingUp, TrendingDown, Minus,
-  Activity, LogIn, LogOut, Bot, Pencil, ArrowRightLeft, Clock, CircleCheckBig, Moon as MoonIcon,
+  Activity, LogIn, LogOut, Bot, Pencil, ArrowRightLeft, Clock, CircleCheckBig, Moon as MoonIcon, CalendarClock, CircleDashed, BellRing,
 } from 'lucide-react';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Skeleton, Empty, ErrorBox, Dialog } from '../core';
 
@@ -131,6 +131,7 @@ export default function Heute() {
         </section>
 
         <div className="ck-stack span-5 m5">
+          <PlanNaechsteWoche p={ls.data?.plan_naechste_woche} onReload={ls.reload} />
           <Abwesend heute={data?.abwesend} woche={ls.data?.woche} />
           <Kilometer km={ls.data?.km} />
         </div>
@@ -432,5 +433,46 @@ function ActionDialog({ item, aktion, onClose, onRun, busy }) {
       <label className="ck-field">{reply ? t('act.reply_label') : t('act.reject_label')}
         <textarea className="ck-input" style={{ height: 110, padding: 12 }} value={text} onChange={(e) => setText(e.target.value)} autoFocus /></label>
     </Dialog>
+  );
+}
+
+/* Plan naechste Woche: Ruzica schreibt den Plan bis Freitag 12:00 */
+function PlanNaechsteWoche({ p, onReload }) {
+  const { toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const melden = async () => {
+    setBusy(true);
+    try { await api.post('/dienstplan/fertig', { woche: p.woche, fertig: true }); toast(t('plan.marked_done')); onReload(); }
+    catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setBusy(false);
+  };
+  const lu = p && (p.luecken === 1 ? t('plan.n_gaps_1') : p.luecken ? t('plan.n_gaps', { n: p.luecken }) : t('plan.no_gaps'));
+  return (
+    <section className="ck-card" aria-labelledby="pn-h" id="plan-naechste-woche">
+      <div className="ck-card-head"><h2 id="pn-h"><CalendarClock size={20} />{t('plan.next_title')}</h2>
+        {p && <Link className="ck-link-more" to={`/cockpit/dienstplan?start=${p.woche}`}>{t('plan.open_plan')}<ChevronRight size={16} /></Link>}</div>
+      {!p ? <SkeletonRows n={2} /> : (
+        <div className="ck-card-body" style={{ display: 'grid', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {p.fertig ? <Status s="approved" label={t('plan.status_done')} /> : <Status s="fehlt" label={t('plan.status_open')} />}
+            <span className="ck-subtle">{t('plan.next_sub', { von: fmtDate(p.woche), bis: fmtDate(p.bis) })}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 15 }}>
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontWeight: p.luecken ? 650 : 500 }}>
+              {p.luecken ? <CircleDashed size={17} color="var(--ck-warn)" /> : <CheckCircle2 size={17} color="var(--ck-ok)" />}{lu}</span>
+            <span className="ck-num">{t('plan.n_shifts', { n: p.schichten })}</span>
+            {p.ungeplant && <span className="ck-subtle">{t('plan.not_built')}</span>}
+          </div>
+          {!p.vorlage && <div className="ck-subtle" style={{ fontSize: 13 }}>{t('plan.no_template')}</div>}
+          {p.fertig ? <div className="ck-subtle" style={{ fontSize: 13 }}>{t('plan.done_by', { wer: p.gemeldet_von, am: `${fmtDate(p.gemeldet_am.slice(0, 10))} ${p.gemeldet_am.slice(11, 16)}` })}</div>
+            : (<>
+              <div className="ck-subtle" style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}><BellRing size={14} />
+                {t('plan.due', { date: fmtDate(p.abgabe.slice(0, 10), { weekday: 'short', day: '2-digit', month: '2-digit' }) })} · {t('plan.reminder')}</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Link className="ck-btn ck-btn-sm" to={`/cockpit/dienstplan?start=${p.woche}`}>{t('plan.open_plan')}</Link>
+                <button className="ck-btn ck-btn-sm ck-btn-primary" disabled={busy} onClick={melden}><CheckCircle2 size={15} />{t('plan.mark_done')}</button>
+              </div></>)}
+        </div>)}
+    </section>
   );
 }

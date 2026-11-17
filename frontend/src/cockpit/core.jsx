@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { API_URL } from '../config';
@@ -182,7 +183,10 @@ export function Dialog({ title, children, onClose, footer }) {
     const k = (e) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
   }, [onClose]);
-  return (
+  // Portal an den Seitenrand der Cockpit-Oberflaeche: Dialoge liegen immer obenauf, auch wenn sie aus einer
+  // fixierten (sticky) Leiste geoeffnet werden
+  const ziel = typeof document !== 'undefined' ? (document.querySelector('.ck') || document.body) : null;
+  const inhalt = (
     <div className="ck-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="ck-dialog" role="dialog" aria-modal="true" aria-label={title}>
         <div className="ck-card-head"><h2>{title}</h2></div>
@@ -191,5 +195,6 @@ export function Dialog({ title, children, onClose, footer }) {
       </div>
     </div>
   );
+  return ziel ? createPortal(inhalt, ziel) : inhalt;
 }
 export const initials = (name = '') => name.split(' ').filter(Boolean).map((p) => p[0]).slice(0, 2).join('').toUpperCase();

@@ -478,3 +478,54 @@
   .ck-kopie-row { grid-template-columns: 1fr; gap: 2px; }
   .ck-two-inputs { grid-template-columns: 1fr; }
 }
+
+/* ---------- Plan aus Vorlage: Seitenleiste, Luecken, Kontingent, Planstatus ---------- */
+.ck-dp-layout { display: grid; gap: 16px; }
+.ck-dp-aside { display: grid; gap: 16px; align-content: start; order: 2; }   /* Handy/Tablet: Plan zuerst, Leiste darunter */
+@media (min-width: 1100px) {
+  .ck-dp-layout { grid-template-columns: minmax(0, 1fr) 260px; }
+  .ck-dp-aside { order: 2; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
+  .ck-dp-main { order: 1; min-width: 0; }
+}
+.ck-ma-leiste .ck-card-head { flex-wrap: wrap; gap: 8px; }
+.ck-ma-leiste-body { padding: 10px 14px 14px; display: grid; gap: 10px; }
+.ck-ma-hint { margin: 0; font-size: 13px; }
+.ck-search-field { display: flex; align-items: center; gap: 8px; color: var(--ck-text-2); }
+.ck-search-field .ck-input { flex: 1; min-width: 0; }
+/* Handy/Tablet: Leiste als waagerechter Streifen ueber dem Plan, "+ einplanen" mit einem Tipp */
+@media (max-width: 1099px) {
+  .ck-ma-leiste .ck-ma-list { display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; scroll-snap-type: x proximity; }
+  .ck-ma-leiste .ck-ma-item { flex: 0 0 auto; width: 240px; scroll-snap-align: start; }
+  .ck-ma-leiste .ck-search-field { flex: 1 1 160px; max-width: 260px; }
+}
+@media (min-width: 1100px) { .ck-ma-leiste .ck-search-field { width: 100%; } }
+.ck-ma-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ck-ma-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--ck-border); border-radius: var(--ck-r-sm);
+  background: var(--ck-surface-2); touch-action: manipulation; user-select: none; -webkit-user-select: none; cursor: grab; }
+.ck-ma-item.is-dragging { opacity: .4; }
+.ck-ma-name { flex: 1; min-width: 0; display: grid; font-size: 14px; }
+.ck-ma-name b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck-ma-name .ck-subtle { font-size: 12px; }
+.ck-gap { display: block; width: 100%; text-align: left; font: inherit; color: var(--ck-text); cursor: pointer; background: transparent;
+  border: 2px dashed var(--ck-warn); }
+.ck-gap:hover, .ck-gap.is-over { background: var(--ck-warn-soft, rgba(180, 83, 9, .08)); }
+.ck-gap.is-over { outline: 2px solid var(--ck-accent); }
+.ck-gap-tag { display: inline-flex; align-items: center; gap: 4px; font-weight: 650; color: var(--ck-warn); margin-right: 6px; font-size: 13px; }
+.ck-gap-why { display: block; font-size: 12px; color: var(--ck-text-2); }
+.ck-gap-row th { color: var(--ck-warn); }
+.ck-plan-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; background: var(--ck-surface); border: 1px solid var(--ck-border); }
+.ck-plan-status .ck-btn { margin-left: auto; }
+.ck-plan-facts { display: inline-flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 14px; }
+.ck-plan-facts > span { display: inline-flex; gap: 5px; align-items: center; }
+.ck-konto-bar { display: flex; height: 12px; border-radius: 6px; background: var(--ck-surface-2); border: 1px solid var(--ck-border); overflow: hidden; }
+.ck-konto-bar i, .k-dot { display: block; }
+.k-so { background: var(--ck-accent); }
+.k-wt { background: repeating-linear-gradient(45deg, var(--ck-accent) 0 4px, color-mix(in srgb, var(--ck-accent) 55%, white) 4px 8px); }
+.k-rest { background: var(--ck-surface-2); border: 1px solid var(--ck-text-2); }
+.k-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+.ck-konto-zahlen { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 0; }
+.ck-konto-zahlen div { display: grid; }
+.ck-konto-zahlen dt { font-size: 12px; color: var(--ck-text-2); white-space: nowrap; }
+.ck-konto-zahlen dd { margin: 0; font-weight: 650; font-size: 15px; }
+.ck-konto-zahlen .is-warn dd { color: var(--ck-warn); }
+.ck-vl-matrix { min-width: 860px; }
