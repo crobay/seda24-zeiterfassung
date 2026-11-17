@@ -40,6 +40,8 @@ export default function Zeiten() {
   }, [data, q, onlyHint, sort]);
   const sum = rows.reduce((a, r) => a + r.stunden, 0);
   const SortIcon = ({ k }) => sort.k !== k ? <ArrowUpDown size={14} opacity={.5} /> : sort.dir > 0 ? <ArrowUp size={14} /> : <ArrowDown size={14} />;
+  // Pruefpunkt "geplant, nicht gestempelt": Zeile oeffnet "Buchung nachtragen" mit den Plan-Zeiten der Schicht
+  const oeffnen = (r) => setEdit(r.fehlt ? { neu: { employee_id: r.employee_id, object_id: r.object_id, datum: r.datum, kommen: r.kommen, gehen: r.gehen, schedule_id: r.schicht_id } } : { eintrag: r });
   const closeEdit = () => { setEdit(null); setParam('eintrag', null); setParam('neu', null); };
 
   return (
@@ -76,7 +78,7 @@ export default function Zeiten() {
                   <th key={k} aria-sort={sort.k === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}>
                     <button onClick={() => setSort((s) => ({ k, dir: s.k === k ? -s.dir : 1 }))}>{t(l)}<SortIcon k={k} /></button></th>))}<th aria-label={t('zeiten.edit')} /></tr></thead>
                 <tbody>{rows.map((r) => (
-                  <tr key={r.id} onClick={() => setEdit({ eintrag: r })} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setEdit({ eintrag: r })}>
+                  <tr key={r.id} onClick={() => oeffnen(r)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && oeffnen(r)}>
                     <td className="ck-num">{fmtDate(r.datum)}</td>
                     <td><Link className="ck-link" to={`/cockpit/mitarbeiter/${r.employee_id}`} onClick={(e) => e.stopPropagation()} style={{ fontWeight: 600 }}>{r.name}</Link></td>
                     <td>{r.objekt ? <ObjektMarke id={r.object_id} name={r.objekt} size="xs" /> : '–'}</td>
@@ -85,7 +87,7 @@ export default function Zeiten() {
                     <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(r.stunden, 2)}</td>
                     <td className="ck-subtle">{r.weg}</td>
                     <td>{r.hinweis && <Status s="fehlt" label={r.hinweis} />}</td>
-                    <td><Pencil size={15} className="ck-muted" aria-hidden="true" /></td>
+                    <td>{r.fehlt ? <Plus size={15} className="ck-muted" aria-hidden="true" /> : <Pencil size={15} className="ck-muted" aria-hidden="true" />}</td>
                   </tr>))}</tbody>
               </table>
             </div>

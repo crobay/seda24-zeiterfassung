@@ -163,3 +163,23 @@ def test_branding_felder_und_pruefung(client, db):
         assert client.put("/api/v1/cockpit/branding", json={k: v}, headers=h).status_code == 400, (k, v)
     assert client.put("/api/v1/cockpit/branding", json={"cta": ""}, headers=h).json()["cta"] == ""  # leer = Standard
     assert client.put("/api/v1/cockpit/branding", json={"cta": "#000000"}, headers=token(db, "MITARBEITER")).status_code in (401, 403)
+
+
+def test_pruefpunkt_geplant_nicht_gestempelt(client, db):
+    """Tiefentest: Schicht geplant, kein Stempel, nicht abwesend -> Pruefpunkt 'ohne_stempel' (Leitstelle + Zeiten)."""
+    from app.api.v1.endpoints.cockpit import ohne_stempel
+    emp, obj = _ma_obj(db)
+    d = date.today() - timedelta(days=1) if date.today().day > 1 else date.today()
+    db.execute(text("""INSERT INTO schedules (employee_id, object_id, date, weekday, start_time, end_time, planned_hours, status, created_at, updated_at)
+                       VALUES (:e, :o, :d, :w, '04:01', '04:59', 1, 'normal', now(), now())"""), {"e": emp, "o": obj, "d": d, "w": d.weekday()})
+    db.execute(text("DELETE FROM time_entries WHERE employee_id = :e AND check_in::date = :d"), {"e": emp, "d": d})
+    if d == date.today():
+        return                                                                    # am 1. des Monats gibt es noch kein "gestern"
+    m0 = d.replace(day=1)
+    z = [x for x in ohne_stempel(db, m0, d) if x["employee_id"] == emp and x["kommen"] == "04:01"]
+    assert z and z[0]["fehlt"] and z[0]["hinweis"] == "geplant, nicht gestempelt"
+    r = client.get(f"/api/v1/cockpit/zeiten?pruef=ohne_stempel&monat={d:%Y-%m}", headers=ol_headers(db)).json()
+    assert any(x["schicht_id"] == z[0]["schicht_id"] for x in r["eintraege"])
+    ls = client.get("/api/v1/cockpit/leitstelle", headers=ol_headers(db)).json()
+    assert any(p["key"] == "ohne_stempel" and p["n"] >= 1 for p in ls["abschluss"]["pruefpunkte"])
+

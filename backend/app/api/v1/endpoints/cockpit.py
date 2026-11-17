@@ -483,6 +483,28 @@ PRUEF_SQL = {
 PRUEF_SQL["alle"] = "(" + " OR ".join(f"({v})" for v in PRUEF_SQL.values()) + ")"
 
 
+def ohne_stempel(db, d0, d1):
+    """Geplante Schichten (bis gestern), fuer die es keinen Zeiteintrag gibt und die Person nicht abwesend ist.
+    Damit faellt beim Monatsabschluss auf, wer gar nicht gestempelt hat (die Leitstelle zeigt 'fehlt' sonst nur heute)."""
+    d1 = min(d1, date.today() - timedelta(days=1))
+    if d1 < d0:
+        return []
+    rows = _q(db, f"""SELECT s.id, s.employee_id, s.object_id, s.date, s.start_time, s.end_time, o.name AS objekt,
+                             e.first_name || ' ' || e.last_name AS name, e.personal_nr
+                        FROM schedules s JOIN employees e ON e.id = s.employee_id LEFT JOIN objects o ON o.id = s.object_id
+                       WHERE s.date BETWEEN :a AND :b AND s.status IN ('normal', 'vertretung') AND NOT coalesce(e.is_test, false)
+                         AND s.start_time IS NOT NULL AND s.object_id NOT IN ({OBJ_URLAUB}, {OBJ_KRANK})
+                         AND NOT EXISTS (SELECT 1 FROM time_entries t WHERE t.employee_id = s.employee_id AND t.check_in::date = s.date
+                                           AND (t.schedule_id = s.id OR t.object_id = s.object_id))
+                       ORDER BY s.date, s.start_time""", a=d0, b=d1)
+    abw = _abwesend_map(db, d0, d1)
+    return [{"id": f"s{r['id']}", "fehlt": True, "schicht_id": r["id"], "datum": r["date"].isoformat(), "name": r["name"],
+             "personal_nr": r["personal_nr"], "employee_id": r["employee_id"], "object_id": r["object_id"], "objekt": r["objekt"],
+             "kommen": _hm(r["start_time"]), "gehen": _hm(r["end_time"]), "check_in": f"{r['date'].isoformat()}T{_hm(r['start_time'])}",
+             "check_out": None, "gehen_datum": r["date"].isoformat(), "stunden": 0.0, "weg": "", "notes": "",
+             "hinweis": "geplant, nicht gestempelt"} for r in rows if (r["employee_id"], r["date"]) not in abw]
+
+
 def _zeile(r):
     hint = []
     if r["check_out"] is None:
@@ -515,6 +537,14 @@ def zeiten(von: str = Query(None), bis: str = Query(None), pruef: str = Query(No
            db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
     d1 = date.fromisoformat(bis) if bis else date.today()
     d0 = date.fromisoformat(von) if von else d1 - timedelta(days=6)
+    if pruef == "ohne_stempel":
+        try:
+            ref = date.fromisoformat(f"{monat}-01") if monat else date.today()
+        except ValueError:
+            raise HTTPException(400, "Monat als JJJJ-MM")
+        d0, d1 = _month_bounds(ref)
+        return {"von": d0.isoformat(), "bis": d1.isoformat(), "pruef": pruef, "monat": d0.strftime("%Y-%m"),
+                "eintraege": ohne_stempel(db, d0, d1)}
     if pruef in PRUEF_SQL:  # Pruefpunkte: ganzer Monat (Standard: laufender), Kommen- ODER Gehen-Datum im Monat
         try:
             ref = date.fromisoformat(f"{monat}-01") if monat else date.today()
@@ -1256,10 +1286,12 @@ def leitstelle(db: Session = Depends(get_db), user=Depends(verify_admin_or_objek
                        AND a.object_id NOT IN (19, 999)
                        AND NOT EXISTS (SELECT 1 FROM km_distances k WHERE k.employee_id = a.employee_id AND k.object_id = a.object_id)""")[0]["n"]
     p_nach = _q(db, "SELECT count(*) AS n FROM pending_bookings WHERE status = 'offen'")[0]["n"]
+    p_ohne_st = len(ohne_stempel(db, m0, m1))
     pruef = [
         {"key": "gehen_vor_kommen", "n": p_gvk, "link": "/cockpit/zeiten?pruef=gehen_vor_kommen"},
         {"key": "negative_stunden", "n": p_neg, "link": "/cockpit/zeiten?pruef=negative_stunden"},
         {"key": "ohne_gehen", "n": p_ohne, "link": "/cockpit/zeiten?pruef=ohne_gehen"},
+        {"key": "ohne_stempel", "n": p_ohne_st, "link": "/cockpit/zeiten?pruef=ohne_stempel"},
         {"key": "km_fehlt", "n": p_km, "link": "/cockpit/objekte?pruef=km_fehlt"},
         {"key": "nachtraege", "n": p_nach, "link": "/cockpit#todo"},
     ]

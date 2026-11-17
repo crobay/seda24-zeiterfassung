@@ -35,7 +35,7 @@ export default {
     vac: '{n} Urlaub', sick: '{n} krank', gaps_title: 'Lücken im Dienstplan', gaps_none: 'Die Woche ist vollständig besetzt.',
     close: 'Monatsabschluss {month}', export_in: 'Export in {n} Tagen', export_today: 'Export heute 14:00', export_on: 'am {date}, 14:00 Uhr',
     confirmed: 'Monat bestätigt', confirmed_of: '{n} von {m} Mitarbeitern', checks: 'Prüfpunkte', checks_ok: 'Alles geprüft – bereit für den Export',
-    chk_gehen_vor_kommen: 'Gehen vor Kommen', chk_negative_stunden: 'Negative Stunden', chk_ohne_gehen: 'Ohne Gehen (über 14 h)',
+    chk_gehen_vor_kommen: 'Gehen vor Kommen', chk_negative_stunden: 'Negative Stunden', chk_ohne_gehen: 'Ohne Gehen (über 14 h)', chk_ohne_stempel: 'Geplant, nicht gestempelt',
     chk_km_fehlt: 'Fehlende KM-Strecken', chk_nachtraege: 'Ungenehmigte Nachträge', chk_alle: 'Alle Prüfpunkte', chk_ok: 'ok',
     hours: 'Stunden je Mitarbeiter · {month}', hours_ist: 'Ist', hours_soll: 'Soll bis heute', hours_plan: 'Plan Monat {h} h',
     hours_in: 'im Plan', hours_under: 'unter Plan', hours_over: 'über Plan', hours_empty: 'Noch keine Stunden in diesem Monat.',
