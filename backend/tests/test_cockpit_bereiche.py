@@ -183,3 +183,33 @@ def test_pruefpunkt_geplant_nicht_gestempelt(client, db):
     ls = client.get("/api/v1/cockpit/leitstelle", headers=ol_headers(db)).json()
     assert any(p["key"] == "ohne_stempel" and p["n"] >= 1 for p in ls["abschluss"]["pruefpunkte"])
 
+
+def test_nachtrag_fahrer_bekommt_km(client, db):
+    """Tiefentest: Nachtrag im Cockpit fuer eine Fahrer-Schicht legt KM-Geld an (wie beim Stempeln), sonst nicht."""
+    r = q(db, """SELECT k.employee_id, k.object_id FROM km_distances k JOIN employees e ON e.id = k.employee_id
+                 WHERE e.is_active AND NOT coalesce(e.is_test, false) AND k.distance_km > 0 ORDER BY k.employee_id LIMIT 1""")
+    if not r:
+        pytest.skip("keine KM-Strecken")
+    emp, obj = r[0]
+    d = date.today() - timedelta(days=2)
+    db.execute(text("DELETE FROM km_daily_entries WHERE employee_id = :e AND date = :d"), {"e": emp, "d": d})
+    db.execute(text("DELETE FROM time_entries WHERE employee_id = :e AND check_in::date = :d"), {"e": emp, "d": d})
+    sid = db.execute(text("""INSERT INTO schedules (employee_id, object_id, date, weekday, start_time, end_time, planned_hours, status, is_driver, created_at, updated_at)
+                             VALUES (:e, :o, :d, :w, '04:00', '05:00', 1, 'normal', true, now(), now()) RETURNING id"""),
+                     {"e": emp, "o": obj, "d": d, "w": d.weekday()}).scalar()
+    x = client.post("/api/v1/cockpit/zeiten", json={"employee_id": emp, "object_id": obj, "datum": d.isoformat(), "kommen": "04:00",
+                                                    "gehen": "05:00", "schedule_id": sid}, headers=ol_headers(db))
+    assert x.status_code == 200, x.text
+    km = q(db, "SELECT distance_km, is_billable FROM km_daily_entries WHERE employee_id = :e AND date = :d", e=emp, d=d)
+    assert km and float(km[0][0]) > 0 and km[0][1]
+
+
+def test_lohnfortzahlung_ist_kein_stempel(client, db):
+    """Tiefentest: Krank-Lohnfortzahlung (Zeiteintrag am Objekt, service_type 'Krank') erscheint in 'Heute' nicht als Stempel."""
+    emp, obj = _ma_obj(db)
+    tid = db.execute(text("""INSERT INTO time_entries (employee_id, object_id, check_in, check_out, billed_hours, hourly_rate, service_type, notes)
+                             VALUES (:e, :o, date_trunc('day', now()) + interval '4 hours', date_trunc('day', now()) + interval '5 hours', 1, 15,
+                                     'Krank', 'Lohnfortzahlung - Test') RETURNING id"""), {"e": emp, "o": obj}).scalar()
+    h = client.get("/api/v1/cockpit/heute", headers=ol_headers(db)).json()
+    assert all(x["eintrag_id"] != tid for x in h["ohne_schicht"]) and all(x.get("eintrag_id") != tid for x in h["schichten"])
+

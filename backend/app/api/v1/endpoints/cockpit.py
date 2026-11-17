@@ -55,6 +55,10 @@ def _params(obj, emp, **extra):
     return p
 
 
+# Lohnfortzahlung (Krank) und Urlaub sind als Zeiteintrag am Objekt gebucht - in "Heute"/"Stunden je MA" kein Stempel
+_KEIN_STEMPEL = "'Krank', 'Urlaub', 'Abwesenheit'"
+
+
 def _net_hours(ci, co, billed, brk_sec):
     if billed is not None and billed >= 0:
         return float(billed)
@@ -100,6 +104,7 @@ def heute(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleit
           FROM time_entries t JOIN employees e ON e.id = t.employee_id LEFT JOIN objects o ON o.id = t.object_id
          WHERE (t.check_in::date = :d OR (t.check_out IS NULL AND t.check_in::date >= :y))
            AND NOT coalesce(e.is_test,false) AND coalesce(t.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+           AND coalesce(t.service_type, '') NOT IN ({_KEIN_STEMPEL})
            AND {_flt('t.object_id', obj)}
          ORDER BY t.check_in""", **p)
 
@@ -613,6 +618,17 @@ def zeit_anlegen(data: dict, db: Session = Depends(get_db), user=Depends(verify_
     if data.get("schedule_id"):
         db.execute(text("UPDATE time_entries SET schedule_id = :s WHERE id = :i AND schedule_id IS NULL"),
                    {"s": int(data["schedule_id"]), "i": r["id"]})
+        db.commit()
+    # KM-Geld wie beim Stempeln: Fahrer laut Schicht, sonst laut Zuweisung MA -> Objekt (gleiche Berechnung wie die App)
+    eid, oid = int(data["employee_id"]), int(data["object_id"])
+    if data.get("schedule_id"):
+        f = _q(db, "SELECT coalesce(is_driver, false) AS f FROM schedules WHERE id = :s", s=int(data["schedule_id"]))
+    else:
+        f = _q(db, """SELECT coalesce(bool_or(is_driver), false) AS f FROM employee_object_assignments
+                      WHERE employee_id = :e AND object_id = :o AND coalesce(is_active, true)""", e=eid, o=oid)
+    if f and f[0]["f"]:
+        from app.api.v1.endpoints.time_entries import calculate_and_save_km
+        calculate_and_save_km(eid, oid, ci.date(), r["id"], db)
         db.commit()
     return zeit(r["id"], db=db, user=user)
 
@@ -1309,7 +1325,8 @@ def leitstelle(db: Session = Depends(get_db), user=Depends(verify_admin_or_objek
                          WHERE b.time_entry_id = t.id AND b.end_time IS NOT NULL) AS brk
                      FROM time_entries t JOIN employees e ON e.id = t.employee_id
                      WHERE t.check_in::date BETWEEN :a AND :b AND NOT coalesce(e.is_test,false)
-                       AND coalesce(t.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})""", a=m0, b=m1)
+                       AND coalesce(t.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
+                       AND coalesce(t.service_type, '') NOT IN ({_KEIN_STEMPEL})""", a=m0, b=m1)
     st = {}
 
     def ph(s):
