@@ -1284,30 +1284,32 @@ def leitstelle(db: Session = Depends(get_db), user=Depends(verify_admin_or_objek
         woche.append({"datum": d.isoformat(), "tag": WT_KURZ[d.weekday()], "schichten": len(day_s), "luecken": luecken,
                       "urlaub": [x for x in weg if x["grund"] == "Urlaub"], "krank": [x for x in weg if x["grund"] == "Krank"]})
 
-    # 3) Monatsabschluss
-    monat = today.strftime("%Y-%m")
+    # 3) Monatsabschluss: bis einschliesslich Exporttag des Vormonats geht es um den Vormonat (der wird abgeschlossen)
+    from app.services.export_termine import vormonat
+    monat = vormonat(today) if today <= exporttag(vormonat(today)) else today.strftime("%Y-%m")
     ex = exporttag(monat)
+    a0, a1 = _month_bounds(date.fromisoformat(f"{monat}-01"))
     aktive_ma = _q(db, f"""SELECT DISTINCT s.employee_id FROM schedules s JOIN employees e ON e.id = s.employee_id
                            WHERE s.date BETWEEN :a AND :b AND s.status IN ('normal','vertretung') AND NOT coalesce(e.is_test,false)
-                             AND coalesce(s.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})""", a=m0, b=m1)
+                             AND coalesce(s.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})""", a=a0, b=a1)
     bestaetigt = _q(db, "SELECT count(*) AS n FROM monthly_confirmations WHERE year = :y AND month = :m AND status = 'confirmed'",
-                    y=today.year, m=today.month)[0]["n"]
+                    y=a0.year, m=a0.month)[0]["n"]
     te_mon = """FROM time_entries t JOIN employees e ON e.id = t.employee_id
                 WHERE NOT coalesce(e.is_test,false) AND (t.check_in::date BETWEEN :a AND :b OR t.check_out::date BETWEEN :a AND :b)"""
-    p_gvk = _q(db, f"SELECT count(*) AS n {te_mon} AND t.check_out < t.check_in", a=m0, b=m1)[0]["n"]
-    p_neg = _q(db, f"SELECT count(*) AS n {te_mon} AND t.billed_hours < 0", a=m0, b=m1)[0]["n"]
-    p_ohne = _q(db, f"SELECT count(*) AS n {te_mon} AND t.check_out IS NULL AND t.check_in < now() - interval '14 hours'", a=m0, b=m1)[0]["n"]
+    p_gvk = _q(db, f"SELECT count(*) AS n {te_mon} AND t.check_out < t.check_in", a=a0, b=a1)[0]["n"]
+    p_neg = _q(db, f"SELECT count(*) AS n {te_mon} AND t.billed_hours < 0", a=a0, b=a1)[0]["n"]
+    p_ohne = _q(db, f"SELECT count(*) AS n {te_mon} AND t.check_out IS NULL AND t.check_in < now() - interval '14 hours'", a=a0, b=a1)[0]["n"]
     p_km = _q(db, """SELECT count(*) AS n FROM employee_object_assignments a JOIN employees e ON e.id = a.employee_id
                      WHERE coalesce(a.is_active,true) AND coalesce(a.is_driver,false) AND e.is_active AND NOT coalesce(e.is_test,false)
                        AND a.object_id NOT IN (19, 999)
                        AND NOT EXISTS (SELECT 1 FROM km_distances k WHERE k.employee_id = a.employee_id AND k.object_id = a.object_id)""")[0]["n"]
     p_nach = _q(db, "SELECT count(*) AS n FROM pending_bookings WHERE status = 'offen'")[0]["n"]
-    p_ohne_st = len(ohne_stempel(db, m0, m1))
+    p_ohne_st = len(ohne_stempel(db, a0, a1))
     pruef = [
-        {"key": "gehen_vor_kommen", "n": p_gvk, "link": "/cockpit/zeiten?pruef=gehen_vor_kommen"},
-        {"key": "negative_stunden", "n": p_neg, "link": "/cockpit/zeiten?pruef=negative_stunden"},
-        {"key": "ohne_gehen", "n": p_ohne, "link": "/cockpit/zeiten?pruef=ohne_gehen"},
-        {"key": "ohne_stempel", "n": p_ohne_st, "link": "/cockpit/zeiten?pruef=ohne_stempel"},
+        {"key": "gehen_vor_kommen", "n": p_gvk, "link": f"/cockpit/zeiten?pruef=gehen_vor_kommen&monat={monat}"},
+        {"key": "negative_stunden", "n": p_neg, "link": f"/cockpit/zeiten?pruef=negative_stunden&monat={monat}"},
+        {"key": "ohne_gehen", "n": p_ohne, "link": f"/cockpit/zeiten?pruef=ohne_gehen&monat={monat}"},
+        {"key": "ohne_stempel", "n": p_ohne_st, "link": f"/cockpit/zeiten?pruef=ohne_stempel&monat={monat}"},
         {"key": "km_fehlt", "n": p_km, "link": "/cockpit/objekte?pruef=km_fehlt"},
         {"key": "nachtraege", "n": p_nach, "link": "/cockpit#todo"},
     ]

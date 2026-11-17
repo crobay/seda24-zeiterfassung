@@ -267,7 +267,8 @@ function Woche({ woche, className }) {
 
 /* 3) Monatsabschluss */
 function Abschluss({ a, className }) {
-  const month = monthName();
+  // Monat aus dem Backend: bis zum Exporttag ist das der Vormonat
+  const month = a?.monat ? new Date(`${a.monat}-01T12:00`).toLocaleDateString('de-DE', { month: 'long' }) : monthName();
   const pct = a && a.ma_gesamt ? Math.round((a.ma_bestaetigt / a.ma_gesamt) * 100) : 0;
   return (
     <section className={`ck-card ${className}`} aria-labelledby="ab-h">

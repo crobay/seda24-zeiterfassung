@@ -213,3 +213,21 @@ def test_lohnfortzahlung_ist_kein_stempel(client, db):
     h = client.get("/api/v1/cockpit/heute", headers=ol_headers(db)).json()
     assert all(x["eintrag_id"] != tid for x in h["ohne_schicht"]) and all(x.get("eintrag_id") != tid for x in h["schichten"])
 
+
+def test_abschluss_karte_zeigt_vormonat_bis_exporttag(client, db, monkeypatch):
+    """Tiefentest: am 04.01. (Exporttag Dezember) zeigt die Leitstelle den Abschluss Dezember, am 05.01. den Januar."""
+    import app.api.v1.endpoints.cockpit as ck
+    from datetime import date as _date
+
+    class D(_date):
+        heute = _date(2027, 1, 4)
+
+        @classmethod
+        def today(cls):
+            return cls.heute
+    monkeypatch.setattr(ck, "date", D)
+    assert client.get("/api/v1/cockpit/leitstelle", headers=ol_headers(db)).json()["abschluss"]["monat"] == "2026-12"
+    D.heute = _date(2027, 1, 5)
+    a = client.get("/api/v1/cockpit/leitstelle", headers=ol_headers(db)).json()["abschluss"]
+    assert a["monat"] == "2027-01" and a["pruefpunkte"][0]["link"].endswith("&monat=2027-01")
+
