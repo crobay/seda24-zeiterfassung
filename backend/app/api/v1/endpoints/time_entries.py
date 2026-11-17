@@ -1,3 +1,4 @@
+from fastapi.encoders import jsonable_encoder
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from datetime import time
 from sqlalchemy.orm import Session
@@ -784,7 +785,8 @@ def check_out(
                 TimeEntry.check_out != None
             ).order_by(TimeEntry.id.desc()).first()
             if last:
-                return last
+                # Bestaetigung fuer die Warteschlange: dieses Gehen ist (schon) verbucht
+                return {**jsonable_encoder(last), "client_id": client_id}
         raise HTTPException(status_code=400, detail="Kein aktiver Check-in gefunden!")
 
     # Mindestdauer-Pruefung fuer Bie2 (object_id=20)
@@ -947,6 +949,7 @@ def check_out(
         "service_type": active_entry.service_type,
         "hourly_rate": active_entry.hourly_rate,
         "notes": active_entry.notes,
+        "client_id": client_id,  # Server-Bestaetigung fuer die Stempeluhr
     }
     if cap_message:
         response["cap_message"] = cap_message
