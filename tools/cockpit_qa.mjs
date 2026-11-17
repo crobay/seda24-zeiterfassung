@@ -296,14 +296,14 @@ async function aktionen(rolle, qa) {
   await sel('Mitarbeiter', qa.emp); await sel('Objekt', qa.obj);
   await feld('Datum', '2027-08-03'); await feld('Beginn', '08:00'); await feld('Ende', '10:00');
   await shot('dienstplan_anlegen');
-  await dlg().getByRole('button', { name: 'Speichern' }).click();
+  await dlg().getByRole('button', { name: 'Speichern', exact: true }).click();
   const angelegt = await pollDb(`SELECT count(*) FROM schedules WHERE employee_id = ${qa.emp} AND date = '2027-08-03'`, '1');
   ok('Dienstplan', `${R}: Schicht anlegen`, angelegt === '1' && await toastDa(page, 'angelegt'), fehlerText());
   leer();
   await page.locator('.ck-shift, [data-shift], .ck-dp-shift').filter({ hasText: 'QA' }).first().click()
     .catch(async () => { await page.getByText('QA-TEST Objekt').first().click(); });
   await dlg().waitFor();
-  await feld('Ende', '11:00'); await dlg().getByRole('button', { name: 'Speichern' }).click();
+  await feld('Ende', '11:00'); await dlg().getByRole('button', { name: 'Speichern', exact: true }).click();
   const geaendert = await pollDb(`SELECT to_char(end_time,'HH24:MI') FROM schedules WHERE employee_id = ${qa.emp} AND date = '2027-08-03'`, '11:00');
   await undoKlick(page);
   const zurueck = await pollDb(`SELECT to_char(end_time,'HH24:MI') FROM schedules WHERE employee_id = ${qa.emp} AND date = '2027-08-03'`, '10:00');
@@ -374,7 +374,7 @@ async function aktionen(rolle, qa) {
   const kmDa = await kmZeile.waitFor({ timeout: 6000 }).then(() => true, () => false);
   if (kmDa) {
     await kmZeile.getByRole('button').filter({ hasText: 'km' }).first().click();
-    await kmZeile.locator('input').fill('6,5'); await kmZeile.getByRole('button', { name: 'Speichern' }).click();
+    await kmZeile.locator('input').fill('6,5'); await kmZeile.getByRole('button', { name: 'Speichern', exact: true }).click();
     const neu = await pollDb(`SELECT distance_km::numeric(6,1)::text FROM km_distances WHERE employee_id = ${qa.emp} AND object_id = ${qa.obj}`, '6.5');
     await undoKlick(page);
     const alt = await pollDb(`SELECT distance_km::numeric(6,1)::text FROM km_distances WHERE employee_id = ${qa.emp} AND object_id = ${qa.obj}`, '4.5');
@@ -396,7 +396,7 @@ async function aktionen(rolle, qa) {
   await geh(page, `/cockpit/objekte/${qa.obj}`);
   await page.getByRole('button', { name: 'Bearbeiten' }).click();
   await page.locator('label.ck-field', { hasText: /^Name/ }).locator('input').first().fill(`${QA_OBJ} geändert`);
-  await page.getByRole('button', { name: 'Speichern' }).click();
+  await page.getByRole('button', { name: 'Speichern', exact: true }).click();
   const n1 = await pollDb(`SELECT name FROM objects WHERE id = ${qa.obj}`, `${QA_OBJ} geändert`);
   await undoKlick(page);
   const n2 = await pollDb(`SELECT name FROM objects WHERE id = ${qa.obj}`, QA_OBJ);
@@ -424,14 +424,14 @@ async function aktionen(rolle, qa) {
   await sel('Mitarbeiter', qa.emp); await sel('Objekt', qa.obj);
   await feld('Datum', gestern); await feld('Kommen', '07:00'); await feld('Gehen', '09:30');
   await shot('zeiten_nachtragen');
-  await dlg().getByRole('button', { name: 'Speichern' }).click();
+  await dlg().getByRole('button', { name: 'Speichern', exact: true }).click();
   const z1 = await pollDb(`SELECT count(*) FROM time_entries WHERE employee_id = ${qa.emp} AND check_in::date = '${gestern}'`, '1');
   ok('Zeiten', `${R}: Buchung nachtragen`, z1 === '1', `${z1}; ${fehlerText()}`);
   leer();
   await geh(page, '/cockpit/zeiten');
   await page.locator('tr, .ck-row, button').filter({ hasText: 'QA Cockpit-Test' }).filter({ hasText: '07:00' }).first().click();
   await dlg().waitFor();
-  await feld('Gehen', '10:00'); await dlg().getByRole('button', { name: 'Speichern' }).click();
+  await feld('Gehen', '10:00'); await dlg().getByRole('button', { name: 'Speichern', exact: true }).click();
   const g1 = await pollDb(`SELECT to_char(check_out,'HH24:MI') FROM time_entries WHERE employee_id = ${qa.emp} AND check_in::date = '${gestern}'`, '10:00');
   await undoKlick(page);
   const g2 = await pollDb(`SELECT to_char(check_out,'HH24:MI') FROM time_entries WHERE employee_id = ${qa.emp} AND check_in::date = '${gestern}'`, '09:30');
@@ -475,7 +475,7 @@ async function aktionen(rolle, qa) {
   const brandVorher = sql(`SELECT value FROM app_settings WHERE key = 'branding'`);
   await geh(page, '/cockpit/einstellungen?tab=brand');
   await page.locator('label', { hasText: 'Produkt' }).locator('input').fill('stampo24 QA');
-  await page.getByRole('button', { name: 'Speichern' }).click();
+  await page.getByRole('button', { name: 'Speichern', exact: true }).click();
   const b1 = await pollDb(`SELECT value::json->>'produkt' FROM app_settings WHERE key = 'branding'`, 'stampo24 QA');
   await undoKlick(page);
   const b2 = await pollDb(`SELECT value FROM app_settings WHERE key = 'branding'`, brandVorher);
