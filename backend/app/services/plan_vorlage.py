@@ -62,12 +62,18 @@ def vorlage(db, obj_ids=None):
 
 
 def soll(db, d0: date, d1: date, obj_ids=None):
-    """[(vorlage_row, datum)] fuer den Zeitraum. Sonntage D0002 ab 2027 legt die Sonntagsautomatik an."""
+    """[(vorlage_row, datum)] fuer den Zeitraum. Sonntage D0002 ab 2027 legt die Sonntagsautomatik an.
+    Gesetzliche Feiertage (BW) zaehlen nicht: dort wird aus der Vorlage nichts geplant und es entsteht keine Luecke
+    (Objekte zu, z. B. 25./26.12.). Wer an einem Feiertag arbeitet, wird von Hand eingeplant."""
     from app.services import sonntag_d0002 as so
+    from app.services.holidays_bw import is_feiertag_bw
     out = []
     rows = vorlage(db, obj_ids)
     d = d0
     while d <= d1:
+        if is_feiertag_bw(d):
+            d += timedelta(days=1)
+            continue
         for m in rows:
             if rhythmus_passt(m["rhythm"], m["month_week"], m["weekday"], d) and not so.applies(m["employee_id"], d):
                 out.append((m, d))
@@ -192,6 +198,16 @@ def wochen_status(db, mo: date, obj_ids=None):
 
 
 # ---------------------------------------------------------------- Fixum: Donnerstag 18:00 Entwurf aus der Vorlage
+
+def fixum_zurueckgenommen(db, kopie_id: str):
+    """Wird ein Fixum-Entwurf ueber 'Entwurf zuruecknehmen' entfernt, bleibt die Woche als bearbeitet markiert
+    (der Job legt sie nicht noch einmal an), zeigt aber keinen Rueckgaengig-Knopf mehr."""
+    fx = _fertig_map(db, FIXUM_KEY)
+    treffer = [k for k, v in fx.items() if v.get("kopie_id") == kopie_id]
+    for k in treffer:
+        fx[k] = {**fx[k], "zurueckgenommen": datetime.now().isoformat(timespec="minutes")}
+    if treffer:
+        db.execute(text("UPDATE app_settings SET value = :v, updated_at = now() WHERE key = :k"), {"k": FIXUM_KEY, "v": json.dumps(fx)})
 
 def fixum_entwurf(db, now=None):
     """Donnerstag 18:00: Folgewoche automatisch als Entwurf aus der Vorlage anlegen.

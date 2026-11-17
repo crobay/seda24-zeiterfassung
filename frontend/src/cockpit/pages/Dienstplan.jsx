@@ -498,8 +498,9 @@ function PlanStatus({ p, onFertig, onVorlage, onFixumWeg }) {
       {p.fertig ? <button className="ck-btn ck-btn-sm" onClick={() => onFertig(false)}><RotateCcw size={15} />{t('plan.reopen')}</button>
         : <button className="ck-btn ck-btn-sm ck-btn-primary" onClick={() => onFertig(true)}><CheckCircle2 size={15} />{t('plan.mark_done')}</button>}
       {p.fixum && <div className="ck-plan-fixum" data-fixum>
-        <CalendarPlus size={15} /><span>{t(p.fertig ? 'plan.fixum_info' : 'plan.fixum_draft', { n: p.fixum.angelegt, am: fmtDate(p.fixum.am.slice(0, 10), { weekday: 'short', day: '2-digit', month: '2-digit' }) + ' ' + p.fixum.am.slice(11, 16) })}</span>
-        {!p.fertig && p.fixum.kopie_id && p.fixum.angelegt > 0 && <button className="ck-btn ck-btn-sm ck-btn-ghost" onClick={() => onFixumWeg(p.fixum.kopie_id)}><Undo2 size={15} />{t('plan.fixum_undo')}</button>}
+        <CalendarPlus size={15} /><span>{p.fixum.zurueckgenommen ? t('plan.fixum_undone', { am: fmtDate(p.fixum.zurueckgenommen.slice(0, 10), { weekday: 'short', day: '2-digit', month: '2-digit' }) + ' ' + p.fixum.zurueckgenommen.slice(11, 16) })
+          : t(p.fertig ? 'plan.fixum_info' : 'plan.fixum_draft', { n: p.fixum.angelegt, am: fmtDate(p.fixum.am.slice(0, 10), { weekday: 'short', day: '2-digit', month: '2-digit' }) + ' ' + p.fixum.am.slice(11, 16) })}</span>
+        {!p.fertig && !p.fixum.zurueckgenommen && p.fixum.kopie_id && p.fixum.angelegt > 0 && <button className="ck-btn ck-btn-sm ck-btn-ghost" onClick={() => onFixumWeg(p.fixum.kopie_id)}><Undo2 size={15} />{t('plan.fixum_undo')}</button>}
       </div>}
     </div>);
 }

@@ -65,6 +65,9 @@ def test_hochrechnung_warnt_vor_monatsende(db):
     from app.services import minijob as mj
     e = februar(db)
     r = [x for x in mj.hochrechnung(db, 2027, 2, JETZT) if x["employee_id"] == e][0]
+    ex(db, """INSERT INTO time_entries (employee_id, object_id, check_in, check_out, hourly_rate, service_type)
+              VALUES (:e, 999, '2027-02-26', '2027-02-26', -1, 'Urlaub')""", e=e)          # Urlaub "Satz offen" zaehlt 0, nicht -1
+    r = [x for x in mj.hochrechnung(db, 2027, 2, JETZT) if x["employee_id"] == e][0]
     assert r["ist"] == 232.5 and r["geplant"] == 558.0 and r["hochrechnung"] == 790.5
     assert r["grenze"] == 633 and r["stufe"] == "ueber" and r["quote"] == 125 and r["rest_stunden"] == 0
     # 5 geplante Schichten weniger -> 558 € = 88 % -> ok; +3 h und +2 h -> ueber; dann 604,50 € = 95 % -> Warnung (ab 90 %)

@@ -84,7 +84,7 @@ export default {
     done: '{n} Schichten aus der Vorlage angelegt, {l} offene Lücken', empty_template: 'Die Vorlage ist noch leer.', to_template: 'Zur Vorlage',
     unplanned: 'Woche noch nicht aus der Vorlage geplant ({n} Schichten in der Vorlage)',
     gap: 'Lücke', gap_title: 'Offene Lücke: {objekt} {zeit}', gap_reason: '{name}: {grund}', gaps_row: 'Offene Lücken',
-    fixum_draft: 'Entwurf: {n} Schichten automatisch aus der Vorlage ({am}). Bitte Lücken füllen und als fertig melden.', fixum_info: '{n} Schichten automatisch aus der Vorlage ({am})', fixum_undo: 'Entwurf zurücknehmen',
+    fixum_draft: 'Entwurf: {n} Schichten automatisch aus der Vorlage ({am}). Bitte Lücken füllen und als fertig melden.', fixum_info: '{n} Schichten automatisch aus der Vorlage ({am})', fixum_undo: 'Entwurf zurücknehmen', fixum_undone: 'Automatischer Entwurf zurückgenommen ({am}) – Woche bitte von Hand oder mit „Woche aus Vorlage“ planen',
     status_open: 'Plan offen', status_done: 'Plan fertig', mark_done: 'Als fertig melden', reopen: 'Wieder öffnen',
     marked_done: 'Woche als fertig gemeldet', reopened: 'Woche wieder geöffnet', due: 'Abgabe {date} 12:00',
     next_title: 'Plan nächste Woche', next_sub: '{von} – {bis}', n_gaps: '{n} offene Lücken', n_gaps_1: '1 offene Lücke', no_gaps: 'keine offenen Lücken',

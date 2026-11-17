@@ -196,6 +196,24 @@ def test_fixum_donnerstag_entwurf(client, db, monkeypatch):
     assert q(db, "SELECT count(*) FROM schedules WHERE date BETWEEN '2027-03-08' AND '2027-03-14' AND status = 'normal'")[0][0] == 3
     u = client.delete(f"{API}/dienstplan/kopie/{st['fixum']['kopie_id']}", headers=h).json()   # Entwurf ganz zuruecknehmen
     assert u["entfernt"] == 2
+    st = client.get(f"{API}/dienstplan?start=2027-03-08", headers=h).json()["plan"]
+    assert st["fixum"]["zurueckgenommen"]                                      # kein zweiter Rueckgaengig-Knopf
+    assert pv.fixum_entwurf(db, now=datetime(2027, 3, 4, 18, 30))["status"] == "bereits_erstellt"
+
+
+def test_feiertag_kein_soll_keine_luecke(client, db):
+    """Tiefentest: Vorlage/Fixum planen an Feiertagen (25./26.12.) nichts ein und melden dort keine Luecke."""
+    from app.services import plan_vorlage as pv
+    mo = date(2027, 12, 20)
+    leer(db, von=mo, bis=mo + timedelta(days=6))
+    ex(db, "DELETE FROM app_settings WHERE key IN ('dienstplan_fixum', 'dienstplan_fertig')")
+    h = ol_headers(db)
+    lara = emp(db, "D0040")
+    vl(client, h, lara, 3, "12:55", "15:55")                                  # Do 23.12. normal
+    vl(client, h, lara, 5, "09:00", "11:00")                                  # Sa 25.12. = 1. Weihnachtstag
+    assert [str(d) for _, d in pv.soll(db, mo, mo + timedelta(days=6))] == ["2027-12-23"]
+    r = pv.fixum_entwurf(db, now=datetime(2027, 12, 16, 18, 0))
+    assert r["angelegt"] == 1 and r["luecken"] == 0
 
 
 def test_fixum_nicht_wenn_fertig(client, db):

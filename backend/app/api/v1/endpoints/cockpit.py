@@ -847,6 +847,8 @@ def kopie_rueckgaengig(kopie_id: str, db: Session = Depends(get_db), user=Depend
         log_audit(db, user.id, r[0]["employee_id"], "schedule_deleted", entity_type="schedule", entity_id=sid,
                   details=f"Kopieren rueckgaengig [Kopie {kopie_id}]: Schicht {r[0]['date'].strftime('%d.%m.%Y')} entfernt")
         weg += 1
+    from app.services import plan_vorlage as _pv
+    _pv.fixum_zurueckgenommen(db, kopie_id)
     db.commit()
     return {"entfernt": weg, "behalten_gestempelt": len(gestempelt)}
 

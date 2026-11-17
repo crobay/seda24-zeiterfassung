@@ -6,11 +6,12 @@ import { KmEingabe } from './Objekte';
 import { LohnGrenzen, istAdmin } from './GfKarten';
 
 const UrlaubVerwaltungTab = lazy(() => import('../../pages/UrlaubVerwaltungTab'));
+const KrankmeldungTab = lazy(() => import('../../pages/KrankmeldungTab'));
 const MitarbeiterObjekteTab = lazy(() => import('../../pages/MitarbeiterObjekteTab'));
 const PushVerwaltungTab = lazy(() => import('../../pages/PushVerwaltungTab'));
 const AuditLogTab = lazy(() => import('../../pages/AuditLogTab'));
 const BRAND_KEYS = ['firma', 'produkt', 'logo_url', 'akzent', 'cta', 'cta_text', 'leiste', 'leiste_text', 'schrift_css', 'schrift_titel', 'schrift_text'];
-const TABS = ['brand', 'km', 'grenzen', 'urlaub', 'assign', 'telegram', 'audit'];
+const TABS = ['brand', 'km', 'grenzen', 'urlaub', 'krank', 'assign', 'telegram', 'audit'];
 
 export default function Einstellungen() {
   const { brand, setBrand, toast, me } = useApp();
@@ -89,6 +90,7 @@ export default function Einstellungen() {
         <section className="ck-card"><div className="ck-card-head"><h2>{t(`set.${tab}`)}</h2><span className="ck-tag">{t('app.classic')}</span></div>
           <div className="ck-embed"><Suspense fallback={<SkeletonRows n={6} />}>
             {tab === 'urlaub' && <UrlaubVerwaltungTab />}
+            {tab === 'krank' && <KrankEinbettung />}
             {tab === 'assign' && <MitarbeiterObjekteTab />}
             {tab === 'telegram' && <PushVerwaltungTab />}
             {tab === 'audit' && <AuditLogTab />}
@@ -123,4 +125,12 @@ function KmStrecken() {
           </li>))}</ul>)}
     </section>
   );
+}
+
+
+// Krankmeldungen erfassen/bestaetigen (klassische Ansicht, bisher nur im alten Admin-Dashboard erreichbar)
+function KrankEinbettung() {
+  const { data } = useApi('/auswahl');
+  if (!data) return <SkeletonRows n={4} />;
+  return <KrankmeldungTab employees={data.mitarbeiter} />;
 }

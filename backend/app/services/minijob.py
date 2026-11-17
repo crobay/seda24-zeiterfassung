@@ -86,7 +86,7 @@ def _std(s):
 def hochrechnung(db, jahr: int, monat: int, jetzt: datetime = None, employee_ids=None) -> list:
     """Je Minijobber: Ist (bis jetzt), noch geplant, Hochrechnung, Grenze, Quote, Stufe (ok/warnung/ueber),
     Reststunden bis zur Grenze; dazu Hinweis, wenn der Stundenlohn unter dem Mindestlohn des Monats liegt."""
-    from app.api.v1.endpoints.admin import _berechne_stunden_split, _urlaub_betrag
+    from app.api.v1.endpoints.admin import _berechne_stunden_split
     jetzt = jetzt or datetime.now()
     m0 = date(jahr, monat, 1)
     m1 = date(jahr, monat, monthrange(jahr, monat)[1])
@@ -102,7 +102,11 @@ def hochrechnung(db, jahr: int, monat: int, jetzt: datetime = None, employee_ids
     for e in emps:
         rate = float(e["hourly_rate"] or 0)
         sp = _berechne_stunden_split(db, e["id"], m0, m1)
-        ist = (sp["normal_hours"] + sp["feiertag_hours"]) * rate + sp["sonder_amount"] + _urlaub_betrag(db, e["id"], m0, m1)
+        # Urlaubsgeld: Tagessatz -1 = "Satz offen" (wird erst am Urlaubsbeginn bestimmt) -> bis dahin mit 0 zaehlen
+        urlaub = float(db.execute(text("""SELECT coalesce(sum(greatest(hourly_rate, 0)), 0) FROM time_entries
+                                         WHERE employee_id = :e AND service_type = 'Urlaub' AND check_in::date BETWEEN :a AND :b"""),
+                                  {"e": e["id"], "a": m0, "b": m1}).scalar())
+        ist = (sp["normal_hours"] + sp["feiertag_hours"]) * rate + sp["sonder_amount"] + urlaub
         # noch geplant: Schichten ab jetzt (heute nur, wenn noch nicht begonnen und nicht gestempelt)
         rest_h = 0.0
         for s in db.execute(text(f"""SELECT s.id, s.date, s.start_time, s.end_time, s.planned_hours FROM schedules s
