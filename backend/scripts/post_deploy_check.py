@@ -297,6 +297,8 @@ def dry_api_tests():
                         "client_timestamp": ts_in})
         check("KOMMEN doppelt gesendet -> kein zweiter Eintrag",
               r.status_code == 200 and r.json().get("id") == entry_id, f"HTTP {r.status_code}")
+        check("Server-Bestaetigung KOMMEN: client_id zurueck + Kennung X-Seda24",
+              r.status_code == 200 and r.json().get("client_id") == cid_in and r.headers.get("x-seda24") == "1")
 
         # (b) Gehen vergessen (offene Schicht) -> Antrag
         r = client.post(f"{T}/catch-up", headers=h, json={"object_id": 20, "catch_up_type": "gehen_vergessen",
@@ -315,6 +317,8 @@ def dry_api_tests():
               f"HTTP {r.status_code} billed={r.json().get('billed_hours') if r.status_code == 200 else r.text[:120]}")
         r = client.post(f"{T}/check-out", headers=h, json={"client_id": cid_out, "client_timestamp": ts_out})
         check("GEHEN doppelt gesendet -> kein Fehler", r.status_code == 200, f"HTTP {r.status_code}")
+        check("Server-Bestaetigung GEHEN (auch doppelt): client_id zurueck + Kennung X-Seda24",
+              r.status_code == 200 and r.json().get("client_id") == cid_out and r.headers.get("x-seda24") == "1")
 
         # (f) Toleranz 10 Min (Schicht 13:00-16:00): Kommen 12:55 zaehlt ab 13:00, Gehen 16:10 bis 16:00,
         #     Gehen 16:25 bis 16:00 + 25 Min Mehrzeit-Antrag
