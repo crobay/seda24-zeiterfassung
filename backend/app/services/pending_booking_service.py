@@ -281,6 +281,10 @@ def approve_pending_booking_core(db, booking_id: int, data: dict, approver_user_
                     f"Deine Zeitkorrektur vom {pb.date.strftime('%d.%m.%Y')} wurde übernommen:\n"
                     f"Objekt: {obj_label}\n"
                     f"{start_time}–{end_time}, {approved_hours} Std.")
+            elif related_id and getattr(pb, 'reason', None) == 'mehrzeit_dienstplan':
+                std = f"{approved_hours:.2f}".replace(".", ",")
+                send_message_sync(int(emp.telegram_chat_id),
+                    f"Deine Mehrzeit vom {pb.date.strftime('%d.%m.%Y')} ({obj_label}) wurde genehmigt: {std} Std.")
             else:
                 send_message_sync(int(emp.telegram_chat_id),
                     f"Deine nachgetragene Zeit vom {pb.date.strftime('%d.%m.%Y')} wurde eingetragen:\n"

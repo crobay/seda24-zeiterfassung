@@ -2,6 +2,7 @@
 APScheduler-Integration fuer SEDA24 V3.0
 Verwaltet alle periodischen Jobs: Push-Trigger, Erinnerungen, KM-Bereinigung, Kat-A-Buchung.
 """
+import html
 import logging
 from datetime import datetime, timedelta, date, time
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -1047,17 +1048,15 @@ def check_overdue_entries():
                 db.add(pn_admin)
 
                 # --- MA-Benachrichtigung ---
-                ma_msg = (f"Hallo {employee.first_name if employee else ''}, du bist seit "
-                          f"{entry.check_in.strftime('%H:%M')} eingestempelt, "
-                          f"deine Schicht war bis {scheduled_end.strftime('%H:%M')} geplant. "
-                          f"Falls du schon gegangen bist: kurz die App oeffnen, "
-                          f"dann wird deine Zeit uebertragen. https://app.seda.de")
+                obj = db.query(Object).get(entry.object_id) if entry.object_id else None
+                ma_msg = gehen_fehlt_text(obj.name if obj else entry.custom_object_name,
+                                          entry.check_in.date(), now.date())
                 pn_status_ma = 'no_chat_id'
                 pn_error_ma = None
                 if employee and getattr(employee, 'telegram_chat_id', None):
                     try:
                         from app.services.telegram_bot import send_message_sync
-                        send_message_sync(employee.telegram_chat_id, ma_msg)
+                        send_message_sync(employee.telegram_chat_id, ma_msg, app_oeffnen_knopf())
                         pn_status_ma = 'sent'
                     except Exception as tg_err:
                         pn_status_ma = 'failed'
@@ -1088,6 +1087,34 @@ def check_overdue_entries():
         db.rollback()
     finally:
         db.close()
+
+
+# ========== Mitarbeiter-Texte bei fehlendem Kommen/Gehen ==========
+# Klare Nachricht ohne Rueckfrage, dazu genau ein Link-Knopf in die App (keine Frage ohne Knopf).
+APP_URL = "https://app.seda.de"
+
+
+def app_oeffnen_knopf():
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    return InlineKeyboardMarkup([[InlineKeyboardButton("App öffnen", url=APP_URL)]])
+
+
+def _objekt(name):
+    return html.escape(name or "deinem Objekt")  # Versand mit parse_mode HTML
+
+
+def kommen_fehlt_text(object_name):
+    """MA-Meldung 30 Min nach Schichtbeginn ohne Kommen."""
+    return (f"Du hast heute bei {_objekt(object_name)} noch kein Kommen gestempelt. "
+            f"Bitte jetzt in der App auf KOMMEN tippen.")
+
+
+def gehen_fehlt_text(object_name, tag, heute):
+    """MA-Meldung 60 Min nach Schichtende mit offenem Eintrag."""
+    wann = "heute" if tag == heute else f"am {tag.strftime('%d.%m.')}"
+    return (f"Du hast {wann} bei {_objekt(object_name)} noch kein Gehen gestempelt. "
+            f"Bitte jetzt in der App auf GEHEN tippen. Schon weg? Dann in der App unter "
+            f"Nachtrag ‚Gehen vergessen‘ mit deiner Uhrzeit eintragen.")
 
 
 def missing_stamp_admin_text(name, personal_nr, von, bis, object_name):
@@ -1159,17 +1186,13 @@ def check_missing_stamps():
         """), {"today": today, "now_ts": now}).fetchall()
 
         for row in ma_rows:
-            von = row.start_time.strftime('%H:%M') if row.start_time else '?'
-            msg_body = (f"Hallo {row.first_name}, laut Plan hast du heute um {von} "
-                        f"bei {row.object_name} angefangen - bei uns ist aber noch kein "
-                        f"Kommen angekommen. Falls du schon da bist: kurz die App "
-                        f"oeffnen und stempeln. https://app.seda.de")
+            msg_body = kommen_fehlt_text(row.object_name)
             pn_status = 'no_chat_id'
             pn_error = None
             if getattr(row, 'telegram_chat_id', None):
                 try:
                     from app.services.telegram_bot import send_message_sync
-                    send_message_sync(row.telegram_chat_id, msg_body)
+                    send_message_sync(row.telegram_chat_id, msg_body, app_oeffnen_knopf())
                     pn_status = 'sent'
                 except Exception as tg_err:
                     logger.error(f"check_missing_stamps: MA-Telegram-Fehler: {tg_err}")
