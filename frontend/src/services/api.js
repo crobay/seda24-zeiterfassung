@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { API_URL } from '../config.js';
+import { installiereServerPruefung } from './stempelStatus';
 
 // Axios-Instanz mit Basis-Config
 const api = axios.create({
@@ -8,6 +9,9 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// Nur Antworten unseres Servers zaehlen (Gast-WLAN mit Anmeldeseite = kein Netz)
+installiereServerPruefung(api, API_URL);
 
 // Token automatisch mitsenden (localStorage oder sessionStorage)
 api.interceptors.request.use(
