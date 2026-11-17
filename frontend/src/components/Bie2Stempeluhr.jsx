@@ -154,6 +154,8 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   const [pendingSync, setPendingSync] = useState(getPendingCount());
   const [syncMessage, setSyncMessage] = useState(null);
   const syncingRef = useRef(false);
+  // Zaehlt jeden Stempel: Status-Antworten, die VOR dem letzten Stempel angefragt wurden, sind veraltet
+  const stempelSeqRef = useRef(0);
   const [letzterStempel, setLetzterStempel] = useState(getLetzterBestaetigt());
   // Echte Erreichbarkeit unseres Servers (nicht nur "WLAN verbunden"): null = unbekannt
   const [erreichbar, setErreichbar] = useState(null);
@@ -250,6 +252,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     for (const item of queue) {
       const r = await stempelSenden(item, headers, SYNC_TIMEOUT_MS);
       if (r.art === 'ok') {
+        stempelSeqRef.current++;
         markSynced(item.id);
         merkeBestaetigt(item);
         setLetzterStempel(getLetzterBestaetigt());
@@ -372,6 +375,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
 
   const performAction = async (action, objectId) => {
     const item = neuerStempel(action, objectId);
+    stempelSeqRef.current++;
 
     // Checkout-Daten VOR allem anderen sichern (State könnte danach weg sein)
     const wasCheckout = action === 'check_out';
@@ -484,8 +488,11 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   };
 
   const checkStatus = async (context) => {
+    const seq = stempelSeqRef.current;
     try {
       const res = await axios.get(`${API_URL}/time-entries/current`, { headers });
+      // Inzwischen gestempelt: diese Antwort ist veraltet (die Abfrage nach dem Stempel folgt)
+      if (seq !== stempelSeqRef.current) return;
       const data = res.data;
       console.log('[checkStatus]', context || 'init', 'is_working:', data?.is_working, 'today_entries:', data?.today_entries?.length);
       // Warteschlange zuerst: steht ein Kommen/Gehen noch aus, gilt der Stand auf dem Handy, bis er
