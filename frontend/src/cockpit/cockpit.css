@@ -285,7 +285,7 @@
 .ck-day-head { font-weight: 650; font-size: 14px; padding: 4px 6px 8px; display: flex; justify-content: space-between; }
 .ck-day.is-today { outline: 2px solid var(--ck-accent); }
 .ck-shift { padding: 8px 10px; border-radius: var(--ck-r-sm); background: var(--ck-surface-2); border: 1px solid var(--ck-border); margin-bottom: 6px; font-size: 14px; }
-.ck-shift b { display: block; font-weight: 600; }
+.ck-shift b { display: block; font-weight: 600; overflow-wrap: anywhere; }   /* lange Namen umbrechen statt unter den Pfeil-Knopf laufen */
 
 /* Klassische Ansicht bleibt hell: auch im Dunkel-Modus helle Formularfelder (sonst dunkle Felder auf weissem Grund) */
 .ck-embed { padding: var(--ck-s4); background: #fff; color: #111; border-radius: 0 0 var(--ck-r-lg) var(--ck-r-lg); overflow-x: auto; color-scheme: light; }
