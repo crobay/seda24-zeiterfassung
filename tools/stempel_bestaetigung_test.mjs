@@ -126,6 +126,62 @@ try {
     ok(`${knopf}: ✓ "${name} ${hm}" direkt`, da && (await queue()).length === 0 && db.startsWith(hm), `${((Date.now() - t0) / 1000).toFixed(1)} s, DB ${db}`);
     if (knopf === 'GEHEN') { await zumStatus(); await shot('iphone_uebertragen_online'); }
   }
+
+  // Laras Ablauf: Kommen online, dann Gast-WLAN mit Anmeldeseite (JEDE Anfrage liefert HTML), Gehen,
+  // Historie, Neu laden im Portal, spaeter mit Netz oeffnen
+  console.log('Fall 9: Laras Ablauf - Gast-WLAN mit Anmeldeseite');
+  await page.getByRole('button', { name: 'KOMMEN', exact: true }).click();
+  await page.locator('[data-stempel-status="ok"]').filter({ hasText: 'Kommen' }).waitFor();
+  await page.getByRole('button', { name: 'Historie' }).click();                     // online: Historie wird gespeichert
+  await page.getByText('Arbeitshistorie').waitFor();
+  await page.getByRole('button', { name: 'Stempel' }).click();
+  await page.getByRole('button', { name: 'GEHEN', exact: true }).waitFor();
+  await page.route('**/api/v1/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: PORTAL_HTML }));
+  const kein = await page.getByText('Kein Internet').waitFor({ timeout: 15000 }).then(() => true, () => false);
+  ok('Anzeige "Kein Internet" trotz WLAN (echte Erreichbarkeit)', kein);
+  const t0 = Date.now();
+  await page.getByRole('button', { name: 'GEHEN', exact: true }).click();
+  const hmGehen = hhmmss(new Date(t0)).slice(0, 5);
+  const sofort = await page.locator('[data-stempel-status="wartet"]').filter({ hasText: `Gehen ${hmGehen} gespeichert – wird übertragen` })
+    .waitFor({ timeout: 1500 }).then(() => true, () => false);
+  ok(`sofort "⏳ Gehen ${hmGehen} gespeichert – wird übertragen"`, sofort, `${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  ok('Zähler gestoppt (keine laufende Arbeitszeit)', !(await page.getByText('Arbeitszeit läuft').isVisible()));
+  await zumStatus(); await shot('iphone_gastwlan_gehen_gespeichert');
+  await page.getByRole('button', { name: 'Historie' }).click();
+  const stand = await page.locator('[data-historie-stand]').waitFor({ timeout: 12000 }).then(() => true, () => false);
+  ok('Historie ohne Netz: "Stand von HH:MM"', stand, stand ? await page.locator('[data-historie-stand]').innerText() : '');
+  ok('Historie: ausstehendes Gehen mit ⏳', await page.locator('[data-historie-ausstehend]').filter({ hasText: `Gehen ${hmGehen}` }).isVisible());
+  await page.screenshot({ path: path.join(OUT, '15_iphone_historie_ohne_netz.png') });
+  await page.getByRole('button', { name: 'Stempel' }).click();
+  await page.reload();
+  await page.locator('[data-stempel-status="wartet"]').waitFor();
+  ok('Neu laden im Portal: weiter ⏳, nicht eingestempelt', await page.getByRole('button', { name: 'KOMMEN', exact: true }).isVisible()
+     && !(await page.getByText('Arbeitszeit läuft').isVisible()));
+  ok('Gehen noch nicht in der DB', !(eintraege().pop() || '').split('|')[2]);
+  // Spaeter mit Netz oeffnen: erst Warteschlange, dann Server-Stand
+  await page.unroute('**/api/v1/**');
+  await page.reload();
+  const toastDa = await page.locator('[data-toast]').filter({ hasText: `Gehen ${hmGehen} übertragen` }).waitFor({ timeout: 15000 }).then(() => true, () => false);
+  ok(`Toast "Gehen ${hmGehen} übertragen"`, toastDa);
+  await page.screenshot({ path: path.join(OUT, '15_iphone_toast_uebertragen.png') });
+  ok(`✓ "Gehen ${hmGehen} übertragen"`, await page.locator('[data-stempel-status="ok"]').filter({ hasText: `Gehen ${hmGehen} übertragen` }).isVisible());
+  ok('Zähler läuft nicht wieder an', !(await page.getByText('Arbeitszeit läuft').isVisible()) && (await queue()).length === 0);
+  const g = (eintraege().pop() || '').split('|')[2] || '';
+  ok('Gehen in der DB mit getippter Zeit', g.startsWith(hmGehen), `DB ${g}`);
+  await zumStatus(); await shot('iphone_spaeter_uebertragen');
+
+  // Eingestempelt (vom Server bestaetigt), dann Gast-WLAN + Neu laden: bleibt "eingestempelt"
+  console.log('Fall 10: eingestempelt, Gast-WLAN, Neu laden');
+  await page.getByRole('button', { name: 'KOMMEN', exact: true }).click();
+  await page.locator('[data-stempel-status="ok"]').filter({ hasText: 'Kommen' }).waitFor();
+  await page.route('**/api/v1/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: PORTAL_HTML }));
+  await page.reload();
+  const laeuft = await page.getByText('Arbeitszeit läuft').waitFor({ timeout: 15000 }).then(() => true, () => false);
+  ok('nach Neu laden im Portal weiter eingestempelt (GEHEN-Knopf, Zähler)', laeuft && await page.getByRole('button', { name: 'GEHEN', exact: true }).isVisible());
+  await page.unroute('**/api/v1/**');
+  await page.reload();
+  await page.getByRole('button', { name: 'GEHEN', exact: true }).click();
+  ok('danach GEHEN online: ✓', await page.locator('[data-stempel-status="ok"]').filter({ hasText: 'Gehen' }).waitFor({ timeout: 8000 }).then(() => true, () => false));
 } finally {
   const neu = sql(`SELECT string_agg(id::text, ',') FROM time_entries WHERE employee_id = ${EMP} AND id > ${START_IDS}`);
   if (neu) {
