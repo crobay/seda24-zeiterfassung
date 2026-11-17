@@ -3,18 +3,20 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Palette, Building2, Car, Search } from 'lucide-react';
 import { api, apiError, t, useApi, useApp, SkeletonRows, Empty, Status, brandStyle, contrast } from '../core';
 import { KmEingabe } from './Objekte';
+import { LohnGrenzen, istAdmin } from './GfKarten';
 
 const UrlaubVerwaltungTab = lazy(() => import('../../pages/UrlaubVerwaltungTab'));
 const MitarbeiterObjekteTab = lazy(() => import('../../pages/MitarbeiterObjekteTab'));
 const PushVerwaltungTab = lazy(() => import('../../pages/PushVerwaltungTab'));
 const AuditLogTab = lazy(() => import('../../pages/AuditLogTab'));
 const BRAND_KEYS = ['firma', 'produkt', 'logo_url', 'akzent', 'cta', 'cta_text', 'leiste', 'leiste_text', 'schrift_css', 'schrift_titel', 'schrift_text'];
-const TABS = ['brand', 'km', 'urlaub', 'assign', 'telegram', 'audit'];
+const TABS = ['brand', 'km', 'grenzen', 'urlaub', 'assign', 'telegram', 'audit'];
 
 export default function Einstellungen() {
-  const { brand, setBrand, toast } = useApp();
+  const { brand, setBrand, toast, me } = useApp();
   const [params, setParams] = useSearchParams();
-  const tab = TABS.includes(params.get('tab')) ? params.get('tab') : 'brand';
+  const tabs = TABS.filter((k) => k !== 'grenzen' || istAdmin(me));   // Lohn-Grenzen nur Admin
+  const tab = tabs.includes(params.get('tab')) ? params.get('tab') : 'brand';
   const setTab = (k) => setParams({ tab: k }, { replace: true });
   const [f, setF] = useState(brand || {});
   const [busy, setBusy] = useState(false);
@@ -42,7 +44,7 @@ export default function Einstellungen() {
     <>
       <div className="ck-page-head">
         <div><h1>{t('set.title')}</h1><p>{t('set.subtitle')}</p></div>
-        <div className="ck-seg" style={{ flexWrap: 'wrap' }}>{TABS.map((k) => <button key={k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{t(`set.${k}`)}</button>)}</div>
+        <div className="ck-seg" style={{ flexWrap: 'wrap' }}>{tabs.map((k) => <button key={k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{t(`set.${k}`)}</button>)}</div>
       </div>
       {tab === 'brand' ? (
         <div className="ck-two">
@@ -83,7 +85,7 @@ export default function Einstellungen() {
             </div>
           </section>
         </div>
-      ) : tab === 'km' ? <KmStrecken /> : (
+      ) : tab === 'km' ? <KmStrecken /> : tab === 'grenzen' ? <LohnGrenzen /> : (
         <section className="ck-card"><div className="ck-card-head"><h2>{t(`set.${tab}`)}</h2><span className="ck-tag">{t('app.classic')}</span></div>
           <div className="ck-embed"><Suspense fallback={<SkeletonRows n={6} />}>
             {tab === 'urlaub' && <UrlaubVerwaltungTab />}

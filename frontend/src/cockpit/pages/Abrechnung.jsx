@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Download, FileText, Timer, Car, Wallet, Cale
 import axios from 'axios';
 import { API_URL } from '../../config';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Skeleton, Empty, ErrorBox } from '../core';
+import { MargeTabelle, istAdmin } from './GfKarten';
 
 const LohnUebersichtTab = lazy(() => import('../../pages/LohnUebersichtTab'));
 const AbrechnungenTab = lazy(() => import('../../pages/AbrechnungenTab'));
@@ -21,13 +22,13 @@ async function download(url, name, opts = {}) {
 export default function Abrechnung() {
   const { me, toast } = useApp();
   const [ym, setYm] = useState(vormonat);
-  const [tab, setTab] = useState('neu');
+  const [tab, setTab] = useState(() => (new URLSearchParams(window.location.search).get('tab') === 'marge' ? 'marge' : 'neu'));
   const [sort, setSort] = useState({ k: 'name', dir: 1 });
   const [busy, setBusy] = useState('');
   const { data, loading, error, reload } = useApi(`/abrechnung?year=${ym.y}&month=${ym.m}`);
   const label = new Date(ym.y, ym.m - 1, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
   const step = (n) => setYm(({ y, m }) => { const d = new Date(y, m - 1 + n, 1); return { y: d.getFullYear(), m: d.getMonth() + 1 }; });
-  const tabs = ['neu', 'lohn', 'pdf', ...(me?.rechte?.kunden_umsaetze ? ['umsatz'] : [])];
+  const tabs = ['neu', 'lohn', 'pdf', ...(me?.rechte?.kunden_umsaetze ? ['umsatz'] : []), ...(istAdmin(me) ? ['marge'] : [])];   // Objekt-Marge nur Admin
   const rows = useMemo(() => [...(data?.zeilen || [])].sort((a, b) => {
     const x = a[sort.k] ?? '', y = b[sort.k] ?? ''; return (x > y ? 1 : x < y ? -1 : 0) * sort.dir; }), [data, sort]);
   const offenePruef = rows.reduce((a, r) => a + (r.pruefpunkte || 0), 0);
@@ -58,7 +59,7 @@ export default function Abrechnung() {
         <div className="ck-seg" style={{ flexWrap: 'wrap' }}>{tabs.map((k) => <button key={k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{t(`abr.${k}`)}</button>)}</div>
       </div>
 
-      {tab !== 'neu' ? (
+      {tab === 'marge' && istAdmin(me) ? <MargeTabelle /> : tab !== 'neu' ? (
         <section className="ck-card"><div className="ck-card-head"><h2>{t(`abr.${tab}`)}</h2><span className="ck-tag">{t('app.classic')}</span></div>
           <div className="ck-embed"><Suspense fallback={<SkeletonRows n={6} />}>
             {tab === 'lohn' ? <LohnUebersichtTab /> : tab === 'umsatz' && me?.rechte?.kunden_umsaetze ? <KundenUmsaetzeTab showToast={(m) => toast(m)} /> : <AbrechnungenTab />}
