@@ -1216,6 +1216,8 @@ def get_current_status(
             "check_out": te.check_out.strftime("%H:%M"),
             "duration_minutes": round(dur),
             "object_name": obj.name if obj else "Unbekannt",
+            "object_id": te.object_id,
+            "billed_hours": te.billed_hours,  # gezaehlte Stunden fuer "Schicht erledigt" in der Stempeluhr
         })
 
     return {"is_working": False, "today_entries": today_list}

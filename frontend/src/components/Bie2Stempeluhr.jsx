@@ -114,6 +114,28 @@ function getLetzterBestaetigt() {
   } catch { return null; }
 }
 
+// ==================== Heute erledigt (Ein-Knopf-Ablauf) ====================
+// Kommen/Gehen-Paare von heute, wie das Handy sie kennt (auch noch nicht uebertragene) - fuer
+// "Schicht erledigt" ohne Netz. Je Benutzer und Tag.
+const heuteKey = () => `bie2_heute_${currentOwner()}_${new Date().toDateString()}`;
+
+function getHeute() {
+  try { return JSON.parse(localStorage.getItem(heuteKey()) || '[]'); }
+  catch { return []; }
+}
+
+function merkeHeute(kommenIso, gehenIso, objectId, wartet) {
+  const h = getHeute().filter(e => e.gehen !== gehenIso);
+  h.push({ kommen: kommenIso, gehen: gehenIso, object_id: objectId, wartet });
+  localStorage.setItem(heuteKey(), JSON.stringify(h));
+}
+
+function heuteUebertragen(gehenIso) {
+  localStorage.setItem(heuteKey(), JSON.stringify(getHeute().map(e => (e.gehen === gehenIso ? { ...e, wartet: false } : e))));
+}
+
+const NAECHSTE_KEY = 'bie2_naechste_schichten';
+
 // Offline-State: Optimistischer lokaler Zustand für sofortige UI-Updates
 function getOfflineState() {
   try { return JSON.parse(localStorage.getItem(STATE_KEY) || 'null'); }
@@ -124,6 +146,28 @@ function saveOfflineState(state) {
   if (state) localStorage.setItem(STATE_KEY, JSON.stringify(state));
   else localStorage.removeItem(STATE_KEY);
 }
+
+// ==================== Ein-Knopf-Ablauf: Stile ====================
+// Grosse Schrift, Daumen-Zone, farbenblind-sicher: Symbol + Wort + Rahmen (durchgezogen = fertig, gestrichelt = wartet)
+const EK = {
+  kopf: { textAlign: 'center', marginBottom: '14px' },
+  objekt: { fontSize: '26px', fontWeight: 800, color: '#111827', lineHeight: 1.2 },
+  schichtzeit: { fontSize: '22px', fontWeight: 600, color: '#374151', marginTop: '4px' },
+  knopf: {
+    width: '100%', border: 'none', borderRadius: '24px', color: 'white', fontWeight: 900, letterSpacing: '1px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', cursor: 'pointer',
+    boxShadow: '0 6px 16px rgba(0,0,0,0.25)', marginTop: '6px',
+  },
+  riesig: { minHeight: 'max(260px, 42vh)', fontSize: '42px' },
+  karte: { borderRadius: '18px', padding: '18px', marginBottom: '14px', display: 'flex', flexDirection: 'column', gap: '8px' },
+  titel: { fontSize: '26px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '10px' },
+  zeile: { fontSize: '20px', fontWeight: 700 },
+  klein: { fontSize: '16px', color: 'inherit' },
+  ok: { border: '4px solid #166534', background: '#f0fdf4', color: '#14532d' },
+  wartet: { border: '4px dashed #1d4ed8', background: '#eff6ff', color: '#1e3a8a' },
+  status: { marginTop: '14px', padding: '12px 14px', borderRadius: '14px' },
+  statusZeile: { fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' },
+};
 
 // ==================== Komponente ====================
 
@@ -160,6 +204,12 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   // Echte Erreichbarkeit unseres Servers (nicht nur "WLAN verbunden"): null = unbekannt
   const [erreichbar, setErreichbar] = useState(null);
   const [toast, setToast] = useState(null);
+  // Kurze Bestaetigung nach Kommen ({art: 'ok'|'wartet', text}); solange kein zweiter Knopf (kein Vertippen)
+  const [quittung, setQuittung] = useState(null);
+  const [heuteVersion, setHeuteVersion] = useState(0); // neu rendern, wenn sich "heute erledigt" aendert
+  const [naechste, setNaechste] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(NAECHSTE_KEY) || '[]'); } catch { return []; }
+  });
 
   // Netz-Erkennung: kommt der Request aus dem Objektnetz (Lidl-WLAN) oder Mobilfunk?
   const [netStatus, setNetStatus] = useState(null); // { at_object, client_ip, object_name }
@@ -258,6 +308,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         setLetzterStempel(getLetzterBestaetigt());
         setErreichbar(true);
         if (item.action === 'check_in' || item.action === 'check_out') uebertragen.push(item);
+        if (item.action === 'check_out') { heuteUebertragen(item.timestamp); setHeuteVersion(v => v + 1); }
       } else if (r.art === 'abgemeldet') {
         // Token abgelaufen → Queue NICHT löschen, User zum Re-Login auffordern
         syncingRef.current = false;
@@ -399,6 +450,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       if (wasCheckout) {
         const entry = buildLocalEntry();
         if (entry) setPendingEntries(prev => [...prev, entry]);
+        if (savedCheckIn) { merkeHeute(savedCheckIn.toISOString(), item.timestamp, savedObjectId, true); setHeuteVersion(v => v + 1); }
       }
       applyOptimisticState(action, objectId);
       addToQueue(item);
@@ -437,6 +489,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       }
       // Erfolg: State zuruecksetzen, Server-Status holen (liefert bestaetigte today_entries)
       if (wasCheckout) {
+        if (savedCheckIn) { merkeHeute(savedCheckIn.toISOString(), item.timestamp, savedObjectId, false); setHeuteVersion(v => v + 1); }
         saveOfflineState(null);
         setIsWorking(false);
         setCheckInTime(null);
@@ -465,6 +518,16 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   };
 
   // ==================== Data Loading ====================
+
+  const ladeNaechste = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/time-entries/my-upcoming-shifts`, { headers, timeout: 8000 });
+      if (Array.isArray(res.data)) {
+        setNaechste(res.data);
+        localStorage.setItem(NAECHSTE_KEY, JSON.stringify(res.data));
+      }
+    } catch { /* ohne Netz: zuletzt geladene bleiben */ }
+  };
 
   const loadCObjects = async () => {
     try {
@@ -612,6 +675,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       // noch nicht gesendetes Kommen/Gehen nie ueberschreiben - siehe auch checkStatus)
       if (navigator.onLine && getPendingCount() > 0) await triggerSync();
       await checkStatus();
+      ladeNaechste();
       await loadMyCatchups();
       setLoading(false);
     };
@@ -644,13 +708,22 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
 
   // ==================== Button Handlers ====================
 
-  const handleCheckIn = async () => {
-    if (!selectedObject) { setError('Bitte Objekt auswählen'); return; }
+  const vibriere = (muster) => { try { if (navigator.vibrate) navigator.vibrate(muster); } catch { /* iOS: keine Vibration */ } };
+
+  const handleCheckIn = async (objektId) => {
+    const obj = (typeof objektId === 'number') ? objektId : selectedObject;
+    if (!obj) { setError('Bitte Objekt auswählen'); return; }
     if (actionLoading || isWorking) return;
     setActionLoading(true);
     setError(null);
     try {
-      await performAction('check_in', selectedObject);
+      if (obj !== selectedObject) setSelectedObject(obj);
+      await performAction('check_in', obj);
+      const wartet = getPendingCount() > 0;
+      const zeit = uhrzeit(new Date().toISOString());
+      setQuittung({ art: wartet ? 'wartet' : 'ok', text: wartet ? `Kommen ${zeit} gespeichert` : `Angekommen – Kommen ${zeit}` });
+      vibriere(wartet ? [40, 60, 40] : 80);
+      setTimeout(() => setQuittung(null), 3000);
     } catch (e) {
       setError(e.response?.data?.detail || 'Fehler beim Einstempeln');
     }
@@ -666,6 +739,10 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     setMinDurationMsg(null);
     try {
       await performAction('check_out', currentObjectId);
+      vibriere(getPendingCount() > 0 ? [40, 60, 40] : 80);
+      // Ohne Dienstplan erscheint danach wieder KOMMEN: kurz sperren, damit ein Doppeltipp nicht sofort einstempelt
+      setQuittung({ art: 'gehen' });
+      setTimeout(() => setQuittung(null), 3000);
     } catch (e) {
       const detail = e.response?.data?.detail || '';
       if (e.response?.status === 422 && detail.includes('möglich zu gehen')) {
@@ -841,19 +918,81 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
 
   const currentObjectName = cObjects.find(o => o.id === (currentObjectId || selectedObject))?.name || '';
 
-  // KOMMEN ab 10 Min vor Schichtbeginn (Toleranz, gezaehlt wird ab Schichtbeginn), vorher ausgegraut + Hinweis.
-  // Ohne Dienstplan: aktiv.
-  void nowTick; // Re-Render-Trigger pro Sekunde
-  const _shiftStartObj = (shiftsToday || []).find(
-    s => s.object_id === (currentObjectId || selectedObject) && s.start_time
-  );
-  let beforeShiftStart = false, shiftStartHM = '';
-  if (_shiftStartObj && _shiftStartObj.start_time) {
-    const [sh, sm] = String(_shiftStartObj.start_time).split(':').map(Number);
-    const _startDt = new Date(); _startDt.setHours(sh, sm - KOMMEN_TOLERANZ_MIN, 0, 0);
-    beforeShiftStart = new Date() < _startDt;
-    shiftStartHM = `${String(_startDt.getHours()).padStart(2, '0')}:${String(_startDt.getMinutes()).padStart(2, '0')}`;
+  // ==================== Ein-Knopf-Ablauf: Zustand je Schicht ====================
+  // 1) vor Beginn-10: grau "Kommen ab HH:MM"  2) ab Beginn-10: nur KOMMEN  3) eingestempelt: Zaehler + nur GEHEN
+  // 4) nach Gehen: "Schicht erledigt" ohne Knopf bis zur naechsten Schicht. Ohne Dienstplan: KOMMEN/GEHEN wie bisher,
+  // aber nie beide gleichzeitig. Schicht vorbei ohne Kommen: "Zeit nachtragen" (ein KOMMEN wuerde 0 Std. zaehlen).
+  void nowTick; void heuteVersion; // Re-Render-Trigger
+  const jetzt = new Date();
+  const MIN = 60000;
+  const amTag = (hm) => { const [h, m] = String(hm).split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return d; };
+  const hm = (d) => d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const stdText = (min) => `${Math.floor(min / 60)}:${String(Math.round(min % 60)).padStart(2, '0')} Std.`;
+  const objName = (id) => cObjects.find(o => o.id === id)?.name || '';
+
+  const schichten = (shiftsToday || [])
+    .filter(s => s.start_time && s.end_time && s.has_c_assignment !== false
+      && ['normal', 'vertretung'].includes(s.schedule_status || 'normal'))
+    .map(s => {
+      const von = amTag(s.start_time); let bis = amTag(s.end_time);
+      if (bis <= von) bis = new Date(bis.getTime() + 24 * 60 * MIN); // ueber Mitternacht
+      return { ...s, von, bis, ab: new Date(von.getTime() - KOMMEN_TOLERANZ_MIN * MIN) };
+    })
+    .sort((x, y) => x.von - y.von);
+
+  // Heute erledigt: Server-Eintraege + was das Handy kennt (auch noch nicht uebertragen)
+  const serverHeute = (todayEntries || []).map(e => ({ kommen: amTag(e.check_in), gehen: amTag(e.check_out), wartet: false,
+    objectId: e.object_id, std: e.billed_hours }));
+  const erledigt = [
+    ...getHeute().map(e => {
+      const k = new Date(e.kommen);
+      const srv = serverHeute.find(x => hm(x.kommen) === hm(k));
+      return { kommen: k, gehen: new Date(e.gehen), wartet: srv ? false : e.wartet, objectId: e.object_id, std: srv ? srv.std : null };
+    }),
+    ...serverHeute.filter(x => !getHeute().some(e => hm(new Date(e.kommen)) === hm(x.kommen))),
+  ].sort((x, y) => x.gehen - y.gehen);
+  const zuSchicht = (s) => [...erledigt].reverse().find(e => e.kommen < s.bis && e.gehen > new Date(s.von.getTime() - KOMMEN_TOLERANZ_MIN * MIN));
+
+  let zustand = 'ohne_plan', schicht = null, fertig = null;
+  if (schichten.length > 0) {
+    const offen = schichten.filter(s => !zuSchicht(s));
+    const aktiv = offen.find(s => jetzt >= s.ab && jetzt < s.bis);
+    const verpasst = offen.filter(s => jetzt >= s.bis).pop();
+    const kommend = offen.find(s => jetzt < s.ab);
+    const zuletztErledigt = schichten.filter(s => zuSchicht(s)).pop();
+    if (aktiv) { zustand = 'kommen'; schicht = aktiv; }
+    else if (verpasst && (!zuletztErledigt || verpasst.bis > zuletztErledigt.bis)) { zustand = 'verpasst'; schicht = verpasst; }
+    else if (zuletztErledigt) { zustand = 'erledigt'; schicht = zuletztErledigt; fertig = zuSchicht(zuletztErledigt); }
+    else if (kommend) { zustand = 'warten'; schicht = kommend; }
+  } else if (erledigt.length > 0) {
+    fertig = erledigt[erledigt.length - 1];
   }
+  // Eingestempelt: zugehoerige Schicht fuer Objekt + Schichtzeit oben
+  const arbeitsSchicht = isWorking && checkInTime
+    ? schichten.find(s => checkInTime < s.bis && jetzt > new Date(s.von.getTime() - 60 * MIN)) || null : null;
+
+  // Naechste Schicht (klein): spaeter heute oder an einem der naechsten Tage
+  const heuteIso = new Date().toISOString().slice(0, 10);
+  const naechsteSchicht = (() => {
+    const spaeterHeute = schichten.find(s => s.von > jetzt && s !== schicht && !zuSchicht(s));
+    if (spaeterHeute) return { tag: 'heute', s: spaeterHeute };
+    const n = (naechste || []).filter(x => x.date > heuteIso && ['normal', 'vertretung'].includes(x.schedule_status || 'normal'))
+      .sort((x, y) => (x.date + x.start_time).localeCompare(y.date + y.start_time))[0];
+    if (!n) return null;
+    const d = new Date(n.date + 'T00:00:00');
+    const morgen = new Date(); morgen.setDate(morgen.getDate() + 1);
+    const tag = d.toDateString() === morgen.toDateString() ? 'morgen'
+      : d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+    return { tag, s: { start_time: n.start_time, end_time: n.end_time, object_name: n.object_name } };
+  })();
+
+  // Gezaehlte Zeit fuer "Schicht erledigt": innerhalb der Schicht; Stunden vom Server, sonst geschaetzt
+  const gezaehlt = (e, s) => {
+    const von = s && e.kommen < s.von ? s.von : e.kommen;
+    const bis = s && e.gehen > s.bis ? s.bis : e.gehen;
+    const min = e.std != null ? e.std * 60 : Math.ceil(Math.max(0, (bis - von) / MIN) / 5) * 5;
+    return { von, bis, min };
+  };
 
   // ==================== Stempel-Status (direkt unter dem Knopf) ====================
   // Farbenblind-sicher: Symbol (Haken/Sanduhr, als Icon - Emojis fehlen auf manchen Geraeten) + Text + Rahmenart
@@ -861,33 +1000,23 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   const ausstehend = pendingSync > 0 ? getQueue().filter(i => isOwnItem(i) && i.status !== 'synced') : [];
   const keinNetz = !isOnline || erreichbar === false;
   const stempelStatus = ausstehend.length > 0 ? (
-    <div data-stempel-status="wartet" role="status" style={{
-      marginTop: '12px', padding: '12px 14px', borderRadius: '10px',
-      border: '3px dashed #1d4ed8', background: '#eff6ff', color: '#1e3a8a'
-    }}>
-      <div style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div data-stempel-status="wartet" role="status" style={{ ...EK.status, ...EK.wartet }}>
+      <div style={EK.statusZeile}>
         <Hourglass size={24} strokeWidth={2.5} style={{ flexShrink: 0 }} aria-label="⏳" />
         <span>{stempelText(ausstehend)} gespeichert – wird übertragen</span>
       </div>
-      <div style={{ fontSize: '14px', marginTop: '4px', fontWeight: 600 }}>
-        Gespeichert – wird gesendet, sobald Netz da ist
-      </div>
-      <div style={{ fontSize: '14px', marginTop: '6px' }}>
+      <div style={{ fontSize: '15px', marginTop: '4px', fontWeight: 600 }}>Gespeichert – wird gesendet, sobald Netz da ist</div>
+      <div style={{ fontSize: '15px', marginTop: '6px' }}>
         Kein Problem – dein Stempel ist sicher gespeichert. Öffne die App später mit Internet, dann wird er übertragen.
       </div>
     </div>
   ) : letzterStempel ? (
-    <div data-stempel-status="ok" role="status" style={{
-      marginTop: '12px', padding: '12px 14px', borderRadius: '10px',
-      border: '3px solid #166534', background: '#f0fdf4', color: '#14532d'
-    }}>
-      <div style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div data-stempel-status="ok" role="status" style={{ ...EK.status, ...EK.ok }}>
+      <div style={EK.statusZeile}>
         <CheckCircle size={24} strokeWidth={2.5} style={{ flexShrink: 0 }} aria-label="✓" />
         <span>{AKTION_NAME[letzterStempel.action]} {uhrzeit(letzterStempel.timestamp)} übertragen</span>
       </div>
-      <div style={{ fontSize: '14px', marginTop: '4px', fontWeight: 600 }}>
-        Übertragen – am Server angekommen
-      </div>
+      <div style={{ fontSize: '15px', marginTop: '4px', fontWeight: 600 }}>Übertragen – am Server angekommen</div>
     </div>
   ) : null;
 
@@ -991,267 +1120,161 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
           </div>
         )}
 
-        {/* Offene Schicht - Zombie-Nachtrag */}
+        <style>{`
+          @keyframes ek-pop { 0% { transform: scale(.3); opacity: 0 } 60% { transform: scale(1.15); opacity: 1 } 100% { transform: scale(1) } }
+          .ek-pop { animation: ek-pop .45s ease-out both }
+          .ek-knopf:active { transform: scale(.98) }
+        `}</style>
+
+        {/* ===== Gestern nicht ausgestempelt (offener Eintrag von gestern) ===== */}
         {isOpenCatchup && (
-          <div style={{ background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-            <div style={{ fontWeight: 'bold', color: '#92400e', marginBottom: '4px' }}>
-              <AlertCircle size={14} style={{ display: 'inline', marginRight: 4 }} />
-              Offene Schicht gefunden
+          <div data-ek-zustand="offen_gestern" style={{ ...EK.karte, border: '3px solid #b45309', background: '#fffbeb', color: '#78350f' }}>
+            <div style={EK.titel}><AlertCircle size={28} aria-hidden="true" /> Gehen fehlt noch</div>
+            <div style={EK.zeile}>
+              Du bist seit {checkInTime?.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit' })},{' '}
+              {checkInTime && hm(checkInTime)} Uhr eingestempelt{currentObjectName ? ` (${currentObjectName})` : ''}.
             </div>
-            <div style={{ fontSize: '13px', color: '#78350f' }}>
-              Beginn: {checkInTime?.toLocaleString('de-DE')} - {currentObjectName}
-            </div>
-            <div style={{ fontSize: '13px', color: '#78350f', marginTop: '4px' }}>
-              Bitte trage die fehlende Gehen-Zeit nach:
-            </div>
-            <button
-              onClick={() => { setShowCatchup(true); setCatchupType('gehen_vergessen'); }}
-              style={{
-                marginTop: '8px', padding: '8px 16px', background: '#f59e0b', color: 'white',
-                border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer'
-              }}
-            >
-              Gehen-Zeit nachtragen
+            <div style={EK.klein}>Bitte trag ein, wann du gegangen bist.</div>
+            <button className="ek-knopf" onClick={() => { setShowCatchup(true); setCatchupType('gehen_vergessen'); }}
+              style={{ ...EK.knopf, background: '#b45309', minHeight: '120px', fontSize: '26px' }}>
+              <Clock size={34} aria-hidden="true" /> Gehen-Zeit eintragen
             </button>
           </div>
         )}
 
-        {/* ===== NOCH NICHT UEBERTRAGEN (pending Stempel) ===== */}
-        {!isWorking && pendingEntries.length > 0 && (
-          <div style={{
-            background: '#eff6ff', border: '3px solid #3b82f6', borderRadius: '12px',
-            padding: '14px', marginBottom: '12px'
-          }}>
-            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#1e3a8a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <WifiOff size={18} /> Noch nicht uebertragen
-            </div>
-            {pendingEntries.map((entry, i) => {
-              const h = Math.floor(entry.duration_minutes / 60);
-              const m = entry.duration_minutes % 60;
-              const durationStr = h > 0
-                ? (m > 0 ? `${h} Std ${m} Min` : `${h} Std`)
-                : `${m} Min`;
-              return (
-                <div key={i} style={{
-                  background: 'white', borderRadius: '8px', padding: '10px 12px',
-                  marginBottom: '6px', border: '1px solid #bfdbfe'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#1f2937', fontFamily: 'monospace' }}>
-                      {entry.check_in} – {entry.check_out}
-                    </span>
-                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#2563eb' }}>
-                      {durationStr}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
-                    {entry.object_name}
-                  </div>
-                </div>
-              );
-            })}
-            <div style={{ fontSize: '12px', color: '#1e3a8a', fontWeight: '600', marginTop: '8px', lineHeight: '1.4' }}>
-              Bitte App geoeffnet lassen oder spaeter nochmal oeffnen, sobald Internet da ist.
-            </div>
-          </div>
-        )}
-
-        {/* ===== HEUTE GEBUCHT (nur server-bestaetigte Eintraege) ===== */}
-        {!isWorking && !isOpenCatchup && todayEntries.length > 0 && (
-          <div style={{
-            background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '12px',
-            padding: '14px', marginBottom: '12px'
-          }}>
-            <div style={{ fontSize: '13px', fontWeight: '500', color: '#166534', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Check size={16} /> Heute gebucht
-            </div>
-            {todayEntries.map((entry, i) => {
-              const h = Math.floor(entry.duration_minutes / 60);
-              const m = entry.duration_minutes % 60;
-              const durationStr = h > 0
-                ? (m > 0 ? `${h} Std ${m} Min` : `${h} Std`)
-                : `${m} Min`;
-              return (
-                <div key={i} style={{
-                  background: 'white', borderRadius: '8px', padding: '10px 12px',
-                  marginBottom: i < todayEntries.length - 1 ? '6px' : 0,
-                  border: '1px solid #dcfce7'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#1f2937', fontFamily: 'monospace' }}>
-                      {entry.check_in} – {entry.check_out}
-                    </span>
-                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#16a34a' }}>
-                      {durationStr}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
-                    {entry.object_name}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ===== KOMMEN/GEHEN-Zustand (nicht eingestempelt) ===== */}
-        {!isWorking && !isOpenCatchup && (
-          <>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '4px' }}>
-                <Building size={14} style={{ display: 'inline', marginRight: 4 }} /> Objekt:
-              </label>
-              <select
-                value={selectedObject || ''}
-                onChange={(e) => setSelectedObject(parseInt(e.target.value))}
-                style={{ width: '100%', padding: '10px', fontSize: '15px', border: '2px solid #e5e7eb', borderRadius: '8px' }}
-              >
-                {cObjects.map(obj => (
-                  <option key={obj.id} value={obj.id}>{obj.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                onClick={handleCheckIn}
-                disabled={actionLoading || beforeShiftStart}
-                style={{
-                  flex: 1, padding: '16px',
-                  background: (actionLoading || beforeShiftStart) ? '#9ca3af' : '#16a34a',
-                  color: 'white', fontSize: '18px', fontWeight: 'bold',
-                  borderRadius: '12px', border: 'none',
-                  cursor: beforeShiftStart ? 'not-allowed' : (actionLoading ? 'wait' : 'pointer'),
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px'
-                }}
-              >
-                <Play size={22} /> {actionLoading ? 'Wird übertragen...' : 'KOMMEN'}
-              </button>
-
-              <button
-                onClick={() => {
-                  if (todayEntries.length > 0) {
-                    const times = todayEntries.map(e => `${e.check_in}–${e.check_out}`).join(', ');
-                    setError(`Du hast heute bereits gebucht: ${times}. Falls etwas nicht stimmt, nutze "Meine Zeit stimmt nicht" (unten).`);
-                    return;
-                  }
-                  const now = new Date();
-                  const hh = now.getHours().toString().padStart(2, '0');
-                  const mm = now.getMinutes().toString().padStart(2, '0');
-                  setQuickGehenTime(`${hh}:${mm}`);
-                  setQuickGehenKommenZeit('');
-                  setQuickGehenMessage(null);
-                  setShowQuickGehen(true);
-                }}
-                disabled={actionLoading}
-                style={{
-                  flex: 1, padding: '16px',
-                  background: todayEntries.length > 0 ? '#9ca3af' : '#dc2626',
-                  color: 'white', fontSize: '18px', fontWeight: 'bold',
-                  borderRadius: '12px', border: 'none',
-                  cursor: todayEntries.length > 0 ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px'
-                }}
-              >
-                <Square size={22} /> GEHEN
-              </button>
-            </div>
-
-            {stempelStatus}
-
-            {beforeShiftStart && (
-              <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '13px', color: '#6b7280' }}>
-                Einstempeln ab {shiftStartHM} möglich
-              </div>
-            )}
-
-            <div style={{ textAlign: 'center', marginTop: '10px' }}>
-              <button
-                onClick={() => setShowCatchup(true)}
-                style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
-              >
-                Zeit nachtragen / Meine Zeit stimmt nicht
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* ===== GEHEN-Zustand (eingestempelt) ===== */}
+        {/* ===== Zustand 3: eingestempelt - Zaehler + nur GEHEN ===== */}
         {isWorking && !isOpenCatchup && (
-          <>
-            <div style={{
-              background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
-              borderRadius: '12px', padding: '16px', marginBottom: '12px', color: 'white', textAlign: 'center'
-            }}>
-              <div style={{ fontSize: '13px', marginBottom: '4px', opacity: 0.9 }}>
-                {currentObjectName}
-              </div>
-              <div style={{ fontSize: '40px', fontWeight: 'bold', fontFamily: 'monospace' }}>
-                {timerDisplay}
-              </div>
-              <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
-                {isPaused ? 'PAUSE AKTIV' : 'Arbeitszeit läuft'}
-                {!isOnline && ' (Offline)'}
-              </div>
+          <div data-ek-zustand="gehen">
+            <div style={EK.kopf}>
+              <div style={EK.objekt}>{arbeitsSchicht ? arbeitsSchicht.object_name : currentObjectName}</div>
+              {arbeitsSchicht && <div style={EK.schichtzeit}>Schicht {arbeitsSchicht.start_time}–{arbeitsSchicht.end_time}</div>}
             </div>
+            {quittung && quittung.art !== 'gehen' ? (
+              <div data-ek-quittung={quittung.art} role="status" style={{ ...EK.karte, ...(quittung.art === 'ok' ? EK.ok : EK.wartet), textAlign: 'center', minHeight: '300px', justifyContent: 'center' }}>
+                <div className="ek-pop">
+                  {quittung.art === 'ok' ? <CheckCircle size={110} strokeWidth={2.5} aria-label="✓" /> : <Hourglass size={110} strokeWidth={2.5} aria-label="⏳" />}
+                </div>
+                <div style={{ ...EK.titel, justifyContent: 'center' }}>{quittung.art === 'ok' ? '✓ Angekommen' : '⏳ Gespeichert'}</div>
+                <div style={EK.zeile}>{quittung.text}</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ textAlign: 'center', margin: '6px 0 14px' }}>
+                  <div style={{ fontSize: '56px', fontWeight: 'bold', fontFamily: 'monospace', color: '#1f2937', lineHeight: 1.1 }}>{timerDisplay}</div>
+                  <div style={{ fontSize: '18px', color: '#374151', marginTop: '4px' }}>
+                    Arbeitszeit läuft{checkInTime ? ` – seit ${hm(checkInTime)} Uhr` : ''}
+                  </div>
+                </div>
+                {minDurationMsg && (
+                  <div style={{ ...EK.karte, border: '3px solid #b45309', background: '#fffbeb', color: '#78350f', fontSize: '17px', fontWeight: 600 }}>
+                    <Clock size={24} aria-hidden="true" /> {minDurationMsg}
+                  </div>
+                )}
+                <button className="ek-knopf" onClick={handleCheckOut} disabled={actionLoading}
+                  style={{ ...EK.knopf, ...EK.riesig, background: actionLoading ? '#9ca3af' : '#b91c1c' }}>
+                  <Square size={44} strokeWidth={3} aria-hidden="true" /> {actionLoading ? 'Wird übertragen…' : 'GEHEN'}
+                </button>
+                {stempelStatus}
+              </>
+            )}
+          </div>
+        )}
 
-            {/* Mindestdauer-Warnung */}
-            {minDurationMsg && (
-              <div style={{
-                background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px',
-                padding: '12px 14px', marginBottom: '12px', fontSize: '14px', color: '#92400e',
-                display: 'flex', alignItems: 'flex-start', gap: '10px', fontWeight: 500
-              }}>
-                <Clock size={20} style={{ flexShrink: 0, marginTop: 1 }} color="#f59e0b" />
-                <span>{minDurationMsg}</span>
+        {/* ===== Nicht eingestempelt ===== */}
+        {!isWorking && !isOpenCatchup && (
+          <div data-ek-zustand={zustand}>
+            {schicht && (
+              <div style={EK.kopf}>
+                <div style={EK.objekt}>{schicht.object_name}</div>
+                <div style={EK.schichtzeit}>Schicht {schicht.start_time}–{schicht.end_time}</div>
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                onClick={handleCheckOut}
-                disabled={actionLoading}
-                style={{
-                  flex: 2, padding: '14px',
-                  background: actionLoading ? '#fca5a5' : '#dc2626',
-                  color: 'white', fontSize: '16px', fontWeight: 'bold',
-                  borderRadius: '10px', border: 'none',
-                  cursor: actionLoading ? 'wait' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                }}
-              >
-                <Square size={20} /> {actionLoading ? 'Wird übertragen...' : 'GEHEN'}
-              </button>
-              {!isPaused ? (
-                <button
-                  onClick={handlePauseStart}
-                  style={{
-                    flex: 1, padding: '14px', background: '#6b7280', color: 'white',
-                    borderRadius: '10px', border: 'none', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                    fontSize: '14px', fontWeight: 'bold'
-                  }}
-                >
-                  <Pause size={18} /> PAUSE
-                </button>
-              ) : (
-                <button
-                  onClick={handlePauseEnd}
-                  style={{
-                    flex: 1, padding: '14px', background: '#2563eb', color: 'white',
-                    borderRadius: '10px', border: 'none', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                    fontSize: '14px', fontWeight: 'bold'
-                  }}
-                >
-                  <PlayCircle size={18} /> WEITER
-                </button>
-              )}
-            </div>
+            {/* Zustand 4: Schicht erledigt (bzw. ohne Plan: erledigt) */}
+            {(zustand === 'erledigt' || (zustand === 'ohne_plan' && fertig)) && fertig && (() => {
+              const g = gezaehlt(fertig, zustand === 'erledigt' ? schicht : null);
+              const wartet = fertig.wartet || ausstehend.some(i => i.action === 'check_out');
+              return (
+                <div data-stempel-status={wartet ? 'wartet' : 'ok'} role="status" style={{ ...EK.karte, ...(wartet ? EK.wartet : EK.ok) }}>
+                  <div style={EK.titel}>
+                    {wartet ? <Hourglass size={34} strokeWidth={2.5} aria-label="⏳" /> : <CheckCircle size={34} strokeWidth={2.5} aria-label="✓" />}
+                    {wartet ? 'Gezählt – wird übertragen' : (zustand === 'erledigt' ? 'Schicht erledigt' : 'Erledigt')}
+                  </div>
+                  <div style={{ ...EK.zeile, fontSize: '26px' }}>{hm(g.von)}–{hm(g.bis)} · {stdText(g.min)}</div>
+                  {wartet ? (
+                    <>
+                      <div style={EK.klein}>Gehen {hm(fertig.gehen)} gespeichert – wird übertragen</div>
+                      <div style={EK.klein}>Kein Problem – dein Stempel ist sicher gespeichert. Öffne die App später mit Internet, dann wird er übertragen.</div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={EK.klein}>Gehen {hm(fertig.gehen)} übertragen – am Server angekommen</div>
+                      {zustand === 'erledigt' && <div style={{ ...EK.zeile, fontSize: '22px' }}>Schönen Feierabend!</div>}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
 
-            {stempelStatus}
-          </>
+            {/* Zustand 1: vor Beginn-10 - grauer Knopf, kein Gehen */}
+            {zustand === 'warten' && (
+              <button className="ek-knopf" disabled
+                style={{ ...EK.knopf, ...EK.riesig, background: '#e5e7eb', color: '#374151', border: '4px dashed #6b7280', cursor: 'not-allowed' }}>
+                <Clock size={44} aria-hidden="true" /> Kommen ab {hm(schicht.ab)}
+              </button>
+            )}
+
+            {/* Zustand 2: ab Beginn-10 - nur KOMMEN (ohne Plan: KOMMEN, ggf. Objekt waehlen) */}
+            {(zustand === 'kommen' || zustand === 'ohne_plan') && !(quittung && quittung.art === 'gehen') && (
+              <>
+                {zustand === 'ohne_plan' && cObjects.length > 1 && (
+                  <select value={selectedObject || ''} onChange={(e) => setSelectedObject(parseInt(e.target.value))}
+                    aria-label="Objekt" style={{ width: '100%', padding: '14px', fontSize: '18px', border: '2px solid #9ca3af', borderRadius: '12px', marginBottom: '12px' }}>
+                    {cObjects.map(obj => (<option key={obj.id} value={obj.id}>{obj.name}</option>))}
+                  </select>
+                )}
+                {zustand === 'ohne_plan' && cObjects.length === 1 && !fertig && (
+                  <div style={EK.kopf}><div style={EK.objekt}>{cObjects[0].name}</div></div>
+                )}
+                <button className="ek-knopf" onClick={() => handleCheckIn(zustand === 'kommen' ? schicht.object_id : selectedObject)} disabled={actionLoading}
+                  style={{ ...EK.knopf, ...(fertig ? { minHeight: '140px', fontSize: '32px' } : EK.riesig), background: actionLoading ? '#9ca3af' : '#15803d' }}>
+                  <Play size={44} strokeWidth={3} aria-hidden="true" /> {actionLoading ? 'Wird übertragen…' : 'KOMMEN'}
+                </button>
+                {stempelStatus}
+              </>
+            )}
+
+            {/* Schicht vorbei, aber nicht gestempelt: ein Knopf "Zeit nachtragen" */}
+            {zustand === 'verpasst' && (
+              <div style={{ ...EK.karte, border: '3px solid #b45309', background: '#fffbeb', color: '#78350f' }}>
+                <div style={EK.titel}><AlertCircle size={30} aria-hidden="true" /> Nicht gestempelt</div>
+                <div style={EK.zeile}>Für diese Schicht ist kein Kommen da. Bitte trag deine Zeit nach.</div>
+                <button className="ek-knopf" onClick={() => { setCatchupType('beides_vergessen'); setShowCatchup(true); }}
+                  style={{ ...EK.knopf, background: '#b45309', minHeight: '120px', fontSize: '26px' }}>
+                  <Clock size={34} aria-hidden="true" /> Zeit nachtragen
+                </button>
+              </div>
+            )}
+
+            {zustand === 'ohne_plan' && (
+              <div style={{ ...EK.klein, textAlign: 'center', marginTop: '10px' }}>Heute keine Schicht im Dienstplan.</div>
+            )}
+
+            {naechsteSchicht && (
+              <div data-ek-naechste style={{ ...EK.klein, textAlign: 'center', marginTop: '14px' }}>
+                Nächste Schicht: {naechsteSchicht.tag}, {naechsteSchicht.s.start_time}–{naechsteSchicht.s.end_time}
+                {naechsteSchicht.s.object_name ? `, ${naechsteSchicht.s.object_name}` : ''}
+              </div>
+            )}
+          </div>
         )}
+
+        <div style={{ textAlign: 'center', marginTop: '16px' }}>
+          <button onClick={() => setShowCatchup(true)}
+            style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: '14px', cursor: 'pointer', textDecoration: 'underline', padding: '8px' }}>
+            Zeit nachtragen / Meine Zeit stimmt nicht
+          </button>
+        </div>
       </div>
 
       {/* ===== Meine Nachträge ===== */}
