@@ -22,8 +22,13 @@ def admin_h(db):
 
 
 @pytest.fixture(autouse=True)
-def tmp_daten(tmp_path, monkeypatch):
+def tmp_daten(tmp_path, monkeypatch, db):
+    """Dateien in tmp_path; Oktober in der Transaktion auf Anfang (unabhaengig vom DEV-Demo-Stand)."""
+    from sqlalchemy import text
     monkeypatch.setattr(ma, "DATEN", str(tmp_path))
+    ma.tabellen(db)
+    for t in ("monatsabschluss_versand", "monatsabschluss_dokument", "monatsabschluss"):
+        db.execute(text(f"DELETE FROM {t} WHERE monat = '2026-10'"))
 
 
 def test_nur_admin(client, db):
@@ -117,3 +122,22 @@ def test_upload_vorschau_versand_sperre(client, db, monkeypatch):
     assert client.post(f"{API}/2026-10/wieder-oeffnen", json={"grund": ""}, headers=h).status_code == 409
     assert client.post(f"{API}/2026-10/wieder-oeffnen", json={"grund": "Korrektur Lara"}, headers=h).json()["status"] == "erzeugt"
     assert q(db, "SELECT count(*) FROM audit_log WHERE action LIKE 'abschluss_%' AND created_at > now() - interval '1 minute'")[0][0] >= 3
+
+
+def test_pdfs_frisch_im_eigenen_ordner(db, monkeypatch, tmp_path):
+    """Nie Dateien aus dem gemeinsamen /tmp/seda24_pdfs nehmen (dort liegen ggf. alte LIVE-PDFs)."""
+    from app.core import pdf_generator
+    gesehen = []
+
+    def fake(self, eid, y, m):
+        gesehen.append(self.output_dir)
+        p = os.path.join(self.output_dir, f"Zeitnachweis_{eid}.pdf")
+        open(p, "wb").write(PDF)
+        return p
+    monkeypatch.setattr(pdf_generator.PDFGenerator, "generate_zeitnachweis", fake)
+    monkeypatch.setattr(pdf_generator.PDFGenerator, "generate_kilometer", fake)
+    monkeypatch.setattr(ma, "pruefliste", lambda db, y, m: {"alle_gruen": True, "punkte": []})
+    r = ma.erzeugen(db, 2026, 10, 1)
+    assert gesehen and all(g.startswith(str(tmp_path)) and "seda24_pdfs" not in g for g in gesehen)
+    assert not r["fehler"] and r["dokumente"]
+    assert not os.path.exists(os.path.join(str(tmp_path), "2026-10", ".erzeugen"))

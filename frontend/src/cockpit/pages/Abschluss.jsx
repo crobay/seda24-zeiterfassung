@@ -70,11 +70,13 @@ export default function Abschluss() {
 // ---------- Schritt 1: Prüfliste "Hast du ... erledigt?" ----------
 function Pruefliste({ monat, p, zu, onDone, reload, toast }) {
   const [busy, setBusy] = useState('');
+  const [sofort, setSofort] = useState({});      // Haken sofort zeigen, Server bestaetigt danach
+  useEffect(() => { setSofort({}); }, [p]);
   if (!p) return null;
   const haken = async (key, wert) => {
-    setBusy(key);
+    setBusy(key); setSofort((s) => ({ ...s, [key]: wert }));
     try { await api.post(`/abschluss/${monat}/haken`, { key, wert }); reload(); }
-    catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    catch (e) { setSofort((s) => { const n = { ...s }; delete n[key]; return n; }); toast(apiError(e), { tone: 'warn' }); }
     setBusy('');
   };
   const n = p.punkte.filter((x) => x.gruen).length;
@@ -88,7 +90,7 @@ function Pruefliste({ monat, p, zu, onDone, reload, toast }) {
           return (
             <li key={x.key} className={x.gruen ? 'is-ok' : x.auto === false ? 'is-bad' : ''} data-punkt={x.key}>
               <label>
-                <input type="checkbox" checked={x.gruen} disabled={gesperrt || busy === x.key} onChange={(e) => haken(x.key, e.target.checked)} />
+                <input type="checkbox" checked={x.key in sofort ? sofort[x.key] : x.gruen} disabled={gesperrt || busy === x.key} onChange={(e) => haken(x.key, e.target.checked)} />
                 <span className="ab-frage">{x.frage}</span>
               </label>
               <span className="ab-auto">

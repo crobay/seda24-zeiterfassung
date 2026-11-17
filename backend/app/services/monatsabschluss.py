@@ -20,6 +20,7 @@ import io
 import json
 import os
 import re
+import shutil
 import unicodedata
 import zipfile
 from calendar import monthrange
@@ -322,6 +323,12 @@ def erzeugen(db, y, m, user_id):
     with open(os.path.join(d, lex), "wb") as f:
         f.write(lexware_datei(db, y, m))
     gen = PDFGenerator(db)
+    # Eigener Ausgabeordner: /tmp/seda24_pdfs teilen sich LIVE und DEV; dort koennen alte (fremde) Dateien liegen,
+    # die wkhtmltopdf nicht ueberschreiben kann -> sonst landen veraltete PDFs im Paket.
+    gen.output_dir = os.path.join(d, ".erzeugen")
+    shutil.rmtree(gen.output_dir, ignore_errors=True)
+    os.makedirs(gen.output_dir)
+    start = datetime.now().timestamp() - 1
     db.execute(text("DELETE FROM monatsabschluss_dokument WHERE monat = :k AND art IN ('zeitnachweis', 'km')"), {"k": monat_key(y, m)})
     fehler = []
     for r in lohnzeilen(db, y, m):
@@ -332,11 +339,14 @@ def erzeugen(db, y, m, user_id):
                 continue
             try:
                 quelle = fn(r["employee_id"], y, m)
+                if os.path.dirname(quelle) != gen.output_dir or os.path.getmtime(quelle) < start:
+                    raise RuntimeError("PDF nicht frisch erzeugt")
                 ziel = os.path.join(d, os.path.basename(quelle))
                 os.replace(quelle, ziel)
                 _dok(db, y, m, r["employee_id"], art, os.path.basename(ziel), ziel, "automatisch", user_id)
             except Exception as e:  # einzelner MA bricht den Lauf nicht ab
                 fehler.append(f"{r['name']} {art}: {e}")
+    shutil.rmtree(gen.output_dir, ignore_errors=True)
     db.execute(text("UPDATE monatsabschluss SET status = 'erzeugt', erzeugt_am = now(), erzeugt_von = :u WHERE monat = :k"),
                {"u": user_id, "k": monat_key(y, m)})
     log_audit(db, user_id, None, "abschluss_erzeugt", entity_type="monat", entity_id=y * 100 + m,
