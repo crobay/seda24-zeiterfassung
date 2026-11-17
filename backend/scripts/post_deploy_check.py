@@ -316,6 +316,15 @@ def dry_api_tests():
         r = client.post(f"{T}/check-out", headers=h, json={"client_id": cid_out, "client_timestamp": ts_out})
         check("GEHEN doppelt gesendet -> kein Fehler", r.status_code == 200, f"HTTP {r.status_code}")
 
+        # (f) Toleranz 10 Min (Schicht 13:00-16:00): Kommen 12:55 zaehlt ab 13:00, Gehen 16:10 bis 16:00,
+        #     Gehen 16:25 bis 16:00 + 25 Min Mehrzeit-Antrag
+        from app.api.v1.endpoints.time_entries import gezaehltes_fenster
+        tb, te_ = datetime.combine(yday, time(13, 0)), datetime.combine(yday, time(16, 0))
+        f1 = gezaehltes_fenster(datetime.combine(yday, time(12, 55)), datetime.combine(yday, time(16, 10)), tb, te_)
+        f2 = gezaehltes_fenster(datetime.combine(yday, time(12, 55)), datetime.combine(yday, time(16, 25)), tb, te_)
+        check("Toleranz: Kommen 12:55/Gehen 16:10 -> 13:00-16:00, Gehen 16:25 -> Mehrzeit 25 Min",
+              f1 == (tb, te_, 0) and f2 == (tb, te_, 25), "" if f1 == (tb, te_, 0) and f2 == (tb, te_, 25) else f"{f1} {f2}")
+
         # (e) Token verlaengern
         r = client.post("/api/v1/auth/refresh", headers=h)
         ok_ref = r.status_code == 200 and r.json().get("access_token")

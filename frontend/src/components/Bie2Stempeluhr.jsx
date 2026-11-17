@@ -8,6 +8,7 @@ import { saveCObjects, loadCachedCObjects } from '../services/cObjectsCache';
 
 const QUEUE_KEY = 'bie2_offline_queue';
 const STATE_KEY = 'bie2_offline_state';
+const KOMMEN_TOLERANZ_MIN = 10; // Kommen ab 10 Min vor Schichtbeginn (Backend: TOLERANZ_MIN)
 
 function generateId() {
   return 'xxxx-xxxx-xxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
@@ -352,7 +353,12 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         payload.notes = 'Bie2 Kommen';
         await axios.post(`${API_URL}/time-entries/check-in`, payload, { headers, timeout: 10000 });
       } else if (action === 'check_out') {
-        await axios.post(`${API_URL}/time-entries/check-out`, payload, { headers, timeout: 10000 });
+        const res = await axios.post(`${API_URL}/time-entries/check-out`, payload, { headers, timeout: 10000 });
+        // Mehr als 10 Min nach Schichtende: gezaehlt bis Schichtende, Mehrzeit als Antrag gemeldet
+        if (res.data && res.data.mehrzeit_antrag && res.data.cap_message) {
+          setSyncMessage(res.data.cap_message);
+          setTimeout(() => setSyncMessage(null), 8000);
+        }
       } else if (action === 'pause_start') {
         await axios.post(`${API_URL}/breaks/start`, payload, { headers, timeout: 10000 });
       } else if (action === 'pause_end') {
@@ -742,7 +748,8 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
 
   const currentObjectName = cObjects.find(o => o.id === (currentObjectId || selectedObject))?.name || '';
 
-  // FIX 3: KOMMEN erst ab geplantem Schichtbeginn (sonst ausgegraut + Hinweis). Ohne Dienstplan: aktiv.
+  // KOMMEN ab 10 Min vor Schichtbeginn (Toleranz, gezaehlt wird ab Schichtbeginn), vorher ausgegraut + Hinweis.
+  // Ohne Dienstplan: aktiv.
   void nowTick; // Re-Render-Trigger pro Sekunde
   const _shiftStartObj = (shiftsToday || []).find(
     s => s.object_id === (currentObjectId || selectedObject) && s.start_time
@@ -750,9 +757,9 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   let beforeShiftStart = false, shiftStartHM = '';
   if (_shiftStartObj && _shiftStartObj.start_time) {
     const [sh, sm] = String(_shiftStartObj.start_time).split(':').map(Number);
-    const _startDt = new Date(); _startDt.setHours(sh, sm, 0, 0);
+    const _startDt = new Date(); _startDt.setHours(sh, sm - KOMMEN_TOLERANZ_MIN, 0, 0);
     beforeShiftStart = new Date() < _startDt;
-    shiftStartHM = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
+    shiftStartHM = `${String(_startDt.getHours()).padStart(2, '0')}:${String(_startDt.getMinutes()).padStart(2, '0')}`;
   }
 
   return (
