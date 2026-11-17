@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { Play, Square, Pause, PlayCircle, Building, Clock, AlertCircle, X as CloseIcon, Wifi, WifiOff, Check, RefreshCw } from 'lucide-react';
+import { Play, Square, Pause, PlayCircle, Building, Clock, AlertCircle, X as CloseIcon, Wifi, WifiOff, Check, RefreshCw, Hourglass, CheckCircle } from 'lucide-react';
 import { API_URL } from '../config.js';
 import { saveCObjects, loadCachedCObjects } from '../services/cObjectsCache';
 
@@ -828,14 +828,18 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   }
 
   // ==================== Stempel-Status (direkt unter dem Knopf) ====================
-  // Farbenblind-sicher: Symbol + Text + Rahmenart (durchgezogen = am Server, gestrichelt = wartet)
+  // Farbenblind-sicher: Symbol (Haken/Sanduhr, als Icon - Emojis fehlen auf manchen Geraeten) + Text + Rahmenart
+  // (durchgezogen = am Server, gestrichelt = wartet)
   const ausstehend = pendingSync > 0 ? getQueue().filter(i => isOwnItem(i) && i.status !== 'synced') : [];
   const stempelStatus = ausstehend.length > 0 ? (
     <div data-stempel-status="wartet" role="status" style={{
       marginTop: '12px', padding: '12px 14px', borderRadius: '10px',
       border: '3px dashed #1d4ed8', background: '#eff6ff', color: '#1e3a8a'
     }}>
-      <div style={{ fontSize: '18px', fontWeight: 'bold' }}>⏳ Gespeichert – wird gesendet, sobald Netz da ist</div>
+      <div style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Hourglass size={24} strokeWidth={2.5} style={{ flexShrink: 0 }} aria-label="⏳" />
+        <span>Gespeichert – wird gesendet, sobald Netz da ist</span>
+      </div>
       <div style={{ fontSize: '14px', marginTop: '4px' }}>
         {ausstehend.map(i => `${AKTION_NAME[i.action]} ${uhrzeit(i.timestamp)}`).join(' · ')}
       </div>
@@ -848,7 +852,10 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       marginTop: '12px', padding: '12px 14px', borderRadius: '10px',
       border: '3px solid #166534', background: '#f0fdf4', color: '#14532d'
     }}>
-      <div style={{ fontSize: '18px', fontWeight: 'bold' }}>✓ Übertragen – am Server angekommen</div>
+      <div style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <CheckCircle size={24} strokeWidth={2.5} style={{ flexShrink: 0 }} aria-label="✓" />
+        <span>Übertragen – am Server angekommen</span>
+      </div>
       <div style={{ fontSize: '14px', marginTop: '4px' }}>
         {AKTION_NAME[letzterStempel.action]} {uhrzeit(letzterStempel.timestamp)}
       </div>
