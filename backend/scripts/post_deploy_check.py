@@ -237,6 +237,8 @@ def dry_api_tests():
         db.commit()   # nur Sicherungspunkt freigeben, die aeussere Transaktion bleibt offen (Rollback am Ende)
 
         app = FastAPI()
+        from app.middleware.server_kennung import server_kennung
+        app.middleware("http")(server_kennung)
         app.include_router(auth.router, prefix="/api/v1/auth")
         app.include_router(time_entries.router, prefix="/api/v1/time-entries")
         app.dependency_overrides[get_db] = lambda: db

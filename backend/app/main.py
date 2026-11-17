@@ -97,13 +97,8 @@ async def _test_employee_guard(request, call_next):
             TEST_REQUEST.reset(marker)
 
 
-@app.middleware("http")
-async def _server_kennung(request, call_next):
-    """Kennung an jeder Antwort: Die Stempeluhr erkennt daran, dass eine Antwort wirklich von unserem Server
-    kommt (und nicht von einem Captive Portal / WLAN-Anmeldeseite) - nur dann gilt ein Stempel als erledigt."""
-    response = await call_next(request)
-    response.headers["X-Seda24"] = "1"
-    return response
+from app.middleware.server_kennung import server_kennung  # noqa: E402
+app.middleware("http")(server_kennung)
 
 
 app.add_middleware(
