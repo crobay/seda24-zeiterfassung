@@ -3630,8 +3630,8 @@ def get_audit_log(
     # User-Cache fuer Performance
     user_cache = {}
     def get_user_info(uid):
-        if uid is None:
-            return None, None
+        if uid is None:          # Systemeintraege (z. B. test_entries_deleted vom Deploy-Test) haben keinen Benutzer
+            return None, None, None
         if uid not in user_cache:
             u = db.query(User).filter(User.id == uid).first()
             if u:

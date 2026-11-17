@@ -336,7 +336,8 @@ async function aktionen(rolle, qa) {
     const w = await wieder.waitFor({ timeout: 6000 }).then(() => true, () => false);
     if (w) await wieder.click();
     await page.waitForTimeout(1200);
-    sql(`UPDATE app_settings SET value = '${fertigVorher.replace(/'/g, "''")}' WHERE key = 'dienstplan_fertig'`);
+    if (fertigVorher) sql(`UPDATE app_settings SET value = '${fertigVorher.replace(/'/g, "''")}' WHERE key = 'dienstplan_fertig'`);
+    else sql(`DELETE FROM app_settings WHERE key = 'dienstplan_fertig'`);   // vorher gab es den Schluessel nicht
     ok('Dienstplan', `${R}: Woche als fertig melden + wieder öffnen`, g && w && !page.fehler.length, fehlerText());
     await shot('dienstplan_fertig');
   } else ok('Dienstplan', `${R}: Woche als fertig melden + wieder öffnen`, false, `Knopf fehlt in Woche ${folge} (Plan ungeplant?)`);

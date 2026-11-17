@@ -231,3 +231,10 @@ def test_abschluss_karte_zeigt_vormonat_bis_exporttag(client, db, monkeypatch):
     a = client.get("/api/v1/cockpit/leitstelle", headers=ol_headers(db)).json()["abschluss"]
     assert a["monat"] == "2027-01" and a["pruefpunkte"][0]["link"].endswith("&monat=2027-01")
 
+
+def test_protokoll_mit_systemeintrag_ohne_benutzer(client, db):
+    """Tiefentest/QA: Audit-Eintrag ohne user_id (Deploy-Test raeumt auf) liess das Aenderungsprotokoll mit 500 abbrechen."""
+    db.execute(text("INSERT INTO audit_log (user_id, action, details, created_at) VALUES (NULL, 'test_entries_deleted', 'Test', now())"))
+    r = client.get("/api/v1/admin/audit-log?limit=50", headers=token(db, "ADMIN"))
+    assert r.status_code == 200, r.text
+
