@@ -3,8 +3,12 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { Calendar, Clock, Building, Euro, Droplets, Sparkles, SprayCan } from 'lucide-react';
+import { Calendar, Clock, Building, Euro, Droplets, Sparkles, SprayCan, Hourglass, WifiOff } from 'lucide-react';
 import { API_URL } from '../config.js';
+import { vonUnseremServer, currentOwner, ausstehendeStempel, stempelText } from '../services/stempelStatus';
+
+// Zuletzt geladene Historie je Benutzer und Filter (fuer schwaches/kein Netz)
+const cacheKey = (filter) => `historie_cache_${currentOwner()}_${filter}`;
 
 const formatHoursReadable = (hours) => {
   if (!hours || hours <= 0) return "0 Min";
@@ -20,6 +24,8 @@ const HistoryTab = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dateFilter, setDateFilter] = useState('thisMonth'); // 30days, 7days, thisMonth, lastMonth, all
+  const [standVon, setStandVon] = useState(null); // gesetzt = Anzeige aus dem Speicher (ohne Verbindung)
+  const ausstehend = ausstehendeStempel();
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -65,14 +71,31 @@ const HistoryTab = () => {
       }
       
       const response = await axios.get(url, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 8000,
       });
-      
+      // Gast-WLAN mit Anmeldeseite liefert HTML statt unserer Daten -> wie kein Netz
+      if (!vonUnseremServer(response)) throw new Error('keine Antwort unseres Servers');
+
       setHistory(response.data);
+      setStandVon(null);
       setError(null);
+      try {
+        localStorage.setItem(cacheKey(dateFilter), JSON.stringify({ at: new Date().toISOString(), data: response.data }));
+      } catch { /* Speicher voll: ohne Zwischenspeicher weiter */ }
     } catch (err) {
-      setError('Fehler beim Laden der Historie');
       console.error(err);
+      let cached = null;
+      try { cached = JSON.parse(localStorage.getItem(cacheKey(dateFilter)) || 'null'); } catch { cached = null; }
+      if (cached) {
+        setHistory(cached.data);
+        setStandVon(cached.at);
+        setError(null);
+      } else {
+        setHistory(null);
+        setStandVon(null);
+        setError('Historie gerade nicht erreichbar – bitte später mit Internet erneut öffnen.');
+      }
     } finally {
       setLoading(false);
     }
@@ -162,10 +185,23 @@ const HistoryTab = () => {
     );
   }
 
+  // Noch nicht uebertragene Stempel (aus der Warteschlange der Stempeluhr)
+  const ausstehendBox = ausstehend.length > 0 && (
+    <div data-historie-ausstehend style={{ border: '3px dashed #1d4ed8', background: '#eff6ff', color: '#1e3a8a',
+                                           borderRadius: '10px', padding: '10px 14px', fontWeight: 600,
+                                           display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <Hourglass size={20} strokeWidth={2.5} aria-label="⏳" />
+      <span>Noch nicht übertragen: {stempelText(ausstehend)}</span>
+    </div>
+  );
+
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-        {error}
+      <div className="space-y-3">
+        {ausstehendBox}
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
       </div>
     );
   }
@@ -177,6 +213,15 @@ const HistoryTab = () => {
 
   return (
     <div className="space-y-6">
+      {standVon && (
+        <div data-historie-stand style={{ border: '2px solid #92400e', background: '#fffbeb', color: '#78350f',
+                                          borderRadius: '10px', padding: '10px 14px', fontWeight: 600,
+                                          display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <WifiOff size={18} aria-hidden="true" />
+          <span>Ohne Verbindung – Stand von {format(new Date(standVon), 'HH:mm', { locale: de })}{format(new Date(standVon), 'dd.MM.') !== format(new Date(), 'dd.MM.') ? ` (${format(new Date(standVon), 'dd.MM.')})` : ''}</span>
+        </div>
+      )}
+      {ausstehendBox}
       {/* Filter-Bereich mit neuen Buttons */}
       <div className="bg-white p-4 rounded-lg shadow">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
