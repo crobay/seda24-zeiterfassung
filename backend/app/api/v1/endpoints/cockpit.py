@@ -1318,7 +1318,30 @@ def leitstelle(db: Session = Depends(get_db), user=Depends(verify_admin_or_objek
 
     from app.services import plan_vorlage as pv
     plan_nw = pv.wochen_status(db, pv.montag(today) + timedelta(days=7))
-    return {"woche": woche, "abschluss": abschluss, "stunden": stunden, "km": km, "feed": feed[:25], "plan_naechste_woche": plan_nw}
+    return {"woche": woche, "abschluss": abschluss, "stunden": stunden, "km": km, "feed": feed[:25], "plan_naechste_woche": plan_nw,
+            "minijob": _minijob_warnungen(db, user, now), "marge": _marge_warnungen(db, user, now)}
+
+
+def _minijob_warnungen(db, user, now):
+    """Minijobber ab Warn-Prozent (Hochrechnung bis Monatsende). Objektleitung sieht nur Prozent/Reststunden, keine Euro."""
+    from app.services import minijob as mj
+    try:
+        rows = [r for r in mj.hochrechnung(db, now.year, now.month, now) if r["stufe"] != "ok" or r["unter_mindestlohn"]]
+    except Exception:
+        return []
+    if not ol_scope.is_admin(user):
+        rows = [{k: v for k, v in r.items() if k not in ("ist", "geplant", "hochrechnung", "stundenlohn", "grenze")} for r in rows]
+    return rows
+
+
+def _marge_warnungen(db, user, now):
+    if not ol_scope.is_admin(user):          # Objekt-Marge nur fuer Admin
+        return None
+    from app.services import objekt_marge as om
+    try:
+        return om.warnungen(db, now)
+    except Exception:
+        return []
 
 
 # --- Plan aus Vorlage (Stamm-Dienstplan), Luecken, Kontingent, "Plan naechste Woche" -------------
@@ -1628,3 +1651,63 @@ def kontingent_verteilen(data: dict, db: Session = Depends(get_db), user=Depends
     if data.get("vorschau", True):
         return {**res, **plan, "vorschau": True}
     return {**res, **_anlegen(db, user, plan, "Kontingent verteilt")}
+
+
+# --- Minijob-Grenze / Mindestlohn (datumsabhaengig) und Objekt-Marge (nur Admin) -------------------------
+def _nur_admin(user):
+    if not ol_scope.is_admin(user):
+        raise HTTPException(403, "Nur für Admin")
+
+
+@router.get("/minijob")
+def minijob_liste(monat: str = Query(None), db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Minijobber mit Ist, geplant, Hochrechnung bis Monatsende und Quote zur Grenze des Monats."""
+    from app.services import minijob as mj
+    now = datetime.now()
+    m0 = _monat(monat) if monat else now.date().replace(day=1)
+    rows = mj.hochrechnung(db, m0.year, m0.month, now)
+    if not ol_scope.is_admin(user):
+        rows = [{k: v for k, v in r.items() if k not in ("ist", "geplant", "hochrechnung", "stundenlohn", "grenze")} for r in rows]
+    cfg = mj.einstellung(db)
+    db.commit()
+    return {"monat": m0.strftime("%Y-%m"), "stufe": mj.stufe_am(db, m0, cfg), "warn_ab_prozent": cfg["warn_ab_prozent"],
+            "naechste": mj.naechste_aenderung(db, now.date()), "personen": rows}
+
+
+@router.get("/einstellungen/lohn-grenzen")
+def lohn_grenzen(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    _nur_admin(user)
+    from app.services import minijob as mj
+    r = mj.einstellung(db)
+    db.commit()
+    return r
+
+
+@router.put("/einstellungen/lohn-grenzen")
+def lohn_grenzen_speichern(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    _nur_admin(user)
+    from app.services import minijob as mj
+    try:
+        return mj.speichern(db, data, user.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/objekt-marge")
+def objekt_marge(monat: str = Query(None), db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Personalkosten (Stunden x Lohn x Lohnnebenkosten + KM) gegen Umsatz je Objekt, laufender Monat hochgerechnet. Nur Admin."""
+    _nur_admin(user)
+    from app.services import objekt_marge as om
+    now = datetime.now()
+    m0 = _monat(monat) if monat else now.date().replace(day=1)
+    return om.marge(db, m0.year, m0.month, now)
+
+
+@router.put("/einstellungen/objekt-marge")
+def objekt_marge_ziel(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    _nur_admin(user)
+    from app.services import objekt_marge as om
+    try:
+        return om.speichern(db, data.get("ziel_prozent"), user.id)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(400, str(e) if isinstance(e, ValueError) and "%" in str(e) else "Ziel-Marge 0–80 %")
