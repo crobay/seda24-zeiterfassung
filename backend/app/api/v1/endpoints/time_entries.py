@@ -89,15 +89,126 @@ def get_scheduled_end(employee_id: int, check_in: datetime, db) -> datetime:
     return check_in + timedelta(hours=8)
 
 
+# ========== Stempel-Toleranz (Dienstplan) ==========
+# Kommen ab 10 Min vor Schichtbeginn moeglich, gezaehlt wird ab Schichtbeginn.
+# Gehen bis 10 Min nach Schichtende: gezaehlt bis Schichtende. Spaeter: gezaehlt bis
+# Schichtende + automatischer Mehrzeit-Antrag. Gespeichert wird immer die echte Uhrzeit
+# (check_in/check_out), gezaehlt wird ueber billed_hours. Ohne Dienstplan: wie bisher.
+TOLERANZ_MIN = 10
+
+
+def schicht_fuer_stempel(employee_id: int, object_id: int, stamp_time: datetime, db):
+    """Dienstplan-Schicht zu einem Stempel: gleicher MA, gleiches Objekt, gleicher Tag.
+    Bei mehreren Schichten am Tag die zeitlich naechste. Gibt (schedule, beginn, ende) oder None."""
+    schedules = db.query(Schedule).filter(
+        Schedule.employee_id == employee_id,
+        Schedule.object_id == object_id,
+        Schedule.date == stamp_time.date(),
+        Schedule.start_time != None,
+        Schedule.end_time != None,
+    ).all()
+    best = None
+    for s in schedules:
+        if (s.status or 'normal') in ('storniert', 'urlaub', 'krank', 'abwesend'):
+            continue
+        beginn = datetime.combine(s.date, s.start_time)
+        ende = datetime.combine(s.date, s.end_time)
+        if s.end_time <= s.start_time:
+            ende += timedelta(days=1)  # Schicht ueber Mitternacht
+        abstand = 0 if beginn <= stamp_time <= ende else min(abs((stamp_time - beginn).total_seconds()),
+                                                                abs((stamp_time - ende).total_seconds()))
+        if best is None or abstand < best[0]:
+            best = (abstand, s, beginn, ende)
+    return best[1:] if best else None
+
+
+def gezaehltes_fenster(check_in: datetime, check_out: datetime, beginn: datetime, ende: datetime):
+    """Welche Zeit zaehlt? Gibt (zaehl_von, zaehl_bis, mehrzeit_minuten) zurueck.
+    mehrzeit_minuten > 0 nur, wenn mehr als TOLERANZ_MIN nach Schichtende gegangen wurde."""
+    von = max(check_in, beginn)
+    bis = min(check_out, ende)
+    if bis < von:
+        bis = von
+    mehr = 0
+    if check_out > ende + timedelta(minutes=TOLERANZ_MIN):
+        mehr = round((check_out - max(ende, check_in)).total_seconds() / 60)
+    return von, bis, mehr
+
+
+def netto_stunden(von: datetime, bis: datetime, breaks_list) -> float:
+    """Netto-Stunden ohne Rundung (fuer Stempel ausserhalb Bie2): Dauer minus Pausen im Fenster."""
+    pausen = sum(max(0, (min(b.end_time, bis) - max(b.start_time, von)).total_seconds())
+                 for b in breaks_list if b.end_time)
+    return round(max(0, (bis - von).total_seconds() - pausen) / 3600, 4)
+
+
+def mehrzeit_antrag_anlegen(db, employee, entry, excess_minutes: int, hours: float, sched_str: str, grund: str):
+    """Legt den Mehrzeit-Antrag an (pending_bookings, reason mehrzeit_dienstplan) und meldet ihn per
+    Telegram mit Genehmigen/Ablehnen. Genehmigt -> billed_hours wird um die Stunden erhoeht
+    (pending_booking_service). Gibt die Antrags-ID zurueck; pro Zeiteintrag nur ein offener Antrag."""
+    from sqlalchemy import text as sa_text
+    vorhanden = db.execute(sa_text(
+        "SELECT id FROM pending_bookings WHERE related_time_entry_id = :te AND reason = 'mehrzeit_dienstplan' "
+        "AND status = 'offen' LIMIT 1"), {"te": entry.id}).scalar()
+    if vorhanden:
+        return vorhanden
+    schedule = db.query(Schedule).filter(
+        Schedule.employee_id == employee.id,
+        Schedule.object_id == entry.object_id,
+        Schedule.date == entry.check_in.date(),
+    ).first()
+    pb_id = db.execute(sa_text("""
+        INSERT INTO pending_bookings
+            (employee_id, object_id, date, start_time, end_time,
+             service_type, requested_hours, status, notes, hourly_rate,
+             created_at, reason, related_time_entry_id)
+        VALUES
+            (:emp_id, :obj_id, :date, :start, :end,
+             :stype, :hours, 'offen', :notes, :rate,
+             NOW(), :reason, :te_id)
+        RETURNING id
+    """), {
+        "emp_id": employee.id,
+        "obj_id": entry.object_id,
+        "date": entry.check_in.date(),
+        "start": schedule.start_time if schedule else None,
+        "end": schedule.end_time if schedule else None,
+        "stype": entry.service_type or "Reinigung",
+        "hours": round(hours, 2),
+        "notes": f"Mehrzeit {excess_minutes} Min ({sched_str}): {grund.strip()}",
+        "rate": entry.hourly_rate or employee.hourly_rate or 0,
+        "reason": "mehrzeit_dienstplan",
+        "te_id": entry.id,
+    }).scalar()
+    # Vor dem Telegram-Versand speichern, damit die Knoepfe den Antrag finden
+    db.commit()
+    try:
+        from app.services.telegram_bot import notify_admin, pending_booking_keyboard
+        emp_name = f"{employee.first_name} {employee.last_name}"
+        datum = entry.check_in.strftime("%d.%m.%Y")
+        notify_admin(
+            f"<b>Mehrzeit-Anfrage</b>\n"
+            f"{emp_name} ({employee.personal_nr})\n"
+            f"Datum: {datum}, Schicht: {sched_str}\n"
+            f"Mehrzeit: {excess_minutes} Min\n"
+            f"Grund: {grund.strip()}", reply_markup=pending_booking_keyboard(pb_id) if pb_id else None,
+            category="genehmigungen", ref_type="pending_booking", ref_id=pb_id
+        )
+    except Exception:
+        pass  # Telegram-Fehler soll nicht blockieren
+    return pb_id
+
+
 BIE2_OBJECT_ID = 20  # Lidl Neu Bie2
 
-def check_start_not_before_schedule_bie2(employee_id: int, object_id: int, stamp_time: datetime, db):
-    """KOMMEN-Sperre fuer Bie2 (object_id=20): Einstempeln vor dem geplanten
-    Schichtbeginn wird blockiert (keine Toleranz). Gibt None zurueck wenn OK,
-    sonst HTTPException. Nur wenn ein Dienstplan-Eintrag existiert UND
+def check_start_not_before_schedule_bie2(employee_id: int, object_id: int, stamp_time: datetime, db, offline: bool = False):
+    """KOMMEN-Sperre fuer Bie2 (object_id=20): Einstempeln frueher als TOLERANZ_MIN vor dem
+    geplanten Schichtbeginn wird blockiert (gezaehlt wird ohnehin ab Schichtbeginn).
+    Gibt None zurueck wenn OK, sonst HTTPException. Nur wenn ein Dienstplan-Eintrag existiert UND
     enforce_min_duration beim Mitarbeiter gesetzt ist. Ohne Dienstplan: keine Sperre.
+    Offline gespeicherte Stempel werden nicht abgewiesen (sonst ginge der Stempel verloren).
     """
-    if object_id != BIE2_OBJECT_ID:
+    if object_id != BIE2_OBJECT_ID or offline:
         return None
 
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
@@ -116,10 +227,12 @@ def check_start_not_before_schedule_bie2(employee_id: int, object_id: int, stamp
         return None  # Kein Dienstplan → keine Sperre
 
     scheduled_start = datetime.combine(today, schedule.start_time)
-    if stamp_time < scheduled_start:
+    earliest = scheduled_start - timedelta(minutes=TOLERANZ_MIN)
+    if stamp_time < earliest:
         raise HTTPException(
             status_code=422,
-            detail=f"Deine Schicht beginnt um {schedule.start_time.strftime('%H:%M')} - du kannst erst dann einstempeln."
+            detail=f"Deine Schicht beginnt um {schedule.start_time.strftime('%H:%M')} - "
+                   f"du kannst ab {earliest.strftime('%H:%M')} einstempeln."
         )
 
     return None
@@ -128,7 +241,7 @@ def check_start_not_before_schedule_bie2(employee_id: int, object_id: int, stamp
 def check_min_duration_bie2(employee_id: int, object_id: int, check_in_time: datetime, now: datetime, db):
     """Prueft fruehestmoegliches Ausstempeln fuer Bie2 (object_id=20).
     Ausstempeln erlaubt, sobald 80% der geplanten Dauer seit dem Kommen-Stempel
-    verstrichen sind (z.B. 3,5 Std -> ab 2 Std 48 Min). Gibt None zurueck wenn
+    (bei Kommen vor Schichtbeginn: seit Schichtbeginn) verstrichen sind (z.B. 3,5 Std -> ab 2 Std 48 Min). Gibt None zurueck wenn
     OK, sonst HTTPException mit Restzeit.
     Nur wenn ein Dienstplan-Eintrag fuer diesen Tag + MA + Objekt existiert
     UND enforce_min_duration beim Mitarbeiter gesetzt ist.
@@ -166,7 +279,7 @@ def check_min_duration_bie2(employee_id: int, object_id: int, check_in_time: dat
         return None  # Ungueltiger Dienstplan → keine Einschraenkung
 
     required_seconds = planned_seconds * MIN_FRACTION
-    actual_seconds = (now - check_in_time).total_seconds()
+    actual_seconds = (now - max(check_in_time, start_dt)).total_seconds()  # gezaehlt ab Schichtbeginn
     if actual_seconds < required_seconds:
         remaining_min = math.ceil((required_seconds - actual_seconds) / 60)
         req_h = int(required_seconds // 3600)
@@ -264,8 +377,8 @@ def calculate_billed_hours_bie2(check_in_time, check_out_time, breaks_list):
     # Pausen summieren
     total_break_seconds = 0
     for b in breaks_list:
-        if b.end_time:
-            total_break_seconds += (b.end_time - b.start_time).total_seconds()
+        if b.end_time:  # nur der Teil der Pause, der im gezaehlten Fenster liegt
+            total_break_seconds += max(0, (min(b.end_time, check_out_time) - max(b.start_time, check_in_time)).total_seconds())
     
     netto_seconds = brutto_seconds - total_break_seconds
     netto_minutes = netto_seconds / 60
@@ -569,7 +682,8 @@ async def check_in(
         )
 
     # KOMMEN-Sperre: Einstempeln vor geplantem Schichtbeginn blockieren (Bie2)
-    check_start_not_before_schedule_bie2(employee.id, target_object_id, stamp_time, db)
+    offline = bool(client_ts_str) and (datetime.now() - stamp_time).total_seconds() > 120
+    check_start_not_before_schedule_bie2(employee.id, target_object_id, stamp_time, db, offline=offline)
 
     # Alte offene Einträge schließen (nur bei Nicht-C-Zuweisungen)
     for entry in old_entries:
@@ -731,18 +845,38 @@ def check_out(
         db=db
     )
 
-    # ========== Bie2-Berechnung bei C-Zuweisung ==========
+    # ========== Toleranz: gezaehlt wird nur innerhalb der Dienstplan-Schicht ==========
     from app.models.models import BreakEntry
-    if is_c_assignment(employee.id, active_entry.object_id, db):
-        breaks_list = db.query(BreakEntry).filter(
-            BreakEntry.time_entry_id == active_entry.id
-        ).all()
-        # Offene Pausen schliessen
-        for b in breaks_list:
-            if not b.end_time:
-                b.end_time = stamp_time
-        calc = calculate_billed_hours_bie2(active_entry.check_in, active_entry.check_out, breaks_list)
+    breaks_list = db.query(BreakEntry).filter(
+        BreakEntry.time_entry_id == active_entry.id
+    ).all()
+    # Offene Pausen schliessen
+    for b in breaks_list:
+        if not b.end_time:
+            b.end_time = stamp_time
+    zaehl_von, zaehl_bis, mehr_min = active_entry.check_in, active_entry.check_out, 0
+    schicht = schicht_fuer_stempel(employee.id, active_entry.object_id, active_entry.check_in, db)
+    sched_str = ""
+    if schicht:
+        _, s_beginn, s_ende = schicht
+        sched_str = f"{s_beginn.strftime('%H:%M')}-{s_ende.strftime('%H:%M')}"
+        zaehl_von, zaehl_bis, mehr_min = gezaehltes_fenster(active_entry.check_in, active_entry.check_out, s_beginn, s_ende)
+        if (zaehl_von, zaehl_bis) != (active_entry.check_in, active_entry.check_out):
+            active_entry.notes = ((active_entry.notes or "") +
+                                  f" [Gezaehlt {zaehl_von.strftime('%H:%M')}-{zaehl_bis.strftime('%H:%M')} lt. Dienstplan]").strip()
+    mehr_stunden = 0.0
+    ist_c = is_c_assignment(employee.id, active_entry.object_id, db)
+    if schicht and not ist_c:
+        active_entry.billed_hours = netto_stunden(zaehl_von, zaehl_bis, breaks_list)
+        if mehr_min:
+            mehr_stunden = netto_stunden(zaehl_von, active_entry.check_out, breaks_list) - active_entry.billed_hours
+
+    # ========== Bie2-Berechnung bei C-Zuweisung ==========
+    if ist_c:
+        calc = calculate_billed_hours_bie2(zaehl_von, zaehl_bis, breaks_list)
         active_entry.billed_hours = calc["billed_hours"]
+        if mehr_min:
+            mehr_stunden = calculate_billed_hours_bie2(zaehl_von, active_entry.check_out, breaks_list)["billed_hours"] - calc["billed_hours"]
         # Objekt-Name fuer Log
         obj = db.query(Object).filter(Object.id == active_entry.object_id).first()
         obj_name = obj.name if obj else str(active_entry.object_id)
@@ -755,7 +889,9 @@ def check_out(
         log_bie2("GEHEN", emp_name, obj_name,
             f"Brutto={calc['brutto_minutes']}min Pausen={calc['break_minutes']}min "
             f"Netto={calc['netto_minutes']}min Pflichtpause={calc['pflichtpause_abzug']}min "
-            f"Gerundet={calc['rounded_minutes']}min Abrechnung={calc['billed_hours']}h{offline_tag}")
+            f"Gerundet={calc['rounded_minutes']}min Abrechnung={calc['billed_hours']}h{offline_tag}"
+            + (f" Gezaehlt={zaehl_von.strftime('%H:%M')}-{zaehl_bis.strftime('%H:%M')} Plan={sched_str}" if schicht else "")
+            + (f" Mehrzeit={mehr_min}min" if mehr_min else ""))
 
     # ========== Obergrenze: billed_hours auf Dienstplan begrenzen ==========
     cap_message = None
@@ -779,6 +915,23 @@ def check_out(
     update_total_hours(employee.id, db)
     db.refresh(active_entry)
 
+    # Mehr als TOLERANZ_MIN nach Schichtende gegangen: automatischer Mehrzeit-Antrag
+    mehrzeit_antrag_id = None
+    if mehr_min and mehr_stunden > 0:
+        try:
+            mehrzeit_antrag_id = mehrzeit_antrag_anlegen(
+                db, employee, active_entry, mehr_min, mehr_stunden, sched_str,
+                f"automatisch - Gehen {active_entry.check_out.strftime('%H:%M')}, "
+                f"mehr als {TOLERANZ_MIN} Min nach Schichtende")
+            cap_message = (f"Gezählt bis Schichtende {s_ende.strftime('%H:%M')}. "
+                           f"Mehrzeit {mehr_min} Min wurde zur Genehmigung gemeldet.")
+            log_bie2("MEHRZEIT", f"{employee.first_name} {employee.last_name}", str(active_entry.object_id),
+                     f"Antrag #{mehrzeit_antrag_id} {mehr_min}min Plan={sched_str}")
+        except Exception as mz_err:
+            db.rollback()
+            logger.error(f"Mehrzeit-Antrag fuer Eintrag {active_entry.id} fehlgeschlagen: {mz_err}")
+        db.refresh(active_entry)
+
     # Response mit optionaler Meldung
     response = {
         "id": active_entry.id,
@@ -797,6 +950,8 @@ def check_out(
     }
     if cap_message:
         response["cap_message"] = cap_message
+    if mehrzeit_antrag_id:
+        response["mehrzeit_antrag"] = {"id": mehrzeit_antrag_id, "minuten": mehr_min}
     if cap and cap.get("cap_decision_needed"):
         response["cap_decision_needed"] = True
         response["cap_excess_minutes"] = cap["excess_minutes"]
@@ -871,53 +1026,7 @@ def cap_decision(
     if choice == "request_overtime":
         if not reason or len(reason.strip()) < 10:
             raise HTTPException(status_code=400, detail="Bitte Grund angeben (mind. 10 Zeichen)")
-        # Pending-Booking erstellen
-        excess_hours = excess_minutes / 60.0
-        from sqlalchemy import text as sa_text
-        schedule = db.query(Schedule).filter(
-            Schedule.employee_id == employee.id,
-            Schedule.object_id == entry.object_id,
-            Schedule.date == entry.check_in.date(),
-        ).first()
-        pb_id = db.execute(sa_text("""
-            INSERT INTO pending_bookings
-                (employee_id, object_id, date, start_time, end_time,
-                 service_type, requested_hours, status, notes, hourly_rate,
-                 created_at, reason, related_time_entry_id)
-            VALUES
-                (:emp_id, :obj_id, :date, :start, :end,
-                 :stype, :hours, 'offen', :notes, :rate,
-                 NOW(), :reason, :te_id)
-            RETURNING id
-        """), {
-            "emp_id": employee.id,
-            "obj_id": entry.object_id,
-            "date": entry.check_in.date(),
-            "start": schedule.start_time if schedule else None,
-            "end": schedule.end_time if schedule else None,
-            "stype": entry.service_type or "Reinigung",
-            "hours": round(excess_hours, 2),
-            "notes": f"Mehrzeit {excess_minutes} Min ({sched_str}): {reason.strip()}",
-            "rate": entry.hourly_rate or employee.hourly_rate or 0,
-            "reason": "mehrzeit_dienstplan",
-            "te_id": entry.id,
-        }).scalar()
-        # Vor dem Telegram-Versand speichern, damit die Knoepfe den Antrag finden
-        db.commit()
-        # Telegram an Admin
-        try:
-            from app.services.telegram_bot import notify_admin, pending_booking_keyboard
-            emp_name = f"{employee.first_name} {employee.last_name}"
-            datum = entry.check_in.strftime("%d.%m.%Y")
-            notify_admin(
-                f"<b>Mehrzeit-Anfrage</b>\n"
-                f"{emp_name} ({employee.personal_nr})\n"
-                f"Datum: {datum}, Schicht: {sched_str}\n"
-                f"Mehrzeit: {excess_minutes} Min\n"
-                f"Grund: {reason.strip()}", reply_markup=pending_booking_keyboard(pb_id) if pb_id else None, category="genehmigungen", ref_type="pending_booking", ref_id=pb_id
-            )
-        except Exception:
-            pass  # Telegram-Fehler soll nicht blockieren
+        mehrzeit_antrag_anlegen(db, employee, entry, excess_minutes, excess_minutes / 60.0, sched_str, reason)
 
     db.commit()
     return {"status": "ok", "choice": choice}
