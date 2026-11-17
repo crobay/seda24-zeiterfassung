@@ -170,6 +170,11 @@ const EK = {
   ok: { border: '4px solid #166534', background: '#f0fdf4', color: '#14532d' },
   wartet: { border: '4px dashed #1d4ed8', background: '#eff6ff', color: '#1e3a8a' },
   status: { marginTop: '14px', padding: '12px 14px', borderRadius: '14px' },
+  textKnopf: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', margin: '14px auto 0',
+    background: 'none', border: '2px solid #9ca3af', borderRadius: '999px', padding: '8px 20px',
+    fontSize: '17px', fontWeight: 600, color: '#374151', cursor: 'pointer',
+  },
   statusZeile: { fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' },
 };
 
@@ -416,13 +421,15 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     } else if (action === 'pause_start') {
       setIsPaused(true);
       setPauseStartTime(now);
+      const off = getOfflineState();
+      if (off) saveOfflineState({ ...off, pausedSince: now.toISOString() });
     } else if (action === 'pause_end') {
-      if (pauseStartTime) {
-        const pauseDur = (now - pauseStartTime) / 1000;
-        setTotalPauseDuration(prev => prev + pauseDur);
-      }
+      const pauseDur = pauseStartTime ? (now - pauseStartTime) / 1000 : 0;
+      setTotalPauseDuration(prev => prev + pauseDur);
       setIsPaused(false);
       setPauseStartTime(null);
+      const off = getOfflineState();
+      if (off) saveOfflineState({ ...off, pausedSince: null, pauseSec: (off.pauseSec || 0) + pauseDur });
     }
   };
 
@@ -554,6 +561,15 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     }
   };
 
+  // Noch nicht gesendete Pause-Stempel gelten vor dem Server-Stand (wie Kommen/Gehen)
+  const pauseAusWarteschlange = () => {
+    const p = getQueue().filter(i => isOwnItem(i) && i.status !== 'synced' && (i.action === 'pause_start' || i.action === 'pause_end')).pop();
+    if (!p) return false;
+    setIsPaused(p.action === 'pause_start');
+    setPauseStartTime(p.action === 'pause_start' ? new Date(p.timestamp) : null);
+    return true;
+  };
+
   const checkStatus = async (context) => {
     const seq = stempelSeqRef.current;
     try {
@@ -573,6 +589,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
           setCheckInTime(new Date(letzter.timestamp));
           setCurrentObjectId(letzter.object_id);
           setSelectedObject(letzter.object_id);
+          pauseAusWarteschlange();
         } else {
           setIsWorking(false);
           setCheckInTime(null);
@@ -602,7 +619,9 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         setOverdueMinutes(data.overdue_minutes || 0);
         // todayEntries NICHT löschen — bleiben sichtbar auch während nächster Schicht
         // Server-Stand merken: oeffnet die App spaeter ohne Netz (oder im Gast-WLAN), bleibt "eingestempelt" sichtbar
-        saveOfflineState({ action: 'checked_in', objectId: data.object_id, checkInTime: data.check_in });
+        saveOfflineState({ action: 'checked_in', objectId: data.object_id, checkInTime: data.check_in,
+          pausedSince: data.is_paused ? data.pause_start_time : null, pauseSec: data.total_pause_duration || 0 });
+        pauseAusWarteschlange();
       } else {
         // Heutige abgeschlossene Eintraege uebernehmen (nur Server-Daten)
         if (data && data.today_entries) {
@@ -647,6 +666,11 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         setIsWorking(true);
         setCheckInTime(new Date(offState.checkInTime));
         setCurrentObjectId(offState.objectId);
+        setTotalPauseDuration(offState.pauseSec || 0);
+        if (!pauseAusWarteschlange()) {
+          setIsPaused(!!offState.pausedSince);
+          setPauseStartTime(offState.pausedSince ? new Date(offState.pausedSince) : null);
+        }
       }
     }
   };
@@ -1163,21 +1187,50 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
               </div>
             ) : (
               <>
-                <div style={{ textAlign: 'center', margin: '6px 0 14px' }}>
-                  <div style={{ fontSize: '56px', fontWeight: 'bold', fontFamily: 'monospace', color: MARKE.navyDunkel, lineHeight: 1.1 }}>{timerDisplay}</div>
-                  <div style={{ fontSize: '18px', color: '#374151', marginTop: '4px' }}>
-                    Arbeitszeit läuft{checkInTime ? ` – seit ${hm(checkInTime)} Uhr` : ''}
+                {isPaused ? (
+                  <div data-ek-pause style={{ textAlign: 'center', margin: '6px 0 14px' }}>
+                    <div style={{ ...EK.titel, justifyContent: 'center', color: MARKE.navyDunkel }}>
+                      <Pause size={30} aria-hidden="true" /> Pause
+                    </div>
+                    <div style={{ fontSize: '22px', fontWeight: 700, color: MARKE.navy, marginTop: '4px' }}>
+                      Pause seit {pauseStartTime ? hm(pauseStartTime) : '–'} · {pauseStartTime ? Math.max(0, Math.floor((jetzt - pauseStartTime) / MIN)) : 0} Min
+                    </div>
+                    <div style={{ fontSize: '16px', color: '#374151', marginTop: '4px' }}>Arbeitszeit bisher {timerDisplay}</div>
                   </div>
-                </div>
+                ) : (
+                  <div style={{ textAlign: 'center', margin: '6px 0 14px' }}>
+                    <div style={{ fontSize: '56px', fontWeight: 'bold', fontFamily: 'monospace', color: MARKE.navyDunkel, lineHeight: 1.1 }}>{timerDisplay}</div>
+                    <div style={{ fontSize: '18px', color: '#374151', marginTop: '4px' }}>
+                      Arbeitszeit läuft{checkInTime ? ` – seit ${hm(checkInTime)} Uhr` : ''}
+                    </div>
+                  </div>
+                )}
                 {minDurationMsg && (
                   <div style={{ ...EK.karte, border: '3px solid #b45309', background: '#fffbeb', color: '#78350f', fontSize: '17px', fontWeight: 600 }}>
                     <Clock size={24} aria-hidden="true" /> {minDurationMsg}
                   </div>
                 )}
-                <button className="ek-knopf" onClick={handleCheckOut} disabled={actionLoading}
-                  style={{ ...EK.knopf, ...EK.riesig, background: actionLoading ? '#9ca3af' : MARKE.navy }}>
-                  <Square size={44} strokeWidth={3} aria-hidden="true" /> {actionLoading ? 'Wird übertragen…' : 'GEHEN'}
-                </button>
+                {isPaused ? (
+                  <>
+                    <button className="ek-knopf" onClick={handlePauseEnd} disabled={actionLoading}
+                      style={{ ...EK.knopf, ...EK.riesig, background: actionLoading ? '#9ca3af' : MARKE.gold, color: MARKE.navyDunkel }}>
+                      <PlayCircle size={44} strokeWidth={3} aria-hidden="true" /> PAUSE BEENDEN
+                    </button>
+                    <button onClick={handleCheckOut} disabled={actionLoading} style={EK.textKnopf}>
+                      <Square size={18} aria-hidden="true" /> Gehen
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="ek-knopf" onClick={handleCheckOut} disabled={actionLoading}
+                      style={{ ...EK.knopf, ...EK.riesig, background: actionLoading ? '#9ca3af' : MARKE.navy }}>
+                      <Square size={44} strokeWidth={3} aria-hidden="true" /> {actionLoading ? 'Wird übertragen…' : 'GEHEN'}
+                    </button>
+                    <button onClick={handlePauseStart} disabled={actionLoading} style={EK.textKnopf}>
+                      <Pause size={18} aria-hidden="true" /> Pause
+                    </button>
+                  </>
+                )}
                 {stempelStatus}
               </>
             )}
