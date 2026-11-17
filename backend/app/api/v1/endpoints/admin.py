@@ -2257,6 +2257,13 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
     # Bei Datumsänderung: KM-Einträge mitverschieben
     if 'check_in' in data:
         new_date = datetime.fromisoformat(data['check_in'].replace('Z', '+00:00')).date()
+        # Ziel-Tag hat fuer MA/Objekt schon KM -> verstaendlich ablehnen statt Datenbankfehler (500)
+        if db.execute(text(
+            """SELECT 1 FROM km_daily_entries k JOIN km_daily_entries a ON a.time_entry_id = :te_id
+               WHERE k.employee_id = a.employee_id AND k.object_id IS NOT DISTINCT FROM a.object_id
+                 AND k.date = :new_date AND k.id <> a.id LIMIT 1"""), {"new_date": new_date, "te_id": booking_id}).fetchone():
+            db.rollback()
+            raise HTTPException(status_code=409, detail=f"Am {new_date.strftime('%d.%m.%Y')} gibt es für diesen Mitarbeiter und dieses Objekt schon eine KM-Buchung – bitte zuerst die KM prüfen")
         db.execute(text(
             "UPDATE km_daily_entries SET date = :new_date WHERE time_entry_id = :te_id"
         ), {"new_date": new_date, "te_id": booking_id})

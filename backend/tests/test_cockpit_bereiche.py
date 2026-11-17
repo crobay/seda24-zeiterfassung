@@ -3,6 +3,9 @@
 Nur gegen dev_cockpit, jeder Test in einer Transaktion mit Rollback (siehe test_cockpit_rechte.py).
 """
 import os
+
+import pytest
+from sqlalchemy import text
 import sys
 from datetime import date, timedelta
 
@@ -30,7 +33,8 @@ def test_zeit_aendern_repariert_gehen_vor_kommen(client, db):
 
 
 def test_zeit_pruefung(client, db):
-    eid = q(db, "SELECT id FROM time_entries WHERE check_out IS NOT NULL ORDER BY id DESC LIMIT 1")[0][0]
+    eid = q(db, """SELECT id FROM time_entries t WHERE check_out IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM km_daily_entries k WHERE k.time_entry_id = t.id) ORDER BY id DESC LIMIT 1""")[0][0]
     h = token(db, "ADMIN")
     assert client.put(f"/api/v1/cockpit/zeiten/{eid}", json={"datum": "2026-11-10", "kommen": "06:00", "gehen": "05:00"}, headers=h).status_code == 400  # 23 h
     assert client.put(f"/api/v1/cockpit/zeiten/{eid}", json={"datum": "2099-01-01", "kommen": "06:00", "gehen": "08:00"}, headers=h).status_code == 400
@@ -38,6 +42,21 @@ def test_zeit_pruefung(client, db):
     # Nachtschicht: Gehen vor Kommen = naechster Tag
     r = client.put(f"/api/v1/cockpit/zeiten/{eid}", json={"datum": "2026-11-10", "kommen": "22:00", "gehen": "02:00"}, headers=h)
     assert r.status_code == 200 and r.json()["gehen_datum"] == "2026-11-11"
+
+
+def test_zeit_verschieben_km_konflikt(client, db):
+    """Tiefentest: Eintrag mit KM auf einen Tag, an dem MA/Objekt schon KM hat -> 409 mit Klartext statt 500."""
+    r = q(db, """SELECT k.time_entry_id, k.employee_id, k.object_id FROM km_daily_entries k WHERE k.time_entry_id IS NOT NULL
+                 AND k.object_id IS NOT NULL ORDER BY k.id DESC LIMIT 1""")
+    if not r:
+        pytest.skip("keine KM-Daten")
+    te, emp, obj = r[0]
+    db.execute(text("DELETE FROM km_daily_entries WHERE employee_id = :e AND object_id = :o AND date = '2026-09-07'"), {"e": emp, "o": obj})
+    db.execute(text("""INSERT INTO km_daily_entries (employee_id, date, object_id, distance_km, amount, is_billable)
+                       VALUES (:e, '2026-09-07', :o, 1, 0.3, true)"""), {"e": emp, "o": obj})
+    h = token(db, "ADMIN")
+    x = client.put(f"/api/v1/cockpit/zeiten/{te}", json={"datum": "2026-09-07", "kommen": "08:00", "gehen": "09:00"}, headers=h)
+    assert x.status_code == 409 and "KM-Buchung" in x.json()["detail"]
 
 
 def test_zeit_anlegen_und_loeschen(client, db):
