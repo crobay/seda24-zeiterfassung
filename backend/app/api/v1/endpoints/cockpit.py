@@ -881,13 +881,29 @@ def schicht_verschieben(schedule_id: int, data: dict, db: Session = Depends(get_
 
 
 @router.get("/auswahl")
-def auswahl(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
-    """Listen fuer Auswahlfelder (aktive MA, aktive Objekte)."""
+def auswahl(datum: str = Query(None), db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Listen fuer Auswahlfelder (aktive MA, aktive Objekte). Mit datum: je MA, was an dem Tag schon ist
+    (Urlaub/Krank/Absage oder Schichten) und je MA+Objekt, ob er dort mit eigenem Auto faehrt (Zuweisung)."""
     ma = _q(db, """SELECT e.id, e.first_name || ' ' || e.last_name AS name, e.personal_nr FROM employees e JOIN users u ON u.id = e.user_id
                    WHERE e.is_active AND NOT coalesce(e.is_test,false) AND u.role <> 'ADMIN' ORDER BY e.last_name, e.first_name""")
     ob = _q(db, f"""SELECT id, name FROM objects WHERE coalesce(is_active,true) AND NOT coalesce(is_test,false)
                     AND id NOT IN ({OBJ_URLAUB},{OBJ_KRANK}) ORDER BY name""")
-    return {"mitarbeiter": [dict(x) for x in ma], "objekte": [dict(x) for x in ob]}
+    out = {"mitarbeiter": [dict(x) for x in ma], "objekte": [dict(x) for x in ob]}
+    out["fahrer"] = {f"{r['employee_id']}|{r['object_id']}": bool(r["is_driver"]) for r in _q(db, """
+        SELECT employee_id, object_id, coalesce(is_driver, false) AS is_driver FROM employee_object_assignments WHERE coalesce(is_active, true)""")}
+    if datum:
+        from app.services import plan_vorlage as _pv
+        d = _d(datum, "datum")
+        tag = {}
+        for r in _q(db, f"""SELECT s.employee_id, s.start_time, s.end_time, o.name FROM schedules s JOIN objects o ON o.id = s.object_id
+                            WHERE s.date = :d AND s.status IN ('normal', 'vertretung') AND s.start_time IS NOT NULL
+                              AND s.object_id NOT IN ({OBJ_URLAUB},{OBJ_KRANK}) ORDER BY s.start_time""", d=d):
+            tag.setdefault(r["employee_id"], []).append(f"{_hm(r['start_time'])}–{_hm(r['end_time'])} {r['name']}")
+        info = {eid: "arbeitet " + ", ".join(v) for eid, v in tag.items()}
+        for (eid, _), grund in {**_pv.absagen(db, d, d), **_abwesend_map(db, d, d)}.items():
+            info[eid] = grund
+        out["tag"] = {str(k): v for k, v in info.items()}
+    return out
 
 
 # --- Objekt-Detail -----------------------------------------------------------------------------

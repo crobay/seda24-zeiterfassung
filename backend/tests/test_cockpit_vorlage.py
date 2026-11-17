@@ -252,3 +252,17 @@ def test_kontingent_ruzica_januar_und_verteilen(client, db):
     assert client.post(f"{API}/kontingent/verteilen", json={"employee_id": ruz, "monat": "2027-01"}, headers=h).json()["hinweis"]
     client.delete(f"{API}/dienstplan/kopie/{s['kopie_id']}", headers=h)
     assert [x for x in client.get(f"{API}/kontingent?monat=2027-01", headers=h).json()["personen"] if x["employee_id"] == ruz][0]["rest"] == 76
+
+
+def test_auswahl_mit_tag_zeigt_belegung_und_fahrer(client, db):
+    """Tiefentest: Luecke fuellen - Auswahl zeigt je MA Urlaub/Krank oder 'arbeitet ...' und den Fahrer-Status je Objekt."""
+    d = date(2027, 3, 9)
+    leer(db, von=d, bis=d)
+    lara, sumi = emp(db, "D0040"), emp(db, "D0038")
+    ex(db, """INSERT INTO schedules (employee_id, object_id, date, weekday, start_time, end_time, planned_hours, status, created_at, updated_at)
+              VALUES (:l, 999, :d, 1, '00:00', '23:59', 0, 'urlaub', now(), now()), (:s, 20, :d, 1, '06:00', '09:00', 3, 'normal', now(), now())""",
+       l=lara, s=sumi, d=d)
+    r = client.get(f"{API}/auswahl?datum=2027-03-09", headers=ol_headers(db)).json()
+    assert r["tag"][str(lara)] == "Urlaub" and r["tag"][str(sumi)] == "arbeitet 06:00–09:00 Lidl Neu Bie2"
+    assert isinstance(r["fahrer"], dict)
+    assert "tag" not in client.get(f"{API}/auswahl", headers=ol_headers(db)).json()

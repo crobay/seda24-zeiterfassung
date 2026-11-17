@@ -413,14 +413,23 @@ function KopierDialog({ modus, tag, schicht, wochenStart, tage, mitarbeiter, onC
 
 export function SchichtDialog({ id, neu, onClose, onDone, onDuplizieren, onZiel }) {
   const { toast } = useApp();
-  const { data: aus } = useApi('/auswahl');
   const [f, setF] = useState(neu || null);
+  const { data: aus } = useApi(`/auswahl${f?.datum ? `?datum=${f.datum}` : ''}`);   // mit Tag: wer hat Urlaub/arbeitet schon
   const [orig, setOrig] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [confirmDel, setConfirmDel] = useState(false);
   useEffect(() => { if (id) api.get(`/schicht/${id}`).then((r) => { setF(r.data); setOrig(r.data); }).catch((e) => setErr(apiError(e))); }, [id]);
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  const set = (k) => (e) => {
+    const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    const n = { ...f, [k]: v };
+    // Neue Schicht: Fahrer (KM-Geld) aus der Zuweisung des gewaehlten MA zum Objekt, nicht von der fehlenden Person uebernehmen
+    if (!id && (k === 'employee_id' || k === 'object_id') && n.employee_id && n.object_id) {
+      const z = aus?.fahrer?.[`${n.employee_id}|${n.object_id}`];
+      if (z !== undefined) n.fahrer = z;
+    }
+    setF(n);
+  };
   const body = schichtBody;
   const name = (eid) => aus?.mitarbeiter.find((m) => String(m.id) === String(eid))?.name || '';
 
@@ -458,11 +467,11 @@ export function SchichtDialog({ id, neu, onClose, onDone, onDuplizieren, onZiel 
       {!f ? <SkeletonRows n={3} /> : (<>
         <label className="ck-field">{t('zeiten.name')}
           <select className="ck-input" value={f.employee_id} onChange={set('employee_id')} autoFocus={!id}>
-            <option value="">{t('ma.choose')}</option>{(aus?.mitarbeiter || []).map((m) => <option key={m.id} value={m.id}>{m.name} · {m.personal_nr}</option>)}</select></label>
+            <option value="">{t('ma.choose')}</option>{(aus?.mitarbeiter || []).map((m) => <option key={m.id} value={m.id}>{m.name} · {m.personal_nr}{aus?.tag?.[m.id] && String(m.id) !== String(orig?.employee_id) ? ` – ${aus.tag[m.id]}` : ''}</option>)}</select></label>
         <label className="ck-field">{t('zeiten.object')}
           <select className="ck-input" value={f.object_id} onChange={set('object_id')}>
             <option value="">{t('ma.choose')}</option>{(aus?.objekte || []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr', gap: 12 }}>
+        <div className="ck-dzeit">
           <label className="ck-field">{t('zeiten.date')}<input type="date" className="ck-input" value={f.datum} onChange={set('datum')} /></label>
           <label className="ck-field">{t('dienstplan.from')}<input type="time" className="ck-input" value={f.beginn} onChange={set('beginn')} /></label>
           <label className="ck-field">{t('dienstplan.to')}<input type="time" className="ck-input" value={f.ende} onChange={set('ende')} /></label>

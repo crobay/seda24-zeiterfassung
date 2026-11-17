@@ -582,3 +582,8 @@
 .ab-mail > div { margin-bottom: 8px; }
 .ab-big { font-size: 17px; padding: 14px 22px; }
 @media (max-width: 900px) { .ab-steps { grid-template-columns: 1fr; } }
+
+/* Schicht-Dialog: Datum/Beginn/Ende; am Handy Datum ueber die volle Breite, Zeiten darunter (nichts ragt heraus) */
+.ck-dzeit { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 12px; }
+.ck-dzeit .ck-input { min-width: 0; width: 100%; }
+@media (max-width: 560px) { .ck-dzeit { grid-template-columns: 1fr 1fr; } .ck-dzeit > :first-child { grid-column: 1 / -1; } }
