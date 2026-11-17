@@ -1,0 +1,130 @@
+"""Monatsabschluss mit einem Klick (PROTOTYP, nur DEV, nur Admin). Logik in app/services/monatsabschluss.py."""
+from typing import List
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.api.v1.endpoints.admin import verify_admin
+from app.db.database import get_db
+from app.services import monatsabschluss as ma
+from app.services.ol_scope import _ist_admin
+
+router = APIRouter()
+
+
+def nur_admin(user=Depends(verify_admin)):
+    """verify_admin laesst auch die Objektleitung durch - Lohnabrechnungen sieht nur der Admin (Drazen)."""
+    if not _ist_admin(user):
+        raise HTTPException(403, "Nur für Admin")
+    return user
+
+
+def _ym(monat: str):
+    try:
+        y, m = map(int, monat.split("-"))
+        assert 2020 <= y <= 2100 and 1 <= m <= 12
+        return y, m
+    except Exception:
+        raise HTTPException(400, "monat als JJJJ-MM")
+
+
+def _fehler(f):
+    try:
+        return f()
+    except PermissionError as e:
+        raise HTTPException(423, str(e))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    except KeyError:
+        raise HTTPException(404, "Prüfpunkt unbekannt")
+
+
+def _wer(db, user):
+    return db.execute(text("""SELECT coalesce(e.first_name || ' ' || e.last_name, u.email) FROM users u
+                              LEFT JOIN employees e ON e.user_id = u.id WHERE u.id = :i"""), {"i": user.id}).scalar()
+
+
+@router.get("/{monat}")
+def uebersicht(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    z = ma.zustand(db, y, m)
+    p = ma.pruefliste(db, y, m)
+    return {"monat": monat, "status": z["status"], "pruefliste": p, "lohnarten": ma.lohnarten(db),
+            "erzeugt_am": z["erzeugt_am"] and z["erzeugt_am"].isoformat(timespec="minutes"), **ma.dokumente(db, y, m),
+            "protokoll": ma.protokoll(db, y, m)}
+
+
+@router.post("/{monat}/haken")
+def haken(monat: str, data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.haken_setzen(db, y, m, str(data.get("key")), bool(data.get("wert", True)), user.id, _wer(db, user)))
+
+
+@router.put("/einstellungen/lohnarten")
+def lohnarten(data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    return _fehler(lambda: ma.lohnarten_speichern(db, data, user.id))
+
+
+@router.get("/{monat}/lexware-vorschau")
+def lexware_vorschau(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    z = ma.lexware_zeilen(db, y, m)
+    return {"zeilen": [{"personal_nr": p, "name": n, "lohnart": la, "wert": w, "stundensatz": s, "bezeichnung": b} for p, n, la, w, s, b in z],
+            "lohnarten": ma.lohnarten(db)}
+
+
+@router.post("/{monat}/erzeugen")
+def erzeugen(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.erzeugen(db, y, m, user.id))
+
+
+@router.get("/{monat}/paket")
+def paket(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return Response(ma.paket_zip(db, y, m), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="Monatsabschluss_{monat}_fuer_Lexware.zip"'})
+
+
+@router.post("/{monat}/lohnabrechnungen")
+async def hochladen(monat: str, dateien: List[UploadFile] = File(...), db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    roh = []
+    for f in dateien[:300]:
+        b = await f.read()
+        if len(b) > 60_000_000:
+            raise HTTPException(413, f"{f.filename}: zu groß")
+        roh.append((f.filename or "datei", b))
+    return _fehler(lambda: ma.hochladen(db, y, m, roh, user.id))
+
+
+@router.put("/{monat}/dokument/{dok_id}")
+def zuordnen(monat: str, dok_id: int, data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.dokument_zuordnen(db, y, m, dok_id, int(data["employee_id"]), user.id))
+
+
+@router.delete("/{monat}/dokument/{dok_id}")
+def loeschen(monat: str, dok_id: int, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.dokument_loeschen(db, y, m, dok_id))
+
+
+@router.get("/{monat}/vorschau")
+def vorschau(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return ma.vorschau(db, y, m)
+
+
+@router.post("/{monat}/versenden")
+def versenden(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.versenden(db, y, m, user.id))
+
+
+@router.post("/{monat}/wieder-oeffnen")
+def wieder_oeffnen(monat: str, data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.wieder_oeffnen(db, y, m, user.id, data.get("grund")))

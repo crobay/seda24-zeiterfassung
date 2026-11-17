@@ -38,7 +38,7 @@ def can_see_revenue(user) -> bool:
 
 
 def rights(user) -> dict:
-    return {"verwalten": is_manager(user), "kunden_umsaetze": can_see_revenue(user)}
+    return {"verwalten": is_manager(user), "kunden_umsaetze": can_see_revenue(user), "abschluss": _ist_admin(user)}
 
 
 def require_revenue(user):
@@ -84,3 +84,8 @@ async def ol_guard(request: Request, db: Session = Depends(get_db)):
     user = _current_user(request, db)
     if user is not None and not can_see_revenue(user):
         raise HTTPException(status_code=403, detail=FORBIDDEN_UMSATZ)
+
+
+def _ist_admin(user) -> bool:
+    r = getattr(user, "role", None)
+    return (r.value if hasattr(r, "value") else str(r or "")).lower() == "admin"

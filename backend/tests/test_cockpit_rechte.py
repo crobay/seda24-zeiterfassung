@@ -86,8 +86,8 @@ def test_ol_akte_jedes_ma_mit_lohn(client, db):
 
 
 def test_ol_rechte_in_me(client, db):
-    assert client.get("/api/v1/cockpit/me", headers=ol_headers(db)).json()["rechte"] == {"verwalten": True, "kunden_umsaetze": False}
-    assert client.get("/api/v1/cockpit/me", headers=token(db, "ADMIN")).json()["rechte"] == {"verwalten": True, "kunden_umsaetze": True}
+    assert client.get("/api/v1/cockpit/me", headers=ol_headers(db)).json()["rechte"] == {"verwalten": True, "kunden_umsaetze": False, "abschluss": False}
+    assert client.get("/api/v1/cockpit/me", headers=token(db, "ADMIN")).json()["rechte"] == {"verwalten": True, "kunden_umsaetze": True, "abschluss": True}
 
 
 def test_ol_frueher_admin_only_endpunkte_erlaubt(client, db):

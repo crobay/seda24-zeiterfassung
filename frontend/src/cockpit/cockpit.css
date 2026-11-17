@@ -547,3 +547,38 @@
 .ck-plan-fixum { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 8px; border-top: 1px dashed var(--ck-border); color: var(--ck-text-2, inherit); }
 .ck-plan-fixum .ck-btn { margin-left: auto; }
 .ck-gap.is-hervor { outline: 2px solid var(--ck-warn, #b45309); outline-offset: 1px; background: var(--ck-warn-soft, rgba(180, 83, 9, .10)); }
+
+/* Monatsabschluss (Prototyp) */
+.ab-proto { margin-bottom: 16px; }
+.ab-steps { list-style: none; margin: 0 0 18px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.ab-steps button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--ck-border);
+  background: var(--ck-surface); color: var(--ck-text); font: inherit; cursor: pointer; text-align: left; min-height: 52px; }
+.ab-steps button:disabled { opacity: .5; cursor: not-allowed; }
+.ab-steps .is-on button { border-color: var(--ck-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ck-accent) 25%, transparent); font-weight: 650; }
+.ab-num { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--ck-bg-2, rgba(0,0,0,.06)); font-weight: 700; }
+.ab-steps .is-done .ab-num { background: transparent; color: var(--ck-ok, #15803d); }
+.ab-step-txt { display: flex; align-items: center; gap: 6px; line-height: 1.2; }
+.ab-check { list-style: none; margin: 0; padding: 0; }
+.ab-check li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 4px; border-bottom: 1px solid var(--ck-border); }
+.ab-check label { display: flex; align-items: center; gap: 12px; cursor: pointer; font-weight: 600; }
+.ab-check input[type=checkbox] { width: 22px; height: 22px; flex: none; accent-color: var(--ck-ok, #15803d); }
+.ab-check li.is-bad .ab-frage { color: var(--ck-text); }
+.ab-auto { justify-self: end; }
+.ab-detail, .ab-wer { grid-column: 1 / -1; padding-left: 34px; font-size: 13px; color: var(--ck-text-2, #64748b); }
+.ab-check li.is-bad .ab-detail { color: var(--ck-bad, #b91c1c); }
+.ab-foot { display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
+.ab-foot .ck-subtle { margin-right: auto; }
+.ab-la { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.ab-la label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.ab-la .ck-input { width: 110px; }
+.ab-la .ab-la-check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 8px; }
+.ab-lex { max-height: 420px; overflow: auto; }
+.ab-made { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--ck-ok-soft, rgba(21,128,61,.08)); }
+.ab-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px; border: 2px dashed var(--ck-border); border-radius: 14px; cursor: pointer; margin-bottom: 16px; text-align: center; }
+.ab-drop.is-over, .ab-drop:hover { border-color: var(--ck-accent); background: color-mix(in srgb, var(--ck-accent) 6%, transparent); }
+.ab-anh { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ab-row { cursor: pointer; }
+.ab-mail pre { white-space: pre-wrap; font: inherit; background: var(--ck-bg-2, rgba(0,0,0,.04)); padding: 12px; border-radius: 10px; }
+.ab-mail > div { margin-bottom: 8px; }
+.ab-big { font-size: 17px; padding: 14px 22px; }
+@media (max-width: 900px) { .ab-steps { grid-template-columns: 1fr; } }

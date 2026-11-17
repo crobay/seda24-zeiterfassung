@@ -41,3 +41,6 @@ build/
 # Zeiterfassungs-Export (Personendaten) und Export-Schluessel - nie ins Git
 backend/exports/
 backend/secrets/
+
+# Monatsabschluss-Dateien (Lohnabrechnungen, PDFs) nie ins Git
+backend/data/

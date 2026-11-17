@@ -11,7 +11,7 @@ from app.api.v1.endpoints import (
     corrections, warnings, quick_booking, hours_management,
     admin, schedule, vacation, km
 )
-from app.api.v1.endpoints import push, confirmations, messages, self_booking, fest, export, cockpit
+from app.api.v1.endpoints import push, confirmations, messages, self_booking, fest, export, cockpit, abschluss
 from app.services.ol_scope import ol_guard
 from app.middleware.audit import AuditMiddleware
 from app.services.scheduler import init_scheduler, shutdown_scheduler
@@ -122,6 +122,7 @@ app.include_router(hours_management.router, prefix="/api/v1/hours-management", t
 app.include_router(km.router, prefix="/api/v1/km", tags=["km"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(ol_guard)])
 app.include_router(cockpit.router, prefix="/api/v1/cockpit", tags=["cockpit"])
+app.include_router(abschluss.router, prefix="/api/v1/cockpit/abschluss", tags=["monatsabschluss"])  # Prototyp, nur Admin
 app.include_router(schedule.router, prefix="/api/v1/schedule", tags=["schedule"])
 app.include_router(vacation.router, prefix="/api/v1/vacation", tags=["vacation"])
 

@@ -13,6 +13,7 @@ const Objekte = lazy(() => import('./pages/Objekte'));
 const ObjektDetail = lazy(() => import('./pages/ObjektDetail'));
 const Zeiten = lazy(() => import('./pages/Zeiten'));
 const Abrechnung = lazy(() => import('./pages/Abrechnung'));
+const Abschluss = lazy(() => import('./pages/Abschluss'));
 const Einstellungen = lazy(() => import('./pages/Einstellungen'));
 
 function Guard({ right, children }) {
@@ -39,6 +40,7 @@ export default function Cockpit() {
               <Route path="objekte/:id" element={<ObjektDetail />} />
               <Route path="zeiten" element={<Zeiten />} />
               <Route path="abrechnung" element={<Guard right="verwalten"><Abrechnung /></Guard>} />
+              <Route path="abschluss" element={<Guard right="abschluss"><Abschluss /></Guard>} />
               <Route path="einstellungen" element={<Guard right="verwalten"><Einstellungen /></Guard>} />
               <Route path="*" element={<Navigate to="/cockpit" replace />} />
             </Routes>
