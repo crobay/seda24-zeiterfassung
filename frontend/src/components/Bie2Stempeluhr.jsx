@@ -1240,7 +1240,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
                   style={{ ...EK.knopf, ...(fertig ? { minHeight: '140px', fontSize: '32px' } : EK.riesig), background: actionLoading ? '#9ca3af' : '#15803d' }}>
                   <Play size={44} strokeWidth={3} aria-hidden="true" /> {actionLoading ? 'Wird übertragen…' : 'KOMMEN'}
                 </button>
-                {stempelStatus}
+                {!fertig && stempelStatus /* nach Gehen ist die Erledigt-Karte der Status */}
               </>
             )}
 
