@@ -131,7 +131,7 @@ try {
   // Historie, Neu laden im Portal, spaeter mit Netz oeffnen
   console.log('Fall 9: Laras Ablauf - Gast-WLAN mit Anmeldeseite');
   await page.getByRole('button', { name: 'KOMMEN', exact: true }).click();
-  await page.locator('[data-stempel-status="ok"]').filter({ hasText: 'Kommen' }).waitFor();
+  await page.locator('[data-stempel-status="ok"]').filter({ hasText: `Kommen ${hhmmss(new Date()).slice(0, 5)} übertragen` }).waitFor();
   await page.getByRole('button', { name: 'Historie' }).click();                     // online: Historie wird gespeichert
   await page.getByText('Arbeitshistorie').waitFor();
   await page.getByRole('button', { name: 'Stempel' }).click();
@@ -173,15 +173,19 @@ try {
   // Eingestempelt (vom Server bestaetigt), dann Gast-WLAN + Neu laden: bleibt "eingestempelt"
   console.log('Fall 10: eingestempelt, Gast-WLAN, Neu laden');
   await page.getByRole('button', { name: 'KOMMEN', exact: true }).click();
-  await page.locator('[data-stempel-status="ok"]').filter({ hasText: 'Kommen' }).waitFor();
+  await page.locator('[data-stempel-status="ok"]').filter({ hasText: `Kommen ${hhmmss(new Date()).slice(0, 5)} übertragen` }).waitFor();
   await page.route('**/api/v1/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: PORTAL_HTML }));
   await page.reload();
   const laeuft = await page.getByText('Arbeitszeit läuft').waitFor({ timeout: 15000 }).then(() => true, () => false);
   ok('nach Neu laden im Portal weiter eingestempelt (GEHEN-Knopf, Zähler)', laeuft && await page.getByRole('button', { name: 'GEHEN', exact: true }).isVisible());
+  if (!laeuft) {
+    console.log('    Zustand:', await page.evaluate(() => [localStorage.getItem('bie2_offline_state'), localStorage.getItem('bie2_offline_queue')].join(' | ')));
+    await page.screenshot({ path: path.join(OUT, 'fehler_fall10.png') });
+  }
   await page.unroute('**/api/v1/**');
   await page.reload();
   await page.getByRole('button', { name: 'GEHEN', exact: true }).click();
-  ok('danach GEHEN online: ✓', await page.locator('[data-stempel-status="ok"]').filter({ hasText: 'Gehen' }).waitFor({ timeout: 8000 }).then(() => true, () => false));
+  ok('danach GEHEN online: ✓', await page.locator('[data-stempel-status="ok"]').filter({ hasText: `Gehen ${hhmmss(new Date()).slice(0, 5)} übertragen` }).waitFor({ timeout: 8000 }).then(() => true, () => false));
 } finally {
   const neu = sql(`SELECT string_agg(id::text, ',') FROM time_entries WHERE employee_id = ${EMP} AND id > ${START_IDS}`);
   if (neu) {
