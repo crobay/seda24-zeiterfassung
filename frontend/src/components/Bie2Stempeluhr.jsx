@@ -725,7 +725,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       await performAction('check_in', obj);
       const wartet = getPendingCount() > 0;
       const zeit = uhrzeit(new Date().toISOString());
-      setQuittung({ art: wartet ? 'wartet' : 'ok', text: wartet ? `Kommen ${zeit} gespeichert` : `Angekommen – Kommen ${zeit}` });
+      setQuittung({ art: wartet ? 'wartet' : 'ok', text: wartet ? `Kommen ${zeit} – wird übertragen` : `Kommen ${zeit}` });
       vibriere(wartet ? [40, 60, 40] : 80);
       setTimeout(() => setQuittung(null), 3000);
     } catch (e) {
