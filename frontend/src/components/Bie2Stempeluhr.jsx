@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { Play, Square, Pause, PlayCircle, Building, Clock, AlertCircle, X as CloseIcon, Wifi, WifiOff, Check, RefreshCw, Hourglass, CheckCircle } from 'lucide-react';
 import { API_URL } from '../config.js';
+import './stempeluhr-marke.css';
 import { saveCObjects, loadCachedCObjects } from '../services/cObjectsCache';
 import { QUEUE_KEY, vonUnseremServer, currentOwner, isOwnItem, AKTION_NAME, uhrzeit, stempelText } from '../services/stempelStatus';
 
@@ -148,19 +149,22 @@ function saveOfflineState(state) {
 }
 
 // ==================== Ein-Knopf-Ablauf: Stile ====================
+// Firmen-Look SEDA24 = dieselben Werte wie die Cockpit-Branding-Einstellung (Navy/Gold, Poppins/Open Sans)
+const MARKE = { navy: '#1E537C', navyDunkel: '#0E2A40', gold: '#F9B233', titel: "'Poppins', 'Open Sans', system-ui, sans-serif" };
+
 // Grosse Schrift, Daumen-Zone, farbenblind-sicher: Symbol + Wort + Rahmen (durchgezogen = fertig, gestrichelt = wartet)
 const EK = {
   kopf: { textAlign: 'center', marginBottom: '14px' },
-  objekt: { fontSize: '26px', fontWeight: 800, color: '#111827', lineHeight: 1.2 },
-  schichtzeit: { fontSize: '22px', fontWeight: 600, color: '#374151', marginTop: '4px' },
+  objekt: { fontSize: '26px', fontWeight: 700, color: MARKE.navyDunkel, lineHeight: 1.2, fontFamily: MARKE.titel },
+  schichtzeit: { fontSize: '22px', fontWeight: 600, color: MARKE.navy, marginTop: '4px' },
   knopf: {
-    width: '100%', border: 'none', borderRadius: '24px', color: 'white', fontWeight: 900, letterSpacing: '1px',
+    width: '100%', border: 'none', borderRadius: '24px', color: 'white', fontWeight: 700, letterSpacing: '1px', fontFamily: MARKE.titel,
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', cursor: 'pointer',
     boxShadow: '0 6px 16px rgba(0,0,0,0.25)', marginTop: '6px',
   },
   riesig: { minHeight: 'max(260px, 42vh)', fontSize: '42px' },
   karte: { borderRadius: '18px', padding: '18px', marginBottom: '14px', display: 'flex', flexDirection: 'column', gap: '8px' },
-  titel: { fontSize: '26px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '10px' },
+  titel: { fontSize: '26px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px', fontFamily: MARKE.titel },
   zeile: { fontSize: '20px', fontWeight: 700 },
   klein: { fontSize: '16px', color: 'inherit' },
   ok: { border: '4px solid #166534', background: '#f0fdf4', color: '#14532d' },
@@ -1021,7 +1025,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   ) : null;
 
   return (
-    <div style={{ marginTop: '16px' }}>
+    <div className="ek-marke" style={{ marginTop: '16px' }}>
       {/* Netz-Anzeige: Lidl-WLAN (gruen) vs. Mobilfunk (orange) */}
       {netStatus && netStatus.at_object != null && (
         netStatus.at_object ? (
@@ -1057,8 +1061,8 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       )}
 
       {/* Header */}
-      <div style={{
-        background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+      <div className="ek-titel-schrift" style={{
+        background: MARKE.navy,
         borderRadius: '12px 12px 0 0', padding: '10px 16px', color: 'white',
         fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
       }}>
@@ -1081,7 +1085,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       </div>
 
       <div style={{
-        background: 'white', border: '2px solid #f97316', borderTop: 'none',
+        background: 'white', border: `2px solid ${MARKE.navy}`, borderTop: 'none',
         borderRadius: '0 0 12px 12px', padding: '16px'
       }}>
         {/* Sync-Status Banner */}
@@ -1160,7 +1164,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
             ) : (
               <>
                 <div style={{ textAlign: 'center', margin: '6px 0 14px' }}>
-                  <div style={{ fontSize: '56px', fontWeight: 'bold', fontFamily: 'monospace', color: '#1f2937', lineHeight: 1.1 }}>{timerDisplay}</div>
+                  <div style={{ fontSize: '56px', fontWeight: 'bold', fontFamily: 'monospace', color: MARKE.navyDunkel, lineHeight: 1.1 }}>{timerDisplay}</div>
                   <div style={{ fontSize: '18px', color: '#374151', marginTop: '4px' }}>
                     Arbeitszeit läuft{checkInTime ? ` – seit ${hm(checkInTime)} Uhr` : ''}
                   </div>
@@ -1171,7 +1175,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
                   </div>
                 )}
                 <button className="ek-knopf" onClick={handleCheckOut} disabled={actionLoading}
-                  style={{ ...EK.knopf, ...EK.riesig, background: actionLoading ? '#9ca3af' : '#b91c1c' }}>
+                  style={{ ...EK.knopf, ...EK.riesig, background: actionLoading ? '#9ca3af' : MARKE.navy }}>
                   <Square size={44} strokeWidth={3} aria-hidden="true" /> {actionLoading ? 'Wird übertragen…' : 'GEHEN'}
                 </button>
                 {stempelStatus}
@@ -1237,7 +1241,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
                   <div style={EK.kopf}><div style={EK.objekt}>{cObjects[0].name}</div></div>
                 )}
                 <button className="ek-knopf" onClick={() => handleCheckIn(zustand === 'kommen' ? schicht.object_id : selectedObject)} disabled={actionLoading}
-                  style={{ ...EK.knopf, ...(fertig ? { minHeight: '140px', fontSize: '32px' } : EK.riesig), background: actionLoading ? '#9ca3af' : '#15803d' }}>
+                  style={{ ...EK.knopf, ...(fertig ? { minHeight: '140px', fontSize: '32px' } : EK.riesig), background: actionLoading ? '#9ca3af' : MARKE.gold, color: MARKE.navyDunkel }}>
                   <Play size={44} strokeWidth={3} aria-hidden="true" /> {actionLoading ? 'Wird übertragen…' : 'KOMMEN'}
                 </button>
                 {!fertig && stempelStatus /* nach Gehen ist die Erledigt-Karte der Status */}
