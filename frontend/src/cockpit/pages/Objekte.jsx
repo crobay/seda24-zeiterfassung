@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Building2, Users, CalendarCheck2, MapPin, Search, Car, Check, AlertTriangle, X } from 'lucide-react';
-import { api, apiError, t, fmtNum, useApi, useApp, Status, Skeleton, SkeletonRows, Empty, ErrorBox } from '../core';
+import { api, apiError, t, fmtNum, useApi, useApp, Status, Skeleton, SkeletonRows, Empty, ErrorBox, ObjektMarke } from '../core';
 
 /* Inline-Eingabe einer KM-Strecke (MA -> Objekt), mit Rückgängig */
 export function KmEingabe({ emp, obj, km, name, onSaved }) {
@@ -58,7 +58,7 @@ export default function Objekte() {
           {!fehlt.data ? <SkeletonRows n={2} /> : fehlt.data.length === 0 ? <Empty icon={Check} title={t('obj.km_all_ok')} text={t('obj.km_all_ok_hint')} /> : (
             <ul className="ck-list">{fehlt.data.map((r) => (
               <li key={`${r.employee_id}-${r.object_id}`} className="ck-row">
-                <div className="ck-row-main"><div className="ck-row-title"><Link to={`/cockpit/mitarbeiter/${r.employee_id}`}>{r.name}</Link> → <Link to={`/cockpit/objekte/${r.object_id}`}>{r.objekt}</Link></div>
+                <div className="ck-row-main"><div className="ck-row-title"><Link to={`/cockpit/mitarbeiter/${r.employee_id}`}>{r.name}</Link> → <Link to={`/cockpit/objekte/${r.object_id}`}><ObjektMarke id={r.object_id} name={r.objekt} size="xs" /></Link></div>
                   <div className="ck-row-meta">{t('obj.km_why')}</div></div>
                 <KmEingabe emp={r.employee_id} obj={r.object_id} km={null} name={r.name} onSaved={() => { fehlt.reload(); reload(); }} />
               </li>))}</ul>)}
@@ -71,7 +71,7 @@ export default function Objekte() {
         <div className="ck-tiles">
           {list.map((o) => (
             <Link key={o.id} to={`/cockpit/objekte/${o.id}`} className="ck-card ck-tile">
-              <div style={{ fontWeight: 650, fontSize: 17, display: 'flex', gap: 8, alignItems: 'center' }}><Building2 size={18} />{o.name}</div>
+              <div style={{ fontWeight: 650, fontSize: 17, display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}><ObjektMarke id={o.id} name={o.name} size="md" /></div>
               <div className="ck-muted" style={{ fontSize: 15 }}>{o.kunde || '–'}</div>
               {o.address && <div className="ck-subtle" style={{ display: 'flex', gap: 6 }}><MapPin size={15} style={{ flex: 'none', marginTop: 3 }} />{o.address}</div>}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>

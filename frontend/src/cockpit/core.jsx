@@ -74,6 +74,7 @@ export function AppProvider({ children }) {
   const setDark = useCallback((d) => { localStorage.setItem(THEME_KEY, d ? 'dark' : 'light'); setDarkState(d); }, []);
   const [toasts, setToasts] = useState([]);
   const [counts, setCounts] = useState({});
+  const [marken, setMarken] = useState({ palette: [], marken: {} });
   const timers = useRef({});
 
   useEffect(() => {  // Schriften des Brandings lokal nachladen (z. B. /brand/seda24/fonts/fonts.css)
@@ -82,7 +83,8 @@ export function AppProvider({ children }) {
     document.head.appendChild(l);
   }, [brand?.schrift_css]);
   const loadBrand = useCallback(() => api.get('/branding').then((r) => { setBrand(r.data); setLang(r.data.sprache || 'de'); }).catch(() => setBrand({ firma: '', akzent: '#2563eb' })), []);
-  useEffect(() => { loadBrand(); api.get('/me').then((r) => setMe(r.data)).catch(() => setMe(false)); }, [loadBrand]);
+  const loadMarken = useCallback(() => api.get('/objekt-marken').then((r) => setMarken(r.data)).catch(() => {}), []);
+  useEffect(() => { loadBrand(); loadMarken(); api.get('/me').then((r) => setMe(r.data)).catch(() => setMe(false)); }, [loadBrand, loadMarken]);
 
   const dismiss = useCallback((id) => { setToasts((ts) => ts.filter((x) => x.id !== id)); clearTimeout(timers.current[id]); }, []);
   const toast = useCallback((text, { undo, tone } = {}) => {
@@ -91,7 +93,8 @@ export function AppProvider({ children }) {
     timers.current[id] = setTimeout(() => dismiss(id), undo ? 7000 : 4000);
   }, [dismiss]);
 
-  const value = useMemo(() => ({ brand, setBrand, loadBrand, me, dark, setDark, toast, counts, setCounts }), [brand, me, dark, toast, counts, loadBrand]);
+  const value = useMemo(() => ({ brand, setBrand, loadBrand, me, dark, setDark, toast, counts, setCounts, marken, loadMarken }),
+    [brand, me, dark, toast, counts, loadBrand, marken, loadMarken]);
   const style = brandStyle(brand);
   return (
     <Ctx.Provider value={value}>
@@ -108,6 +111,24 @@ export function AppProvider({ children }) {
         </div>
       </div>
     </Ctx.Provider>
+  );
+}
+
+/* ---------- Objekt: Logo bzw. farbiges Kuerzel, immer zusammen mit dem Namen (nie Farbe allein) ---------- */
+export function ObjektMarke({ id, name, size = 'sm', ohneName = false, className = '' }) {
+  const { marken } = useApp() || {};
+  const m = marken?.marken?.[String(id)];
+  const px = { xs: 20, sm: 24, md: 34, lg: 56 }[size] || 24;
+  const zeichen = m ? (m.logo
+    ? <img className="ck-om-logo" src={m.logo} alt="" width={px} height={px} style={{ width: px, height: px }} />
+    : <span className="ck-om-kz" aria-hidden="true"
+        style={{ width: px, height: px, background: m.farbe, color: m.text, fontSize: Math.round(px * (m.kuerzel.length > 2 ? 0.4 : 0.5)) }}>{m.kuerzel}</span>)
+    : null;
+  if (ohneName) return zeichen;
+  return (
+    <span className={`ck-om ck-om-${size} ${className}`} title={name}>
+      {zeichen}<span className="ck-om-name">{name}</span>
+    </span>
   );
 }
 

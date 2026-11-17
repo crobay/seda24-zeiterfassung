@@ -1028,6 +1028,82 @@ def objekt_entziehen(employee_id: int, assignment_id: int, db: Session = Depends
     return {"status": "beendet"}
 
 
+# --- Objekt-Logo / farbiges Kuerzel (nur interne Anzeige) -----------------------------------------
+def _objekt_sichtbar(db, user, object_id):
+    obj, _ = _scope(db, user)
+    if obj is not None and object_id not in obj:
+        raise HTTPException(403, "Kein Zugriff auf dieses Objekt")
+    o = _q(db, "SELECT id, name FROM objects WHERE id = :i", i=object_id)
+    if not o:
+        raise HTTPException(404, "Objekt nicht gefunden")
+    return o[0]
+
+
+def _marke_speichern(db, user, object_id, felder: dict, was: str):
+    from app.services import objekt_marke as om
+    o = _objekt_sichtbar(db, user, object_id)
+    om.tabelle(db)
+    alt = om.marken(db, [object_id]).get(object_id)
+    sets = ", ".join(f"{k} = :{k}" for k in felder)
+    db.execute(text(f"""INSERT INTO objekt_marken (object_id, {", ".join(felder)}, updated_at, updated_by)
+                        VALUES (:oid, {", ".join(":" + k for k in felder)}, now(), :uid)
+                        ON CONFLICT (object_id) DO UPDATE SET {sets}, updated_at = now(), updated_by = :uid"""),
+               {"oid": object_id, "uid": user.id, **felder})
+    neu = om.marken(db, [object_id]).get(object_id)
+    kurz = lambda m: {"kuerzel": m["kuerzel"], "farbe": m["farbe"], "logo": bool(m["logo"])}  # noqa: E731
+    log_audit(db, user.id, None, "objekt_marke_geaendert", entity_type="object", entity_id=object_id,
+              old_value=kurz(alt), new_value=kurz(neu), details=f"Objekt {o['name']}: {was}")
+    db.commit()
+    return {**neu, "object_id": object_id}
+
+
+@router.get("/objekt-marken")
+def objekt_marken(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Logo/Kuerzel/Farbe aller sichtbaren Objekte + Palette (fuer Anzeige ueberall im Cockpit)."""
+    from app.services import objekt_marke as om
+    obj, _ = _scope(db, user)
+    m = om.marken(db, obj)
+    db.commit()
+    return {"palette": om.PALETTE, "marken": {str(k): v for k, v in m.items()}}
+
+
+@router.put("/objekte/{object_id}/marke")
+def objekt_marke_aendern(object_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Kuerzel (1-3 Zeichen) und Farbe (aus der Palette) aendern; leer = automatisch."""
+    import re
+    from app.services import objekt_marke as om
+    felder = {}
+    if "kuerzel" in data:
+        k = str(data.get("kuerzel") or "").strip().upper()
+        if k and not re.fullmatch(r"[A-Z0-9ÄÖÜ]{1,3}", k):
+            raise HTTPException(400, "Kürzel: 1–3 Buchstaben oder Ziffern")
+        felder["kuerzel"] = k or None
+    if "farbe" in data:
+        f = str(data.get("farbe") or "").strip().upper()
+        if f and f not in om.PALETTE:
+            raise HTTPException(400, "Farbe bitte aus der Palette wählen")
+        felder["farbe"] = f or None
+    if not felder:
+        raise HTTPException(400, "Nichts zu ändern")
+    return _marke_speichern(db, user, object_id, felder, "Kürzel/Farbe geändert")
+
+
+@router.put("/objekte/{object_id}/logo")
+def objekt_logo_hochladen(object_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Logo als kleines PNG (im Browser verkleinert) - nur interne Anzeige."""
+    from app.services import objekt_marke as om
+    try:
+        logo = om.pruefe_logo(data.get("logo"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _marke_speichern(db, user, object_id, {"logo": logo}, "Logo hochgeladen")
+
+
+@router.delete("/objekte/{object_id}/logo")
+def objekt_logo_entfernen(object_id: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    return _marke_speichern(db, user, object_id, {"logo": None}, "Logo entfernt")
+
+
 # --- Branding (Produktfaehigkeit: Name, Logo, Farben, Schriften aus einer Einstellung) ---------
 # Neutrale Vorgaben (stampo24); der Firmen-Look steht nur in der Einstellung, nicht im Code.
 #   akzent      Hauptfarbe (Links, aktive Navigation, Kennzahlen)

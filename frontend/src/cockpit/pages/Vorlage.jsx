@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, useDraggable, useDroppable } from '@dnd-kit/core';
 import { Plus, Trash2, AlertTriangle, Copy, MoveRight, Car, Hand, CalendarCog, CalendarPlus, Import, Repeat } from 'lucide-react';
-import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Dialog, Status, Empty } from '../core';
+import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Dialog, Status, Empty, ObjektMarke } from '../core';
 import { zielErkennung, useCopyModifier } from './Dienstplan';
 
 const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -102,7 +102,7 @@ export default function Vorlage() {
             <DragOverlay dropAnimation={null}>
               {drag ? <div className={`ck-shift ck-shift-drag${copyOn ? ' is-copy' : ''}`}>
                 <span className="ck-drag-mode">{copyOn ? <><Copy size={13} />{t('dnd.mode_copy')}</> : <><MoveRight size={13} />{t('dnd.mode_move')}</>}</span>
-                <b>{drag.name}</b><span className="ck-num">{drag.beginn}–{drag.ende}</span> · {drag.objekt}</div> : null}
+                <b>{drag.name}</b><span className="ck-num">{drag.beginn}–{drag.ende}</span> · <ObjektMarke id={drag.object_id} name={drag.objekt} size="xs" /></div> : null}
             </DragOverlay>
           </DndContext>)}
       {edit && <VorlageDialog e={edit.e} neu={edit.neu} aus={aus} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
@@ -125,7 +125,7 @@ function VlChip({ e, zeigeObjekt, onOpen }) {
   return (
     <div className={`ck-shift ck-shift-btn ck-drag${isDragging ? ' is-dragging' : ''}`} data-vorlage={e.id} ref={setNodeRef} {...attributes} {...listeners}
       role="button" tabIndex={0} aria-roledescription={t('dnd.aria')} onClick={onOpen} onKeyDown={(k) => { if (k.key === 'Enter') onOpen(); listeners?.onKeyDown?.(k); }}>
-      <span className="ck-num">{e.beginn}–{e.ende}</span>{zeigeObjekt && <> · {e.objekt}</>}
+      <span className="ck-num">{e.beginn}–{e.ende}</span>{zeigeObjekt && <> · <ObjektMarke id={e.object_id} name={e.objekt} size="xs" /></>}
       {e.fahrer && <span title={t('dienstplan.driver')} style={{ marginLeft: 6, verticalAlign: '-2px' }}><Car size={14} aria-label={t('dienstplan.driver')} /></span>}
       {e.rhythmus !== 'weekly' && <span className="ck-mini m-info" style={{ marginLeft: 6 }}><Repeat size={12} />{t(`vorlage.r_${e.rhythmus}`)}</span>}
     </div>);
@@ -225,7 +225,7 @@ function AusWocheDialog({ objekte, obj, onClose, onDone }) {
         {vor.eintraege.length === 0 ? <div className="ck-subtle">{t('kopie.nothing')}</div> : (
           <ul className="ck-list ck-kopie-list">{vor.eintraege.map((x, i) => (
             <li key={i} className={`ck-kopie-row${x.status !== 'ok' ? ' is-skip' : ''}`}>
-              <span className="ck-num">{x.tag}</span><span><b>{x.name}</b> · {x.objekt} · <span className="ck-num">{x.beginn}–{x.ende}</span></span>
+              <span className="ck-num">{x.tag}</span><span><b>{x.name}</b> · <ObjektMarke id={x.object_id} name={x.objekt} size="xs" /> · <span className="ck-num">{x.beginn}–{x.ende}</span></span>
               {x.status === 'ok' ? <Status s="approved" label={t('kopie.st_ok')} /> : <Status s="fehlt" label={t('kopie.st_skip', { grund: x.grund })} />}
             </li>))}</ul>)}
       </div>}

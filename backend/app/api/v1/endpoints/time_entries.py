@@ -1988,6 +1988,10 @@ def get_my_c_objects(
         EmployeeObjectAssignment.is_active == True
     ).all()
 
+    # Logo/Kuerzel fuer den Schicht-Kopf der Stempeluhr (wird mit der Objektliste offline gespeichert)
+    from app.services import objekt_marke as om
+    marken = om.marken(db, [a.object_id for a in assignments]) if assignments else {}
+    db.commit()
     result = []
     for a in assignments:
         obj = db.query(Object).filter(Object.id == a.object_id).first()
@@ -1996,6 +2000,7 @@ def get_my_c_objects(
                 "id": obj.id,
                 "name": obj.name,
                 "address": obj.address,
+                "marke": marken.get(obj.id),
             })
 
     return result

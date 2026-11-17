@@ -530,3 +530,15 @@
 .ck-konto-zahlen dd { margin: 0; font-weight: 650; font-size: 15px; }
 .ck-konto-zahlen .is-warn dd { color: var(--ck-warn); }
 .ck-vl-matrix { min-width: 860px; }
+
+/* Objekt-Logo / farbiges Kuerzel (immer mit Namen) */
+.ck-om { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; vertical-align: middle; }
+.ck-om-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ck-om-kz { display: inline-grid; place-items: center; flex: none; border-radius: 6px; font-weight: 800; letter-spacing: .02em;
+            line-height: 1; box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
+.ck-om-logo { flex: none; object-fit: contain; border-radius: 6px; background: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.ck-om-lg { gap: 12px; }
+/* klein (Karten, Tabellen): Name fliesst wie Text und bricht um - nie nur das Kuerzel */
+.ck-om-xs { display: inline; }
+.ck-om-xs .ck-om-kz, .ck-om-xs .ck-om-logo { display: inline-grid; vertical-align: -5px; margin-right: 5px; }
+.ck-om-xs .ck-om-name { white-space: normal; overflow: visible; }

@@ -5,7 +5,7 @@ import {
   Building2, CalendarRange, AlertTriangle, ChevronRight, FileCheck2, CheckCircle2, Car, TrendingUp, TrendingDown, Minus,
   Activity, LogIn, LogOut, Bot, Pencil, ArrowRightLeft, Clock, CircleCheckBig, Moon as MoonIcon, CalendarClock, CircleDashed, BellRing,
 } from 'lucide-react';
-import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Skeleton, Empty, ErrorBox, Dialog } from '../core';
+import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Skeleton, Empty, ErrorBox, Dialog, ObjektMarke } from '../core';
 
 const greet = () => { const h = new Date().getHours(); return t(h < 11 ? 'greet.morning' : h < 18 ? 'greet.day' : 'greet.evening'); };
 const ATTENTION = ['fehlt', 'offen'];
@@ -165,7 +165,7 @@ function ShiftRow({ s }) {
       <span className="ck-row-time">{s.beginn}</span>
       <div className="ck-row-main">
         <div className="ck-row-title"><Link to={`/cockpit/mitarbeiter/${s.employee_id}`}>{s.name}</Link></div>
-        <div className="ck-row-meta"><Link className="ck-link" to={`/cockpit/objekte/${s.object_id}`}>{s.objekt}</Link> · {s.beginn}–{s.ende}
+        <div className="ck-row-meta"><Link className="ck-link" to={`/cockpit/objekte/${s.object_id}`}><ObjektMarke id={s.object_id} name={s.objekt} size="xs" /></Link> · {s.beginn}–{s.ende}
           <span className="ck-tag" title={t(`kat.${s.kategorie}`)}>{t(`kat.${s.kategorie}`).split(' · ')[1]}</span></div>
       </div>
       <Link className="ck-shift-status" to={s.eintrag_id ? `/cockpit/zeiten?eintrag=${s.eintrag_id}` : `/cockpit/zeiten?neu=${s.schicht_id}`}
@@ -203,7 +203,7 @@ function ObjekteHeute({ shifts, objs, loading, className }) {
         <div className="ck-objgrid">
           {tiles.filter((o) => o.main !== 'frei').map((o) => (
             <Link key={o.id} to={`/cockpit/objekte/${o.id}`} className={`ck-objtile${o.main === 'offen' ? ' is-warn' : ''}`}>
-              <b>{o.name}</b>
+              <b><ObjektMarke id={o.id} name={o.name} size="md" /></b>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {['offen', 'besetzt', 'kommt', 'fertig'].filter((x) => o.c[x]).map((x) => (
                   <Status key={x} s={OBJ_STATUS[x].s} label={`${o.c[x]} ${t(`ls.${OBJ_STATUS[x].key}`)}`} />))}
@@ -218,7 +218,7 @@ function ObjekteHeute({ shifts, objs, loading, className }) {
         {tiles.some((o) => o.main === 'frei') && (
           <div style={{ padding: '0 20px 18px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <span className="ck-mini m-info" style={{ marginRight: 4 }}><MoonIcon size={14} />{t('ls.idle_list')}</span>
-            {tiles.filter((o) => o.main === 'frei').map((o) => <Link key={o.id} to={`/cockpit/objekte/${o.id}`} className="ck-tag" style={{ textDecoration: 'none' }}>{o.name}</Link>)}
+            {tiles.filter((o) => o.main === 'frei').map((o) => <Link key={o.id} to={`/cockpit/objekte/${o.id}`} className="ck-tag" style={{ textDecoration: 'none' }}><ObjektMarke id={o.id} name={o.name} size="xs" /></Link>)}
           </div>
         )}
         </>

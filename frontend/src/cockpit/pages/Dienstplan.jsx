@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useSearchParams } from 'react-router-dom';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, useDraggable, useDroppable, pointerWithin, rectIntersection } from '@dnd-kit/core';
 import { ChevronLeft, ChevronRight, Car, Pencil, Plus, Trash2, AlertTriangle, Palmtree, Thermometer, Copy, CopyPlus, MoveRight, Undo2, X, CalendarRange, Users, Rows3, Hand, CalendarPlus, CircleDashed, UserPlus, Search, CheckCircle2, RotateCcw, Scale } from 'lucide-react';
-import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Skeleton, Dialog, Status } from '../core';
+import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Skeleton, Dialog, Status, ObjektMarke } from '../core';
 
 const ScheduleTab = lazy(() => import('../../components/ScheduleTab'));
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -194,7 +194,7 @@ export default function Dienstplan() {
           <DragOverlay dropAnimation={null}>
             {drag ? <div className={`ck-shift ck-shift-drag${copyOn ? ' is-copy' : ''}`}>
               <span className="ck-drag-mode">{copyOn ? <><Copy size={13} />{t('dnd.mode_copy')}</> : <><MoveRight size={13} />{t('dnd.mode_move')}</>}</span>
-              {drag.typ === 'ma' ? <><UserPlus size={15} /> <b>{drag.name}</b></> : <><b>{drag.name}</b><span className="ck-num">{drag.beginn}–{drag.ende}</span> · {drag.objekt}</>}</div> : null}
+              {drag.typ === 'ma' ? <><UserPlus size={15} /> <b>{drag.name}</b></> : <><b>{drag.name}</b><span className="ck-num">{drag.beginn}–{drag.ende}</span> · <ObjektMarke id={drag.object_id} name={drag.objekt} size="xs" /></>}</div> : null}
           </DragOverlay>
         </DndContext>
       )}
@@ -237,7 +237,7 @@ function SchichtChip({ s, onOpen, onZiel, kompakt }) {
       role="button" tabIndex={0} aria-roledescription={t('dnd.aria')} onClick={() => onOpen(s)}
       onKeyDown={(e) => { if (e.key === 'Enter') onOpen(s); listeners?.onKeyDown?.(e); }}>
       {!kompakt && <b>{s.name}</b>}
-      <span className="ck-num">{s.beginn}–{s.ende}</span> · {s.objekt}
+      <span className="ck-num">{s.beginn}–{s.ende}</span> · <ObjektMarke id={s.object_id} name={s.objekt} size="xs" />
       {s.fahrer && <span title={t('dienstplan.driver')} style={{ marginLeft: 6, verticalAlign: '-2px' }}><Car size={14} aria-label={t('dienstplan.driver')} /></span>}
       <button className="ck-shift-more" aria-label={t('dnd.menu')} title={t('dnd.menu')}
         onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onZiel(s); }}><MoveRight size={15} /></button>
@@ -302,7 +302,7 @@ function ZielDialog({ s, mitarbeiter, onClose, onRun }) {
       <button className="ck-btn" onClick={onClose}>{t('app.cancel')}</button>
       <button className="ck-btn ck-btn-primary" disabled={gleich || !datum} onClick={() => onRun(datum, ma, art === 'kopieren')}>
         {art === 'kopieren' ? <><Copy size={16} />{t('dnd.do_copy')}</> : <><MoveRight size={16} />{t('dnd.do_move')}</>}</button></>}>
-      <div className="ck-shift" style={{ margin: 0 }}><b>{s.name}</b><span className="ck-num">{fmtDate(s.datum, { weekday: 'short', day: '2-digit', month: '2-digit' })} · {s.beginn}–{s.ende}</span> · {s.objekt}</div>
+      <div className="ck-shift" style={{ margin: 0 }}><b>{s.name}</b><span className="ck-num">{fmtDate(s.datum, { weekday: 'short', day: '2-digit', month: '2-digit' })} · {s.beginn}–{s.ende}</span> · <ObjektMarke id={s.object_id} name={s.objekt} size="xs" /></div>
       <div className="ck-seg" role="radiogroup" aria-label={t('dnd.menu_title')}>
         {['verschieben', 'kopieren'].map((k) => <button key={k} role="radio" aria-checked={art === k} className={art === k ? 'is-on' : ''} onClick={() => setArt(k)}>{t(`dnd.${k}`)}</button>)}
       </div>
@@ -364,7 +364,7 @@ function KopierDialog({ modus, tag, schicht, wochenStart, tage, mitarbeiter, onC
           <select className="ck-input" value={f.quelle} onChange={(e) => set('quelle', e.target.value)}>
             {tage.filter((d) => d.schichten).map((d) => <option key={d.datum} value={d.datum}>{d.tag} {fmtDate(d.datum)} · {t('kopie.n_shifts', { n: d.schichten.filter((s) => !istAbw(s)).length })}</option>)}</select></label>)}
       {modus === 'schicht' && (<>
-        <div className="ck-shift" style={{ margin: 0 }}><b>{schicht.name}</b><span className="ck-num">{fmtDate(schicht.datum, { weekday: 'short', day: '2-digit', month: '2-digit' })} · {schicht.beginn}–{schicht.ende}</span> · {schicht.objekt}</div>
+        <div className="ck-shift" style={{ margin: 0 }}><b>{schicht.name}</b><span className="ck-num">{fmtDate(schicht.datum, { weekday: 'short', day: '2-digit', month: '2-digit' })} · {schicht.beginn}–{schicht.ende}</span> · <ObjektMarke id={schicht.object_id} name={schicht.objekt} size="xs" /></div>
         <label className="ck-field">{t('kopie.target_staff')}
           <select className="ck-input" value={f.employee_id} onChange={(e) => set('employee_id', e.target.value)}>
             {!mitarbeiter.some((m) => String(m.id) === String(schicht.employee_id)) && <option value={schicht.employee_id}>{schicht.name}</option>}
@@ -392,7 +392,7 @@ function KopierDialog({ modus, tag, schicht, wochenStart, tage, mitarbeiter, onC
             <ul className="ck-list ck-kopie-list">{zeilen.map((e, i) => (
               <li key={i} className={`ck-kopie-row${e.status !== 'ok' ? ' is-skip' : ''}`}>
                 <span className="ck-num">{e.tag} {fmtDate(e.datum)}</span>
-                <span><b>{e.name}</b> · {e.objekt} · <span className="ck-num">{e.beginn}–{e.ende}</span></span>
+                <span><b>{e.name}</b> · <ObjektMarke id={e.object_id} name={e.objekt} size="xs" /> · <span className="ck-num">{e.beginn}–{e.ende}</span></span>
                 {e.status === 'ok' ? <Status s="approved" label={t('kopie.st_ok')} />
                   : e.status === 'abwesend' ? <Status s={e.grund === 'Krank' ? 'krank' : 'urlaub'} label={t('kopie.st_skip', { grund: e.grund })} />
                   : <Status s="fehlt" label={t('kopie.st_skip', { grund: e.grund })} />}
@@ -499,7 +499,7 @@ function LueckeChip({ l, onOpen, kompakt }) {
     <button ref={setNodeRef} className={`ck-shift ck-gap${isOver ? ' is-over' : ''}`} data-luecke={`${l.vorlage_id}|${l.datum}`} onClick={onOpen}
       title={t('plan.gap_title', { objekt: l.objekt, zeit: `${l.beginn}–${l.ende}` })}>
       <span className="ck-gap-tag"><CircleDashed size={13} />{t('plan.gap')}</span>
-      <span className="ck-num">{l.beginn}–{l.ende}</span>{!kompakt && <> · {l.objekt}</>}
+      <span className="ck-num">{l.beginn}–{l.ende}</span>{!kompakt ? <> · <ObjektMarke id={l.object_id} name={l.objekt} size="xs" /></> : <ObjektMarke id={l.object_id} name={l.objekt} ohneName />}
       <span className="ck-gap-why">{t('plan.gap_reason', { name: l.name.split(' ')[0], grund: l.grund })}</span>
     </button>);
 }
@@ -599,7 +599,7 @@ function VorschauListe({ vor, lueckeText }) {
       <ul className="ck-list ck-kopie-list">{vor.eintraege.map((e, i) => (
         <li key={i} className={`ck-kopie-row${e.status !== 'ok' ? ' is-skip' : ''}`}>
           <span className="ck-num">{e.tag} {fmtDate(e.datum)}</span>
-          <span><b>{e.name}</b> · {e.objekt} · <span className="ck-num">{e.beginn}–{e.ende}</span>{e.status === 'ok' && !lueckeText ? <span className="ck-subtle"> · {fmtH(dauer(e.beginn, e.ende))} h</span> : null}</span>
+          <span><b>{e.name}</b> · <ObjektMarke id={e.object_id} name={e.objekt} size="xs" /> · <span className="ck-num">{e.beginn}–{e.ende}</span>{e.status === 'ok' && !lueckeText ? <span className="ck-subtle"> · {fmtH(dauer(e.beginn, e.ende))} h</span> : null}</span>
           {e.status === 'ok' ? <Status s="approved" label={t('kopie.st_ok')} />
             : e.status === 'abwesend' ? <Status s={e.grund === 'Krank' ? 'krank' : 'urlaub'} label={lueckeText ? t('plan.st_gap', { grund: e.grund }) : t('kopie.st_skip', { grund: e.grund })} />
             : <Status s="fehlt" label={t('kopie.st_skip', { grund: e.grund })} />}

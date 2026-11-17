@@ -1,13 +1,126 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Users, CalendarDays, Timer, Pencil, Info, Car, Plus, Euro, MapPin } from 'lucide-react';
-import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, Skeleton, SkeletonRows, Empty, ErrorBox } from '../core';
+import { ArrowLeft, Building2, Users, CalendarDays, Timer, Pencil, Info, Car, Plus, Euro, MapPin, ImagePlus, Trash2, Check, Wand2 } from 'lucide-react';
+import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, Skeleton, SkeletonRows, Empty, ErrorBox, ObjektMarke } from '../core';
 import { SchichtDialog } from './Dienstplan';
 import { KmEingabe } from './Objekte';
 
 const FIELDS = [['address', 'obj.f_address'], ['contact_person', 'obj.f_contact'], ['phone', 'obj.f_phone'], ['email', 'obj.f_email'],
   ['emergency_phone', 'obj.f_emergency'], ['cleaning_days', 'obj.f_days'], ['cleaning_interval', 'obj.f_interval'],
   ['key_location', 'obj.f_key'], ['alarm_code', 'obj.f_alarm'], ['special_instructions', 'obj.f_special'], ['notes', 'obj.f_notes']];
+
+// ---------- Logo und Kuerzel (nur interne Anzeige) ----------
+const FARBNAMEN = { '#0072B2': 'Blau', '#E69F00': 'Orange', '#009E73': 'Grün', '#CC79A7': 'Rosa',
+  '#D55E00': 'Rot', '#56B4E9': 'Hellblau', '#000000': 'Schwarz', '#F0E442': 'Gelb' };
+const LOGO_PX = 160;
+
+// Bild im Browser auf max. 160 px verkleinern und als PNG liefern (PNG/JPG/SVG; nichts wird aus dem Internet geladen)
+function logoVerkleinern(datei) {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(png|jpeg|svg\+xml)$/.test(datei.type)) { reject(new Error('Bitte PNG, JPG oder SVG wählen')); return; }
+    if (datei.size > 3 * 1024 * 1024) { reject(new Error('Datei zu groß (max. 3 MB)')); return; }
+    const url = URL.createObjectURL(datei);
+    const img = new Image();
+    img.onload = () => {
+      const w0 = img.naturalWidth || LOGO_PX, h0 = img.naturalHeight || LOGO_PX;
+      const f = Math.min(1, LOGO_PX / Math.max(w0, h0));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w0 * f)); c.height = Math.max(1, Math.round(h0 * f));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/png'));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Bild konnte nicht gelesen werden')); };
+    img.src = url;
+  });
+}
+
+function MarkeKarte({ id, name }) {
+  const { marken, loadMarken, toast } = useApp();
+  const m = marken?.marken?.[String(id)];
+  const [kz, setKz] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const kuerzel = kz ?? (m?.auto ? '' : m?.kuerzel || '');
+  const speichern = async (body, text, rueck) => {
+    setBusy(true);
+    try {
+      await api.put(`/objekte/${id}/marke`, body);
+      await loadMarken(); setKz(null);
+      toast(text, { undo: async () => { await api.put(`/objekte/${id}/marke`, rueck); loadMarken(); } });
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setBusy(false);
+  };
+  const vorher = { kuerzel: m?.auto ? '' : m?.kuerzel, farbe: m?.auto ? '' : m?.farbe };
+  const hochladen = async (e) => {
+    const datei = e.target.files?.[0]; e.target.value = '';
+    if (!datei) return;
+    setBusy(true);
+    try {
+      const alt = m?.logo;
+      await api.put(`/objekte/${id}/logo`, { logo: await logoVerkleinern(datei) });
+      await loadMarken();
+      toast(`Logo für ${name} gespeichert`, { undo: async () => { await (alt ? api.put(`/objekte/${id}/logo`, { logo: alt }) : api.delete(`/objekte/${id}/logo`)); loadMarken(); } });
+    } catch (err) { toast(err.response ? apiError(err) : err.message, { tone: 'warn' }); }
+    setBusy(false);
+  };
+  const entfernen = async () => {
+    const alt = m?.logo;
+    try {
+      await api.delete(`/objekte/${id}/logo`); await loadMarken();
+      toast(`Logo für ${name} entfernt`, { undo: async () => { await api.put(`/objekte/${id}/logo`, { logo: alt }); loadMarken(); } });
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+  };
+  return (
+    <section className="ck-card" data-marke-karte style={{ marginBottom: 24 }}>
+      <div className="ck-card-head"><h2><ImagePlus size={20} />Logo und Kürzel</h2></div>
+      <div className="ck-card-body" style={{ display: 'grid', gap: 16 }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <ObjektMarke id={id} name={name} size="lg" />
+          <span className="ck-subtle">{m?.logo ? 'Logo' : 'Kürzel'} – so erscheint das Objekt in Leitstelle, Dienstplan, Zeiten und in der Stempeluhr.</span>
+        </div>
+        <div>
+          <div style={{ fontWeight: 650, marginBottom: 6 }}>Logo (nur intern)</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <label className="ck-btn" style={{ cursor: busy ? 'wait' : 'pointer', position: 'relative' }}>
+              <ImagePlus size={17} />{m?.logo ? 'Logo ersetzen' : 'Logo hochladen'}
+              <input type="file" accept="image/png,image/jpeg,image/svg+xml" onChange={hochladen} disabled={busy}
+                aria-label="Logo hochladen (PNG, JPG oder SVG)" style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} />
+            </label>
+            {m?.logo && <button className="ck-btn ck-btn-ghost" onClick={entfernen} disabled={busy}><Trash2 size={17} />Logo entfernen</button>}
+          </div>
+          <p className="ck-subtle" style={{ margin: '8px 0 0' }} data-logo-hinweis>
+            Nur für interne Anzeige. Fremde Logos nicht für Werbung verwenden.
+            {' '}PNG, JPG oder SVG – wird automatisch verkleinert und nur auf unserem Server gespeichert.
+          </p>
+        </div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          <div style={{ fontWeight: 650 }}>Kürzel und Farbe (ohne Logo)</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input className="ck-input" style={{ width: 90, textTransform: 'uppercase' }} maxLength={3} value={kuerzel}
+              placeholder={m?.kuerzel || ''} aria-label="Kürzel (1–3 Zeichen)" onChange={(e) => setKz(e.target.value.toUpperCase())} />
+            <button className="ck-btn" disabled={busy || kz === null} onClick={() => speichern({ kuerzel: kuerzel }, `Kürzel für ${name} gespeichert`, { kuerzel: vorher.kuerzel || '' })}>
+              <Check size={17} />Kürzel speichern</button>
+            {!m?.auto && <button className="ck-btn ck-btn-ghost" disabled={busy}
+              onClick={() => speichern({ kuerzel: '', farbe: '' }, `${name}: Kürzel und Farbe automatisch`, { kuerzel: vorher.kuerzel || '', farbe: vorher.farbe || '' })}>
+              <Wand2 size={17} />Automatisch</button>}
+          </div>
+          <div role="radiogroup" aria-label="Farbe" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {(marken?.palette || []).map((f) => {
+              const aktiv = m?.farbe === f;
+              return (
+                <button key={f} role="radio" aria-checked={aktiv} aria-label={`Farbe ${FARBNAMEN[f] || f}`} title={FARBNAMEN[f] || f}
+                  disabled={busy} onClick={() => speichern({ farbe: f }, `Farbe für ${name}: ${FARBNAMEN[f] || f}`, { farbe: vorher.farbe || '' })}
+                  style={{ width: 44, height: 44, borderRadius: 10, background: f, cursor: 'pointer', display: 'grid', placeItems: 'center',
+                    border: aktiv ? '3px solid var(--ck-text, #111)' : '1px solid rgba(0,0,0,.25)', color: f === '#F0E442' || f === '#E69F00' || f === '#56B4E9' ? '#000' : '#fff', fontWeight: 800 }}>
+                  {aktiv ? <Check size={20} strokeWidth={3} /> : (m?.kuerzel || '')}
+                </button>);
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export default function ObjektDetail() {
   const { id } = useParams();
@@ -47,7 +160,7 @@ export default function ObjektDetail() {
       <Link to="/cockpit/objekte" className="ck-btn ck-btn-ghost ck-btn-sm" style={{ marginBottom: 12, paddingLeft: 4 }}><ArrowLeft size={16} />{t('obj.title')}</Link>
       <div className="ck-page-head">
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-          <div className="ck-kpi-icon" style={{ width: 56, height: 56, background: 'var(--ck-accent-soft)', color: 'var(--ck-accent-ink)', borderRadius: 14 }}><Building2 size={26} /></div>
+          {s ? <ObjektMarke id={Number(id)} name={s.name} size="lg" ohneName /> : <div className="ck-kpi-icon" style={{ width: 56, height: 56, background: 'var(--ck-accent-soft)', color: 'var(--ck-accent-ink)', borderRadius: 14 }}><Building2 size={26} /></div>}
           <div><h1>{s ? s.name : <Skeleton w={220} h={30} />}</h1>
             <p>{s ? <>{s.kunde || '–'} · <Status s={s.is_active ? 'aktiv' : 'inaktiv'} /></> : <Skeleton w={160} h={16} />}</p></div>
         </div>
@@ -69,6 +182,8 @@ export default function ObjektDetail() {
             <div className="ck-kpi-sub">{sub ?? <Skeleton w="60%" h={13} />}</div>
           </div>))}
       </div>
+
+      {s && <MarkeKarte id={Number(id)} name={s.name} />}
 
       <div className="ck-two">
         <div className="ck-grid" style={{ gap: 24 }}>

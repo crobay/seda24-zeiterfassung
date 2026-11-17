@@ -990,6 +990,29 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     return { tag, s: { start_time: n.start_time, end_time: n.end_time, object_name: n.object_name } };
   })();
 
+  // Objekt-Logo bzw. farbiges Kuerzel gross im Schicht-Kopf (immer mit Objektname; kommt mit der Objektliste
+  // und ist damit auch ohne Netz da)
+  const markeGross = (objId) => {
+    const mk = cObjects.find(o => o.id === objId)?.marke;
+    if (!mk) return null;
+    return mk.logo
+      ? <img data-ek-marke="logo" src={mk.logo} alt="" style={{ width: 64, height: 64, objectFit: 'contain', borderRadius: 12, background: '#fff', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.15)', flex: 'none' }} />
+      : <span data-ek-marke="kuerzel" aria-hidden="true" style={{ width: 64, height: 64, borderRadius: 12, background: mk.farbe, color: mk.text, flex: 'none',
+          display: 'grid', placeItems: 'center', fontSize: 26, fontWeight: 800, fontFamily: MARKE.titel, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.25)' }}>{mk.kuerzel}</span>;
+  };
+  const kopf = (objId, name, zeit) => {
+    const mk = markeGross(objId);
+    return (
+      <div style={{ ...EK.kopf, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: mk ? 'left' : 'center' }}>
+        {mk}
+        <div style={{ minWidth: 0 }}>
+          <div style={EK.objekt}>{name}</div>
+          {zeit && <div style={EK.schichtzeit}>{zeit}</div>}
+        </div>
+      </div>
+    );
+  };
+
   // Gezaehlte Zeit fuer "Schicht erledigt": innerhalb der Schicht; Stunden vom Server, sonst geschaetzt
   const gezaehlt = (e, s) => {
     const von = s && e.kommen < s.von ? s.von : e.kommen;
@@ -1149,10 +1172,9 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         {/* ===== Zustand 3: eingestempelt - Zaehler + nur GEHEN ===== */}
         {isWorking && !isOpenCatchup && (
           <div data-ek-zustand="gehen">
-            <div style={EK.kopf}>
-              <div style={EK.objekt}>{arbeitsSchicht ? arbeitsSchicht.object_name : currentObjectName}</div>
-              {arbeitsSchicht && <div style={EK.schichtzeit}>Schicht {arbeitsSchicht.start_time}–{arbeitsSchicht.end_time}</div>}
-            </div>
+            {kopf(arbeitsSchicht ? arbeitsSchicht.object_id : (currentObjectId || selectedObject),
+              arbeitsSchicht ? arbeitsSchicht.object_name : currentObjectName,
+              arbeitsSchicht && `Schicht ${arbeitsSchicht.start_time}–${arbeitsSchicht.end_time}`)}
             {quittung && quittung.art !== 'gehen' ? (
               <div data-ek-quittung={quittung.art} role="status" style={{ ...EK.karte, ...(quittung.art === 'ok' ? EK.ok : EK.wartet), textAlign: 'center', minHeight: '300px', justifyContent: 'center' }}>
                 <div className="ek-pop">
@@ -1188,10 +1210,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         {!isWorking && !isOpenCatchup && (
           <div data-ek-zustand={zustand}>
             {schicht && (
-              <div style={EK.kopf}>
-                <div style={EK.objekt}>{schicht.object_name}</div>
-                <div style={EK.schichtzeit}>Schicht {schicht.start_time}–{schicht.end_time}</div>
-              </div>
+              kopf(schicht.object_id, schicht.object_name, `Schicht ${schicht.start_time}–${schicht.end_time}`)
             )}
 
             {/* Zustand 4: Schicht erledigt (bzw. ohne Plan: erledigt) */}
@@ -1238,7 +1257,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
                   </select>
                 )}
                 {zustand === 'ohne_plan' && cObjects.length === 1 && !fertig && (
-                  <div style={EK.kopf}><div style={EK.objekt}>{cObjects[0].name}</div></div>
+                  kopf(cObjects[0].id, cObjects[0].name)
                 )}
                 <button className="ek-knopf" onClick={() => handleCheckIn(zustand === 'kommen' ? schicht.object_id : selectedObject)} disabled={actionLoading}
                   style={{ ...EK.knopf, ...(fertig ? { minHeight: '140px', fontSize: '32px' } : EK.riesig), background: actionLoading ? '#9ca3af' : MARKE.gold, color: MARKE.navyDunkel }}>

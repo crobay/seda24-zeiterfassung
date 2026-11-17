@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sun, CalendarDays, CalendarCog, Users, Building2, Clock3, Wallet, Settings, Search, Moon, LogOut, LayoutGrid, User, CornerDownLeft } from 'lucide-react';
-import { api, t, useApp, initials } from './core';
+import { api, t, useApp, initials, ObjektMarke } from './core';
 
 export const NAV = [
   { key: 'heute', path: '/cockpit', Icon: Sun },
@@ -140,7 +140,7 @@ function CommandPalette({ onClose, items }) {
     data.ma.filter((m) => hit(`${m.first_name} ${m.last_name} ${m.personal_nr}`)).slice(0, s ? 8 : 4)
       .forEach((m) => out.push({ g: 'employees', label: `${m.first_name} ${m.last_name}`, hint: m.personal_nr, Icon: User, run: () => nav(`/cockpit/mitarbeiter/${m.id}`) }));
     data.obj.filter((o) => hit(`${o.name} ${o.kunde || ''}`)).slice(0, s ? 8 : 3)
-      .forEach((o) => out.push({ g: 'objects', label: o.name, hint: o.kunde, Icon: Building2, run: () => nav(`/cockpit/objekte#o${o.id}`) }));
+      .forEach((o) => out.push({ g: 'objects', label: o.name, hint: o.kunde, Icon: Building2, objektId: o.id, run: () => nav(`/cockpit/objekte#o${o.id}`) }));
     return out;
   }, [q, data, items, dark, nav, setDark]);
   useEffect(() => setSel(0), [q]);
@@ -164,7 +164,7 @@ function CommandPalette({ onClose, items }) {
             const head = r.g !== last ? <div className="ck-cmd-group">{t(`cmd.${r.g}`)}</div> : null; last = r.g;
             return (<React.Fragment key={i}>{head}
               <div role="option" aria-selected={i === sel} className={`ck-cmd-item${i === sel ? ' is-sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => run(r)}>
-                <r.Icon size={18} />{r.label}{r.hint ? <small>{r.hint}</small> : i === sel ? <small><CornerDownLeft size={14} /></small> : null}
+                {r.objektId ? <ObjektMarke id={r.objektId} name={r.label} ohneName /> : <r.Icon size={18} />}{r.label}{r.hint ? <small>{r.hint}</small> : i === sel ? <small><CornerDownLeft size={14} /></small> : null}
               </div></React.Fragment>);
           })}
         </div>

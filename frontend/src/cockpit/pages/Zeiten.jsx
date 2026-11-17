@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Clock3, ArrowUpDown, ArrowUp, ArrowDown, ClipboardCheck, Plus, Pencil, Trash2, AlertTriangle, X, Moon } from 'lucide-react';
-import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Empty, ErrorBox, Skeleton, Dialog } from '../core';
+import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Empty, ErrorBox, Skeleton, Dialog, ObjektMarke } from '../core';
 
 const GenehmigungenTab = lazy(() => import('../../pages/GenehmigungenTab'));
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -79,7 +79,7 @@ export default function Zeiten() {
                   <tr key={r.id} onClick={() => setEdit({ eintrag: r })} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setEdit({ eintrag: r })}>
                     <td className="ck-num">{fmtDate(r.datum)}</td>
                     <td><Link className="ck-link" to={`/cockpit/mitarbeiter/${r.employee_id}`} onClick={(e) => e.stopPropagation()} style={{ fontWeight: 600 }}>{r.name}</Link></td>
-                    <td>{r.objekt || '–'}</td>
+                    <td>{r.objekt ? <ObjektMarke id={r.object_id} name={r.objekt} size="xs" /> : '–'}</td>
                     <td className="ck-num">{r.kommen}</td>
                     <td className="ck-num">{r.gehen ? <>{r.gehen}{r.gehen_datum && r.gehen_datum !== r.datum && <span className="ck-subtle"> ({fmtDate(r.gehen_datum)})</span>}</> : <Status s="da" label={t('status.da')} />}</td>
                     <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(r.stunden, 2)}</td>
