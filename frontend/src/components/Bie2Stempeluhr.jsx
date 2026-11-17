@@ -33,9 +33,8 @@ function isOwnItem(i) {
   return !i.owner || i.owner === currentOwner();
 }
 
-function addToQueue(action, objectId) {
-  const q = getQueue();
-  const item = {
+function neuerStempel(action, objectId) {
+  return {
     id: generateId(),
     owner: currentOwner(),
     action,            // 'check_in' | 'check_out' | 'pause_start' | 'pause_end'
@@ -44,6 +43,10 @@ function addToQueue(action, objectId) {
     status: 'pending',  // pending | syncing | synced | failed
     retries: 0
   };
+}
+
+function addToQueue(item) {
+  const q = getQueue();
   q.push(item);
   saveQueue(q);
   return item;
@@ -65,6 +68,66 @@ function markFailed(itemId, error) {
 function getPendingCount() {
   return getQueue().filter(i => i.status !== 'synced' && isOwnItem(i)).length;
 }
+
+// ==================== Server-Bestaetigung ====================
+// Ein Stempel gilt nur als erledigt, wenn UNSER Server ihn nachweislich bestaetigt (Kennung X-Seda24 im
+// Header, JSON; Kommen/Gehen: die client_id kommt zurueck) oder eine echte JSON-Fehlermeldung unseres
+// Servers liefert. HTML, Weiterleitungen (Captive Portal), 403/511, fremde Antworten, 5xx und Timeout
+// zaehlen wie "kein Netz": der Stempel bleibt in der Warteschlange.
+const BESTAETIGUNG_MS = 5000; // nach dem Tippen max. so lange auf die Bestaetigung warten, sonst ⏳
+const SYNC_TIMEOUT_MS = 8000;
+const LETZTER_KEY = 'bie2_letzter_stempel'; // zuletzt vom Server bestaetigter Stempel (fuer die ✓-Anzeige)
+
+function vonUnseremServer(res) {
+  if (!res || !res.headers) return false;
+  const typ = String(res.headers['content-type'] || '');
+  return res.headers['x-seda24'] === '1' && typ.includes('application/json');
+}
+
+function bestaetigt(item, res) {
+  if (!vonUnseremServer(res) || res.status < 200 || res.status >= 300) return false;
+  if (item.action === 'check_in' || item.action === 'check_out') return !!res.data && res.data.client_id === item.id;
+  return true;
+}
+
+function serverFehler(e) {
+  const r = e && e.response;
+  return !!r && vonUnseremServer(r) && r.status >= 400 && r.status < 500 && !!r.data && r.data.detail !== undefined;
+}
+
+const STEMPEL_URL = { check_in: '/time-entries/check-in', check_out: '/time-entries/check-out', pause_start: '/breaks/start', pause_end: '/breaks/end' };
+
+// Ergebnis: 'ok' (bestaetigt) | 'fehler' (echte Ablehnung unseres Servers) | 'abgemeldet' (401 unseres Servers)
+//           | 'offen' (keine Bestaetigung -> bleibt/kommt in die Warteschlange)
+async function stempelSenden(item, headers, timeout) {
+  const payload = { client_id: item.id, client_timestamp: item.timestamp };
+  if (item.action === 'check_in') {
+    payload.object_id = parseInt(item.object_id);
+    payload.notes = 'Bie2 Kommen';
+  }
+  try {
+    const res = await axios.post(`${API_URL}${STEMPEL_URL[item.action]}`, payload, { headers, timeout });
+    return bestaetigt(item, res) ? { art: 'ok', res } : { art: 'offen', grund: `keine Server-Bestaetigung (HTTP ${res.status})` };
+  } catch (e) {
+    if (e.response && e.response.status === 401 && vonUnseremServer(e.response)) return { art: 'abgemeldet', e };
+    if (serverFehler(e)) return { art: 'fehler', e };
+    return { art: 'offen', e, grund: e.response ? `HTTP ${e.response.status}` : e.message };
+  }
+}
+
+function merkeBestaetigt(item) {
+  localStorage.setItem(LETZTER_KEY, JSON.stringify({ action: item.action, timestamp: item.timestamp }));
+}
+
+function getLetzterBestaetigt() {
+  try {
+    const l = JSON.parse(localStorage.getItem(LETZTER_KEY) || 'null');
+    return l && new Date(l.timestamp).toDateString() === new Date().toDateString() ? l : null;
+  } catch { return null; }
+}
+
+const AKTION_NAME = { check_in: 'Kommen', check_out: 'Gehen', pause_start: 'Pause', pause_end: 'Pause Ende' };
+const uhrzeit = (iso) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
 
 // Offline-State: Optimistischer lokaler Zustand für sofortige UI-Updates
 function getOfflineState() {
@@ -106,6 +169,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   const [pendingSync, setPendingSync] = useState(getPendingCount());
   const [syncMessage, setSyncMessage] = useState(null);
   const syncingRef = useRef(false);
+  const [letzterStempel, setLetzterStempel] = useState(getLetzterBestaetigt());
 
   // Netz-Erkennung: kommt der Request aus dem Objektnetz (Lidl-WLAN) oder Mobilfunk?
   const [netStatus, setNetStatus] = useState(null); // { at_object, client_ip, object_name }
@@ -190,36 +254,25 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     setSyncMessage('Synchronisiere...');
 
     for (const item of queue) {
-      try {
-        const payload = { client_id: item.id, client_timestamp: item.timestamp };
-
-        if (item.action === 'check_in') {
-          payload.object_id = item.object_id;
-          payload.notes = 'Bie2 Kommen';
-          await axios.post(`${API_URL}/time-entries/check-in`, payload, { headers, timeout: 10000 });
-        } else if (item.action === 'check_out') {
-          await axios.post(`${API_URL}/time-entries/check-out`, payload, { headers, timeout: 10000 });
-        } else if (item.action === 'pause_start') {
-          await axios.post(`${API_URL}/breaks/start`, payload, { headers, timeout: 10000 });
-        } else if (item.action === 'pause_end') {
-          await axios.post(`${API_URL}/breaks/end`, payload, { headers, timeout: 10000 });
-        }
-
+      const r = await stempelSenden(item, headers, SYNC_TIMEOUT_MS);
+      if (r.art === 'ok') {
         markSynced(item.id);
-      } catch (e) {
-        if (e.response && e.response.status === 401) {
-          // Token abgelaufen → Queue NICHT löschen, User zum Re-Login auffordern
-          syncingRef.current = false;
-          setSyncMessage('Sitzung abgelaufen – bitte neu einloggen');
-          if (onLogout) onLogout();
-          return;
-        } else if (e.response && e.response.status >= 400 && e.response.status < 500) {
-          // Andere Client-Fehler (400, 404) = idempotent behandeln
-          markSynced(item.id);
-        } else {
-          markFailed(item.id, e.message);
-          break; // Bei Netzwerkfehler: restliche Queue nicht weiter versuchen
-        }
+        merkeBestaetigt(item);
+        setLetzterStempel(getLetzterBestaetigt());
+      } else if (r.art === 'abgemeldet') {
+        // Token abgelaufen → Queue NICHT löschen, User zum Re-Login auffordern
+        syncingRef.current = false;
+        setSyncMessage('Sitzung abgelaufen – bitte neu einloggen');
+        if (onLogout) onLogout();
+        return;
+      } else if (r.art === 'fehler') {
+        // Echte Ablehnung unseres Servers (z.B. bereits eingestempelt) = erledigt, nicht wiederholen
+        markSynced(item.id);
+        setError(`${AKTION_NAME[item.action]} ${uhrzeit(item.timestamp)} nicht übernommen: ${r.e.response.data.detail}`);
+      } else {
+        // HTML/Weiterleitung/403/511/5xx/Timeout = wie kein Netz: bleibt in der Warteschlange
+        markFailed(item.id, r.grund);
+        break; // restliche Queue nicht weiter versuchen (Reihenfolge bleibt)
       }
     }
 
@@ -311,8 +364,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   // ==================== API-Aufrufe (Online-First, Offline-Fallback) ====================
 
   const performAction = async (action, objectId) => {
-    const clientId = generateId();
-    const clientTimestamp = new Date().toISOString();
+    const item = neuerStempel(action, objectId);
 
     // Checkout-Daten VOR allem anderen sichern (State könnte danach weg sein)
     const wasCheckout = action === 'check_out';
@@ -331,40 +383,38 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       return { check_in: `${ciH}:${ciM}`, check_out: `${coH}:${coM}`, duration_minutes: durMin, object_name: objName };
     };
 
-    if (!navigator.onLine) {
-      // Offline: Lokales Feedback als PENDING (nicht bestaetigt)
+    // Ohne Server-Bestaetigung: lokal als PENDING merken (⏳), wird automatisch nachgesendet
+    const inWarteschlange = () => {
       if (wasCheckout) {
         const entry = buildLocalEntry();
         if (entry) setPendingEntries(prev => [...prev, entry]);
       }
       applyOptimisticState(action, objectId);
-      addToQueue(action, objectId);
+      addToQueue(item);
       setPendingSync(getPendingCount());
-      setSyncMessage('Offline gespeichert - wird gesendet sobald online');
+      return true;
+    };
+
+    if (!navigator.onLine) return inWarteschlange();
+
+    // Stehen schon Stempel aus: hinten anstellen, damit die Reihenfolge stimmt, dann senden
+    if (getPendingCount() > 0) {
+      inWarteschlange();
+      triggerSync();
       return true;
     }
 
-    // Online: API-Aufruf
-    try {
-      const payload = { client_id: clientId, client_timestamp: clientTimestamp };
+    // Online: max. BESTAETIGUNG_MS auf die Bestaetigung unseres Servers warten
+    const r = await stempelSenden(item, headers, BESTAETIGUNG_MS);
 
-      if (action === 'check_in') {
-        payload.object_id = parseInt(objectId);
-        payload.notes = 'Bie2 Kommen';
-        await axios.post(`${API_URL}/time-entries/check-in`, payload, { headers, timeout: 10000 });
-      } else if (action === 'check_out') {
-        const res = await axios.post(`${API_URL}/time-entries/check-out`, payload, { headers, timeout: 10000 });
-        // Mehr als 10 Min nach Schichtende: gezaehlt bis Schichtende, Mehrzeit als Antrag gemeldet
-        if (res.data && res.data.mehrzeit_antrag && res.data.cap_message) {
-          setSyncMessage(res.data.cap_message);
-          setTimeout(() => setSyncMessage(null), 8000);
-        }
-      } else if (action === 'pause_start') {
-        await axios.post(`${API_URL}/breaks/start`, payload, { headers, timeout: 10000 });
-      } else if (action === 'pause_end') {
-        await axios.post(`${API_URL}/breaks/end`, payload, { headers, timeout: 10000 });
+    if (r.art === 'ok') {
+      merkeBestaetigt(item);
+      setLetzterStempel(getLetzterBestaetigt());
+      // Mehr als 10 Min nach Schichtende: gezaehlt bis Schichtende, Mehrzeit als Antrag gemeldet
+      if (wasCheckout && r.res.data && r.res.data.mehrzeit_antrag && r.res.data.cap_message) {
+        setSyncMessage(r.res.data.cap_message);
+        setTimeout(() => setSyncMessage(null), 8000);
       }
-
       // Erfolg: State zuruecksetzen, Server-Status holen (liefert bestaetigte today_entries)
       if (wasCheckout) {
         setIsWorking(false);
@@ -373,30 +423,24 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         setCurrentObjectId(null);
         setEntryId(null);
       }
-
-      // Server-Status nachladen (liefert server-bestaetigte Eintraege)
       await checkStatus('after_' + action);
-
       if (onStatusChange) onStatusChange();
       return true;
-    } catch (e) {
-      if (!e.response) {
-        // Netzwerkfehler/Timeout: Als PENDING anzeigen (nicht bestaetigt)
-        if (wasCheckout) {
-          const entry = buildLocalEntry();
-          if (entry) setPendingEntries(prev => [...prev, entry]);
-        }
-        applyOptimisticState(action, objectId);
-        const item = { id: clientId, action, object_id: objectId, timestamp: clientTimestamp, status: 'pending', retries: 0 };
-        const q = getQueue(); q.push(item); saveQueue(q);
-        setPendingSync(getPendingCount());
-        setSyncMessage('Netzwerkfehler - offline gespeichert, wird erneut versucht');
-        return true;
-      }
-      // Server-Fehler (4xx/5xx)
-      await checkStatus();
-      throw e;
     }
+    if (r.art === 'abgemeldet') {
+      // Stempel nicht verlieren: in die Warteschlange, nach dem Login wird er gesendet
+      inWarteschlange();
+      setSyncMessage('Sitzung abgelaufen – bitte neu einloggen');
+      if (onLogout) onLogout();
+      return true;
+    }
+    if (r.art === 'fehler') {
+      // Echte Fehlermeldung unseres Servers (z.B. Mindestdauer, zu frueh)
+      await checkStatus();
+      throw r.e;
+    }
+    // Keine Bestaetigung (kein Netz, Captive Portal, 5xx, Timeout): sicher gespeichert, ⏳
+    return inWarteschlange();
   };
 
   // ==================== Data Loading ====================
@@ -427,6 +471,27 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       const res = await axios.get(`${API_URL}/time-entries/current`, { headers });
       const data = res.data;
       console.log('[checkStatus]', context || 'init', 'is_working:', data?.is_working, 'today_entries:', data?.today_entries?.length);
+      // Warteschlange zuerst: steht ein Kommen/Gehen noch aus, gilt der Stand auf dem Handy, bis er
+      // gesendet ist (sonst zeigt die App z.B. "eingestempelt", obwohl das Gehen schon gespeichert ist)
+      const offen = getQueue().filter(i => isOwnItem(i) && i.status !== 'synced' && (i.action === 'check_in' || i.action === 'check_out'));
+      if (offen.length > 0) {
+        const letzter = offen[offen.length - 1];
+        if (data && data.today_entries) setTodayEntries(data.today_entries);
+        if (letzter.action === 'check_in') {
+          setIsWorking(true);
+          setCheckInTime(new Date(letzter.timestamp));
+          setCurrentObjectId(letzter.object_id);
+          setSelectedObject(letzter.object_id);
+        } else {
+          setIsWorking(false);
+          setCheckInTime(null);
+          setIsPaused(false);
+          setCurrentObjectId(null);
+          setEntryId(null);
+          setOverdueWarning(false);
+        }
+        return;
+      }
       if (data && data.is_working) {
         setIsWorking(true);
         setCheckInTime(new Date(data.check_in));
@@ -762,6 +827,34 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     shiftStartHM = `${String(_startDt.getHours()).padStart(2, '0')}:${String(_startDt.getMinutes()).padStart(2, '0')}`;
   }
 
+  // ==================== Stempel-Status (direkt unter dem Knopf) ====================
+  // Farbenblind-sicher: Symbol + Text + Rahmenart (durchgezogen = am Server, gestrichelt = wartet)
+  const ausstehend = pendingSync > 0 ? getQueue().filter(i => isOwnItem(i) && i.status !== 'synced') : [];
+  const stempelStatus = ausstehend.length > 0 ? (
+    <div data-stempel-status="wartet" role="status" style={{
+      marginTop: '12px', padding: '12px 14px', borderRadius: '10px',
+      border: '3px dashed #1d4ed8', background: '#eff6ff', color: '#1e3a8a'
+    }}>
+      <div style={{ fontSize: '18px', fontWeight: 'bold' }}>⏳ Gespeichert – wird gesendet, sobald Netz da ist</div>
+      <div style={{ fontSize: '14px', marginTop: '4px' }}>
+        {ausstehend.map(i => `${AKTION_NAME[i.action]} ${uhrzeit(i.timestamp)}`).join(' · ')}
+      </div>
+      <div style={{ fontSize: '14px', marginTop: '6px' }}>
+        Kein Problem – dein Stempel ist sicher gespeichert. Öffne die App später mit Internet, dann wird er übertragen.
+      </div>
+    </div>
+  ) : letzterStempel ? (
+    <div data-stempel-status="ok" role="status" style={{
+      marginTop: '12px', padding: '12px 14px', borderRadius: '10px',
+      border: '3px solid #166534', background: '#f0fdf4', color: '#14532d'
+    }}>
+      <div style={{ fontSize: '18px', fontWeight: 'bold' }}>✓ Übertragen – am Server angekommen</div>
+      <div style={{ fontSize: '14px', marginTop: '4px' }}>
+        {AKTION_NAME[letzterStempel.action]} {uhrzeit(letzterStempel.timestamp)}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div style={{ marginTop: '16px' }}>
       {/* Netz-Anzeige: Lidl-WLAN (gruen) vs. Mobilfunk (orange) */}
@@ -826,18 +919,6 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
           }}>
             {pendingSync > 0 ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
             {syncMessage}
-          </div>
-        )}
-
-        {/* Offline-Hinweis bei pending Stempeln */}
-        {!isOnline && pendingSync > 0 && !syncMessage && (
-          <div style={{
-            background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '8px',
-            padding: '8px 12px', marginBottom: '10px', fontSize: '13px', color: '#92400e',
-            display: 'flex', alignItems: 'center', gap: '8px'
-          }}>
-            <WifiOff size={14} />
-            {pendingSync} Stempel offline gespeichert - wird gesendet sobald online
           </div>
         )}
 
@@ -1029,6 +1110,8 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
               </button>
             </div>
 
+            {stempelStatus}
+
             {beforeShiftStart && (
               <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '13px', color: '#6b7280' }}>
                 Einstempeln ab {shiftStartHM} möglich
@@ -1118,6 +1201,8 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
                 </button>
               )}
             </div>
+
+            {stempelStatus}
           </>
         )}
       </div>
