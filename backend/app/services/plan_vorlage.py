@@ -19,6 +19,8 @@ OBJ_URLAUB, OBJ_KRANK = 999, 19
 WT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 RHYTHMEN = ("weekly", "biweekly_even", "biweekly_odd", "monthly")
 FERTIG_KEY = "dienstplan_fertig"     # app_settings: {montag: {"user_id", "von", "am"}}
+FIXUM_KEY = "dienstplan_fixum"       # app_settings: {montag: {"kopie_id", "am", "angelegt", "luecken"}}
+FIXUM_TAG, FIXUM_UHR = 3, "18:00"    # Donnerstag 18:00: Folgewoche als Entwurf aus der Vorlage
 ABGABE_TAG, ABGABE_UHR = 4, "12:00"  # Freitag 12:00 vor der Woche
 
 
@@ -142,8 +144,8 @@ def luecken(db, d0: date, d1: date, obj_ids=None, ab_heute=True):
     return out
 
 
-def _fertig_map(db):
-    r = db.execute(text("SELECT value FROM app_settings WHERE key = :k"), {"k": FERTIG_KEY}).fetchone()
+def _fertig_map(db, key=FERTIG_KEY):
+    r = db.execute(text("SELECT value FROM app_settings WHERE key = :k"), {"k": key}).fetchone()
     try:
         return json.loads(r[0]) if r else {}
     except (TypeError, ValueError):
@@ -186,41 +188,108 @@ def wochen_status(db, mo: date, obj_ids=None):
     return {"woche": mo.isoformat(), "bis": so_.isoformat(), "fertig": bool(f), "gemeldet_von": f and f.get("von"),
             "gemeldet_am": f and f.get("am"), "luecken": len(lu), "schichten": n, "vorlage": bool(vorlage(db, obj_ids)),
             "soll": soll_n, "ungeplant": bool(soll_n) and len(lu) == soll_n,   # noch nichts aus der Vorlage eingeplant
-            "abgabe": f"{abgabe.isoformat()}T{ABGABE_UHR}"}
+            "abgabe": f"{abgabe.isoformat()}T{ABGABE_UHR}", "fixum": _fertig_map(db, FIXUM_KEY).get(mo.isoformat())}
+
+
+# ---------------------------------------------------------------- Fixum: Donnerstag 18:00 Entwurf aus der Vorlage
+
+def fixum_entwurf(db, now=None):
+    """Donnerstag 18:00: Folgewoche automatisch als Entwurf aus der Vorlage anlegen.
+    Nur Vorlage-Schichten (feste Leute), die noch niemand abdeckt; Urlaub/Krank/Absage bleiben offene Luecke;
+    nichts doppelt, nichts Vorhandenes wird ueberschrieben. Einmal je Woche, nicht wenn die Woche schon fertig gemeldet ist.
+    Ganzer Vorgang ueber die Kopie-ID rueckgaengig zu machen (wie 'Woche aus Vorlage')."""
+    from types import SimpleNamespace
+    from app.api.v1.endpoints.cockpit import _pruefe_neue, _anlegen
+    now = now or datetime.now()
+    mo = montag(now.date()) + timedelta(days=7)
+    so_ = mo + timedelta(days=6)
+    fx = _fertig_map(db, FIXUM_KEY)
+    if mo.isoformat() in fx:
+        return {"status": "bereits_erstellt", "woche": mo.isoformat()}
+    if _fertig_map(db).get(mo.isoformat()):
+        return {"status": "fertig", "woche": mo.isoformat()}
+    vl = {m["id"]: m for m in vorlage(db)}
+    if not vl:
+        return {"status": "keine_vorlage", "woche": mo.isoformat()}
+    lu = luecken(db, mo, so_, ab_heute=False)
+    neu = [{"vorlage_id": l["vorlage_id"], "employee_id": l["employee_id"], "object_id": l["object_id"],
+            "datum": date.fromisoformat(l["datum"]), "start": vl[l["vorlage_id"]]["start_time"],
+            "ende": vl[l["vorlage_id"]]["end_time"], "fahrer": l["fahrer"]}
+           for l in lu if l["grund"] == "nicht eingeplant"]
+    r = {"angelegt": 0, "kopie_id": None}
+    if neu:
+        plan = _pruefe_neue(db, neu, mo, so_)
+        r = _anlegen(db, SimpleNamespace(id=1), plan, "Fixum-Entwurf aus Vorlage")
+    rest = len(luecken(db, mo, so_, ab_heute=False))
+    fx[mo.isoformat()] = {"kopie_id": r["kopie_id"], "am": now.isoformat(timespec="minutes"), "angelegt": r["angelegt"], "luecken": rest}
+    fx = dict(sorted(fx.items())[-30:])
+    db.execute(text("""INSERT INTO app_settings (key, value, updated_at, updated_by) VALUES (:k, :v, now(), 1)
+                       ON CONFLICT (key) DO UPDATE SET value = :v, updated_at = now(), updated_by = 1"""),
+               {"k": FIXUM_KEY, "v": json.dumps(fx)})
+    from app.services.booking_service import log_audit
+    log_audit(db, 1, None, "fixum_entwurf", entity_type="woche", entity_id=int(mo.strftime("%Y%m%d")),
+              details=f"Fixum: Woche {mo.strftime('%d.%m.')}–{so_.strftime('%d.%m.%Y')} als Entwurf aus der Vorlage, "
+                      f"{r['angelegt']} Schichten angelegt, {rest} offene Lücken" + (f" [Kopie {r['kopie_id']}]" if r["kopie_id"] else ""))
+    db.commit()
+    return {"status": "erstellt", "woche": mo.isoformat(), "angelegt": r["angelegt"], "luecken": rest, "kopie_id": r["kopie_id"]}
 
 
 # ---------------------------------------------------------------- Freitags-Erinnerung
 
-def _send(chat_id, text_):
+def _send(chat_id, text_, knopf=None):
+    if os.getenv("DISABLE_TELEGRAM"):          # DEV: nie senden, nur protokollieren
+        logger.info(f"Telegram aus (DISABLE_TELEGRAM): {text_[:80]}")
+        return False
     from app.services.telegram_bot import send_message_sync
-    return send_message_sync(int(chat_id), text_)
+    return send_message_sync(int(chat_id), text_, knopf)
 
 
 SEND = _send   # austauschbar fuer Tests
 
+MAX_LUECKEN_TEXT = 8
+
+
+def luecken_text(lu):
+    """'Mi Lidl Neu Bie2 13:00, Do ...' (nach Datum/Zeit, hoechstens 8, Rest als '+ N weitere')."""
+    lu = sorted(lu, key=lambda l: (l["datum"], l["beginn"], l["objekt"]))
+    t = ", ".join(f"{l['tag']} {l['objekt']} {l['beginn']}" for l in lu[:MAX_LUECKEN_TEXT])
+    return t + (f", + {len(lu) - MAX_LUECKEN_TEXT} weitere" if len(lu) > MAX_LUECKEN_TEXT else "")
+
+
+def plan_knopf(url):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    return InlineKeyboardMarkup([[InlineKeyboardButton("Plan öffnen", url=url)]])
+
 
 def erinnerung_freitag(db, now=None):
-    """Freitag 9 Uhr: Ist der Plan fuer die naechste Woche nicht als fertig gemeldet, bekommt die Objektleitung
-    eine Telegram-Erinnerung (einmal je Woche, Audit plan_erinnerung). Gibt eine kurze Auswertung zurueck."""
+    """Freitag 9 Uhr: Meldung 'Plan naechste Woche: X Luecken (Mi Lidl Neu Bie2 13:00, ...)' mit Knopf 'Plan oeffnen'
+    (direkt auf die Luecken) an die Objektleitung UND Drazen (Admin-Chat). Nur wenn der Plan noch offen ist oder
+    Luecken hat; einmal je Woche (Audit plan_erinnerung). Gibt eine kurze Auswertung zurueck."""
+    import html
     from app.services.booking_service import log_audit
+    from app.services.telegram_recipients import admin_chat_id
     now = now or datetime.now()
     mo = montag(now.date()) + timedelta(days=7)
     st = wochen_status(db, mo)
-    if st["fertig"]:
+    lu = luecken(db, mo, mo + timedelta(days=6), ab_heute=False)
+    if st["fertig"] and not lu:
         return {"status": "fertig", "woche": st["woche"]}
     key = int(mo.strftime("%Y%m%d"))
     if db.execute(text("SELECT 1 FROM audit_log WHERE action = 'plan_erinnerung' AND entity_id = :k LIMIT 1"), {"k": key}).fetchone():
         return {"status": "bereits_erinnert", "woche": st["woche"]}
-    empf = db.execute(text("""SELECT e.id, e.telegram_chat_id FROM users u JOIN employees e ON e.user_id = u.id
+    empf = [r.telegram_chat_id for r in db.execute(text("""SELECT e.telegram_chat_id FROM users u JOIN employees e ON e.user_id = u.id
                               WHERE u.role = 'OBJEKTLEITER' AND coalesce(u.is_active, true) AND e.is_active
-                                AND NOT coalesce(e.is_test, false) AND e.telegram_chat_id IS NOT NULL""")).fetchall()
-    url = (os.getenv("FRONTEND_URL") or "https://app.seda.de").rstrip("/")
-    lu = f"{st['luecken']} offene Lücke" + ("n" if st["luecken"] != 1 else "") if st["luecken"] else "keine offenen Lücken"
-    txt = (f"\U0001f4cb <b>Dienstplan nächste Woche</b> ({mo.strftime('%d.%m.')}–{(mo + timedelta(days=6)).strftime('%d.%m.')})\n"
-           f"ist noch nicht als fertig gemeldet: {lu}, {st['schichten']} Schichten.\n"
-           f"Abgabe heute {ABGABE_UHR} Uhr.\n{url}/cockpit/dienstplan?start={mo.isoformat()}")
-    gesendet = sum(1 for r in empf if SEND(r.telegram_chat_id, txt))
+                                AND NOT coalesce(e.is_test, false) AND e.telegram_chat_id IS NOT NULL""")).fetchall()]
+    if admin_chat_id() and admin_chat_id() not in [str(c) for c in empf]:
+        empf.append(admin_chat_id())
+    url = (os.getenv("FRONTEND_URL") or "https://app.seda.de").rstrip("/") + f"/cockpit/dienstplan?start={mo.isoformat()}&luecken=1"
+    n = len(lu)
+    kopf = f"\U0001f4cb <b>Plan nächste Woche</b> ({mo.strftime('%d.%m.')}–{(mo + timedelta(days=6)).strftime('%d.%m.')}): "
+    txt = kopf + (f"{n} Lücke{'n' if n != 1 else ''} ({html.escape(luecken_text(lu))})" if n else "keine Lücken")
+    txt += f"\n{st['schichten']} Schichten, " + ("fertig gemeldet." if st["fertig"] else f"noch nicht fertig gemeldet – Abgabe heute {ABGABE_UHR} Uhr.")
+    gesendet = sum(1 for c in empf if SEND(c, txt, plan_knopf(url)))
     log_audit(db, 1, None, "plan_erinnerung", entity_type="woche", entity_id=key,
-              details=f"Erinnerung Dienstplan Woche {mo.strftime('%d.%m.%Y')}: {lu}, an {gesendet} von {len(empf)} Empfänger(n)")
+              details=f"Plan nächste Woche {mo.strftime('%d.%m.%Y')}: {n} Lücken, an {gesendet} von {len(empf)} Empfänger(n)")
     db.commit()
-    return {"status": "erinnert", "woche": st["woche"], "empfaenger": len(empf), "gesendet": gesendet, "luecken": st["luecken"]}
+    return {"status": "erinnert", "woche": st["woche"], "empfaenger": len(empf), "gesendet": gesendet, "luecken": n,
+            "text": txt, "url": url}

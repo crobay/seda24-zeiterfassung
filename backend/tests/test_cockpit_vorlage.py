@@ -135,19 +135,78 @@ def test_plan_fertig_und_freitags_erinnerung(client, db, monkeypatch):
     vl(client, h, emp(db, "D0040"), 0, "12:55", "15:55")
     ex(db, "UPDATE employees SET telegram_chat_id = '111' WHERE id = 4")                    # nur in der Transaktion
     gesendet = []
-    monkeypatch.setattr(pv, "SEND", lambda chat, txt: gesendet.append((chat, txt)) or 1)
+    monkeypatch.setattr(pv, "SEND", lambda chat, txt, knopf=None: gesendet.append((chat, txt, knopf)) or 1)
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT_ID", "999")                                     # Drazen (Admin-Chat)
     fr = datetime(2027, 3, 5, 9, 0)                                                         # Freitag vor der Woche 08.03.
     r = pv.erinnerung_freitag(db, now=fr)
-    assert r["status"] == "erinnert" and r["gesendet"] == 1 and r["luecken"] == 1
-    assert "noch nicht als fertig gemeldet" in gesendet[0][1] and "1 offene Lücke" in gesendet[0][1] and "12:00" in gesendet[0][1]
-    assert pv.erinnerung_freitag(db, now=fr)["status"] == "bereits_erinnert" and len(gesendet) == 1
+    assert r["status"] == "erinnert" and r["gesendet"] == 2 and r["luecken"] == 1           # Objektleitung UND Drazen
+    assert {g[0] for g in gesendet} == {"111", "999"}
+    txt, knopf = gesendet[0][1], gesendet[0][2]
+    assert "Plan nächste Woche" in txt and "1 Lücke (Mo Lidl Neu Bie2 12:55)" in txt and "12:00" in txt
+    assert knopf.inline_keyboard[0][0].text == "Plan öffnen" and knopf.inline_keyboard[0][0].url.endswith("/cockpit/dienstplan?start=2027-03-08&luecken=1")
+    assert pv.erinnerung_freitag(db, now=fr)["status"] == "bereits_erinnert" and len(gesendet) == 2
     f = client.post(f"{API}/dienstplan/fertig", json={"woche": "2027-03-10"}, headers=h).json()
     assert f["fertig"] and f["woche"] == "2027-03-08" and f["gemeldet_von"]
     ex(db, "DELETE FROM audit_log WHERE action = 'plan_erinnerung'")
-    assert pv.erinnerung_freitag(db, now=fr)["status"] == "fertig" and len(gesendet) == 1
+    r = pv.erinnerung_freitag(db, now=fr)                                                   # fertig, aber noch eine Luecke -> Meldung
+    assert r["status"] == "erinnert" and "fertig gemeldet" in gesendet[-1][1]
+    ex(db, "DELETE FROM audit_log WHERE action = 'plan_erinnerung'")
+    ex(db, "DELETE FROM master_schedule_entries")
+    assert pv.erinnerung_freitag(db, now=fr)["status"] == "fertig" and len(gesendet) == 4   # fertig, keine Luecke -> still
     assert client.post(f"{API}/dienstplan/fertig", json={"woche": "2027-03-08", "fertig": False}, headers=h).json()["fertig"] is False
     ls = client.get(f"{API}/leitstelle", headers=h).json()["plan_naechste_woche"]
     assert set(ls) >= {"woche", "fertig", "luecken", "schichten", "abgabe"}
+
+
+def test_luecken_text_kurz():
+    from app.services import plan_vorlage as pv
+    lu = [{"datum": f"2027-03-{8 + i % 5:02d}", "tag": pv.WT[i % 5], "objekt": "Obj", "beginn": f"{8 + i:02d}:00"} for i in range(10)]
+    t = pv.luecken_text(lu)
+    assert t.startswith("Mo Obj 08:00") and t.endswith("+ 2 weitere") and t.count(",") == 8
+
+
+def test_telegram_aus_auf_dev(monkeypatch):
+    from app.services import plan_vorlage as pv
+    monkeypatch.setenv("DISABLE_TELEGRAM", "1")
+    assert pv._send("1", "x") is False
+
+
+def test_fixum_donnerstag_entwurf(client, db, monkeypatch):
+    """Do 18:00: nur feste Leute aus der Vorlage, Urlaub -> Luecke, nichts doppelt, Vorhandenes bleibt, einmal je Woche."""
+    from app.services import plan_vorlage as pv
+    mo = date(2027, 3, 8)
+    leer(db, von=mo, bis=mo + timedelta(days=6))
+    ex(db, "DELETE FROM app_settings WHERE key IN ('dienstplan_fixum', 'dienstplan_fertig')")
+    h = ol_headers(db)
+    lara, sumi = emp(db, "D0040"), emp(db, "D0038")
+    vl(client, h, lara, 0, "12:55", "15:55")                                  # Mo
+    vl(client, h, lara, 2, "12:55", "15:55")                                  # Mi: Urlaub -> Luecke
+    vl(client, h, lara, 3, "12:55", "15:55")                                  # Do: schon jemand anders (Vertretung) eingeplant
+    vl(client, h, sumi, 0, "06:00", "09:00", obj=20)
+    ex(db, """INSERT INTO schedules (employee_id, object_id, date, weekday, start_time, end_time, planned_hours, status, is_driver, created_at, updated_at)
+              VALUES (:e, 999, '2027-03-10', 2, '00:00', '23:59', 0, 'urlaub', false, now(), now()),
+                     (:s, 20, '2027-03-11', 3, '12:55', '15:55', 3, 'normal', false, now(), now())""", e=lara, s=sumi)
+    r = pv.fixum_entwurf(db, now=datetime(2027, 3, 4, 18, 0))                 # Donnerstag davor
+    assert r["status"] == "erstellt" and r["angelegt"] == 2 and r["luecken"] == 1, r
+    plan = q(db, "SELECT employee_id, date FROM schedules WHERE date BETWEEN '2027-03-08' AND '2027-03-14' AND status = 'normal' ORDER BY date, start_time")
+    assert [(e, str(d)) for e, d in plan] == [(sumi, "2027-03-08"), (lara, "2027-03-08"), (sumi, "2027-03-11")]
+    st = client.get(f"{API}/dienstplan?start=2027-03-08", headers=h).json()["plan"]
+    assert st["fixum"]["angelegt"] == 2 and st["fixum"]["kopie_id"] and not st["fertig"] and st["luecken"] == 1
+    assert pv.fixum_entwurf(db, now=datetime(2027, 3, 4, 18, 5))["status"] == "bereits_erstellt"
+    assert q(db, "SELECT count(*) FROM schedules WHERE date BETWEEN '2027-03-08' AND '2027-03-14' AND status = 'normal'")[0][0] == 3
+    u = client.delete(f"{API}/dienstplan/kopie/{st['fixum']['kopie_id']}", headers=h).json()   # Entwurf ganz zuruecknehmen
+    assert u["entfernt"] == 2
+
+
+def test_fixum_nicht_wenn_fertig(client, db):
+    from app.services import plan_vorlage as pv
+    mo = date(2027, 3, 8)
+    leer(db, von=mo, bis=mo + timedelta(days=6))
+    ex(db, "DELETE FROM app_settings WHERE key IN ('dienstplan_fixum', 'dienstplan_fertig')")
+    h = ol_headers(db)
+    vl(client, h, emp(db, "D0040"), 0, "12:55", "15:55")
+    client.post(f"{API}/dienstplan/fertig", json={"woche": "2027-03-08"}, headers=h)
+    assert pv.fixum_entwurf(db, now=datetime(2027, 3, 4, 18, 0))["status"] == "fertig"
 
 
 # ---------- Kontingent Festgehalt ----------

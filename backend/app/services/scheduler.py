@@ -162,8 +162,17 @@ def init_scheduler():
         max_instances=1,
     )
 
+    # Job 15: Fixum - Donnerstag 18:00 Folgewoche als Entwurf aus der Vorlage (nur Luecken der Vorlage, nichts doppelt)
+    scheduler.add_job(
+        plan_fixum_entwurf,
+        CronTrigger(day_of_week='thu', hour=18, minute=0),
+        id='plan_fixum_entwurf',
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
-    logger.info("APScheduler gestartet mit 14 Jobs")
+    logger.info("APScheduler gestartet mit 15 Jobs")
 
 
 def shutdown_scheduler():
@@ -1320,6 +1329,19 @@ def check_export_fetched():
         notify_admin(f"\u26a0\ufe0f Zeiterfassungs-Export {name} wurde abgerufen, aber der PC hat nicht bestaetigt, "
                      f"dass sie in Q: liegt. Bitte Protokoll %LOCALAPPDATA%\\SEDA24-Export\\abruf.log pruefen.",
                      category="sonstiges")
+
+
+def plan_fixum_entwurf():
+    """Donnerstag 18:00: Folgewoche automatisch als Entwurf aus der Vorlage (Fixum)."""
+    from app.services.plan_vorlage import fixum_entwurf
+    db = SessionLocal()
+    try:
+        logger.info(f"Fixum-Entwurf: {fixum_entwurf(db)}")
+    except Exception as e:
+        logger.error(f"Fehler in plan_fixum_entwurf: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 def remind_plan_next_week():

@@ -52,6 +52,14 @@ export default function Dienstplan() {
   const today = iso(new Date());
   const wochenStart = data?.start || start;
   useEffect(() => { localStorage.setItem('ck_dp_ansicht', ansicht); }, [ansicht]);
+  // Aus der Freitags-Meldung "Plan öffnen" (?luecken=1): direkt zur ersten Lücke springen und alle Lücken hervorheben
+  const zuLuecken = params.get('luecken') === '1';
+  useEffect(() => {
+    if (!zuLuecken || !data) return;
+    const alle = document.querySelectorAll('[data-luecke]');
+    alle.forEach((el) => el.classList.add('is-hervor'));
+    if (alle[0]) alle[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [zuLuecken, data]);
 
   useEffect(() => {
     const tag = params.get('tag'); const obj = params.get('objekt');
@@ -154,7 +162,7 @@ export default function Dienstplan() {
         <button className="ck-btn ck-btn-ghost ck-btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setClassic(!classic)}><Pencil size={15} />{t('dienstplan.edit_classic')}</button>
       </div>
 
-      {data?.plan && !classic && data.start >= addDays(today, -6) && <PlanStatus p={data.plan} onFertig={fertigMelden} onVorlage={() => setVlDialog(true)} />}
+      {data?.plan && !classic && data.start >= addDays(today, -6) && <PlanStatus p={data.plan} onFertig={fertigMelden} onVorlage={() => setVlDialog(true)} onFixumWeg={rueckgaengig} />}
 
       {letzte && (
         <div className="ck-callout ck-callout-info" style={{ marginBottom: 16 }} role="status">
@@ -469,7 +477,7 @@ export function SchichtDialog({ id, neu, onClose, onDone, onDuplizieren, onZiel 
 }
 
 // Status der angezeigten Planwoche: offen/fertig, offene Luecken, Abgabe Freitag 12:00
-function PlanStatus({ p, onFertig, onVorlage }) {
+function PlanStatus({ p, onFertig, onVorlage, onFixumWeg }) {
   if (p.ungeplant && !p.fertig) return (
     <div className="ck-callout ck-plan-status" role="status">
       <Status s="fehlt" label={t('plan.status_open')} />
@@ -489,6 +497,10 @@ function PlanStatus({ p, onFertig, onVorlage }) {
       </span>
       {p.fertig ? <button className="ck-btn ck-btn-sm" onClick={() => onFertig(false)}><RotateCcw size={15} />{t('plan.reopen')}</button>
         : <button className="ck-btn ck-btn-sm ck-btn-primary" onClick={() => onFertig(true)}><CheckCircle2 size={15} />{t('plan.mark_done')}</button>}
+      {p.fixum && <div className="ck-plan-fixum" data-fixum>
+        <CalendarPlus size={15} /><span>{t(p.fertig ? 'plan.fixum_info' : 'plan.fixum_draft', { n: p.fixum.angelegt, am: fmtDate(p.fixum.am.slice(0, 10), { weekday: 'short', day: '2-digit', month: '2-digit' }) + ' ' + p.fixum.am.slice(11, 16) })}</span>
+        {!p.fertig && p.fixum.kopie_id && p.fixum.angelegt > 0 && <button className="ck-btn ck-btn-sm ck-btn-ghost" onClick={() => onFixumWeg(p.fixum.kopie_id)}><Undo2 size={15} />{t('plan.fixum_undo')}</button>}
+      </div>}
     </div>);
 }
 
