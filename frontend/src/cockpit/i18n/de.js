@@ -179,7 +179,7 @@ export default {
     mg_page: 'Objekt-Marge (Hochrechnung)', mg_empty: 'Keine Umsätze oder Stunden in diesem Monat',
     mg_sub: 'Personalkosten = Stunden × Lohn × (1 + {lnk} % Lohnnebenkosten) + KM-Geld; laufender Monat mit geplanten Schichten hochgerechnet. Ziel {ziel} %.',
     c_obj: 'Objekt', c_rev: 'Umsatz', c_h: 'Std. (Ist + geplant)', c_cost_ist: 'Kosten bisher', c_cost: 'Kosten hochgerechnet', c_margin: 'Marge', c_state: 'Stand',
-    from_contract: 'Vertrag', st_ok: 'im Ziel', st_low: 'unter Ziel', st_norev: 'Umsatz fehlt', total: 'Gesamt',
+    from_contract: 'Vertrag', st_ok: 'im Ziel', st_low: 'unter Ziel', st_norev: 'Umsatz fehlt', st_nohours: 'keine Stunden – nicht geplant?', total: 'Gesamt',
     set_title: 'Lohn-Grenzen', set_hint: 'Minijob-Grenze und Mindestlohn gelten ab dem eingetragenen Tag. Neue Werte einfach als neue Zeile mit Datum anlegen.',
     c_from: 'Gültig ab', c_limit: 'Minijob-Grenze €/Monat', c_minwage: 'Mindestlohn €/Std.', add: 'Zeile hinzufügen', remove: 'Zeile entfernen',
     warn_from: 'Warnung ab (% der Grenze)', target: 'Ziel-Marge je Objekt (%)', set_note: 'Die Lohnberechnung selbst ändert sich dadurch nicht – die Werte steuern nur Hinweise und Hochrechnung.' },

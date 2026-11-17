@@ -86,7 +86,8 @@ function MargeInhalt({ data, loading, error }) {
             <td className="r ck-num">{eur(z.kosten_hochrechnung)}</td>
             <td className="r ck-num" style={{ fontWeight: 650 }}>{z.marge_prozent != null ? `${fmtNum(z.marge_prozent, 1)} %` : '–'}</td>
             <td>{z.status === 'ok' ? <Status s="approved" label={t('gf.st_ok')} /> : z.status === 'unter_ziel'
-              ? <Status s="fehlt" label={t('gf.st_low')} /> : <Status s="offen" label={t('gf.st_norev')} />}</td>
+              ? <Status s="fehlt" label={t('gf.st_low')} /> : z.status === 'ohne_stunden' ? <Status s="offen" label={t('gf.st_nohours')} />
+              : <Status s="offen" label={t('gf.st_norev')} />}</td>
           </tr>))}</tbody>
         <tfoot><tr><th>{t('gf.total')}</th><th className="r ck-num">{eur(data.gesamt.umsatz)}</th><th /><th /><th className="r ck-num">{eur(data.gesamt.kosten)}</th>
           <th className="r ck-num">{data.gesamt.marge_prozent != null ? `${fmtNum(data.gesamt.marge_prozent, 1)} %` : '–'}</th><th /></tr></tfoot>

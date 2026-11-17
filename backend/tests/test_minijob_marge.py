@@ -125,3 +125,14 @@ def test_objekt_marge_nur_admin(client, db):
     ls_ol = client.get(f"{API}/leitstelle", headers=ol).json()
     ls_ad = client.get(f"{API}/leitstelle", headers=admin).json()
     assert ls_ol["marge"] is None and isinstance(ls_ad["marge"], list) and "minijob" in ls_ol
+
+
+def test_marge_umsatz_ohne_stunden(db):
+    """Tiefentest: Objekt mit Umsatz, aber ohne Stunden im Monat -> 'ohne_stunden' statt 100 % Marge."""
+    from app.services import objekt_marge as om
+    februar(db)
+    ex(db, "DELETE FROM customer_revenues WHERE object_id = 9 AND year = 2027 AND month = 2")
+    ex(db, "INSERT INTO customer_revenues (object_id, year, month, revenue) VALUES (9, 2027, 2, 200)")
+    z = [x for x in om.marge(db, 2027, 2, JETZT)["objekte"] if x["object_id"] == 9][0]
+    assert z["status"] == "ohne_stunden"
+

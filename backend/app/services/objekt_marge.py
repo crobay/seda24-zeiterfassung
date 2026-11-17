@@ -97,7 +97,9 @@ def marge(db, jahr: int, monat: int, jetzt: datetime = None) -> dict:
                        "lohn_ist": round(lohn_ist, 2), "km": round(km.get(o["id"], 0.0), 2),
                        "kosten_ist": round(kosten_ist, 2), "kosten_hochrechnung": round(kosten, 2),
                        "marge_prozent": m, "ziel_prozent": ziel,
-                       "status": "ohne_umsatz" if m is None else ("unter_ziel" if m < ziel else "ok")})
+                       # Umsatz ohne jede Stunde = Objekt nicht geplant/gestempelt (sonst 100 % Marge, die es nicht gibt)
+                       "status": "ohne_umsatz" if m is None else ("ohne_stunden" if not std_ist and not std_plan
+                                                                    else ("unter_ziel" if m < ziel else "ok"))})
     zeilen.sort(key=lambda z: (z["marge_prozent"] is None, z["marge_prozent"] if z["marge_prozent"] is not None else 0))
     u = sum(z["umsatz"] or 0 for z in zeilen)
     k = sum(z["kosten_hochrechnung"] for z in zeilen if z["umsatz"])
