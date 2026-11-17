@@ -1090,11 +1090,11 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         borderRadius: '12px 12px 0 0', padding: '10px 16px', color: 'white',
         fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
           <Clock size={16} /> Stempeluhr
         </div>
         {/* Online/Offline Indikator */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', opacity: 0.9 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '4px 6px', fontSize: '12px', opacity: 0.9, minWidth: 0 }}>
           {keinNetz ? <WifiOff size={14} /> : <Wifi size={14} />}
           {!isOnline ? 'Offline' : (erreichbar === false ? 'Kein Internet' : '')}
           {pendingSync > 0 && (
@@ -1213,8 +1213,8 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
                 {isPaused ? (
                   <>
                     <button className="ek-knopf" onClick={handlePauseEnd} disabled={actionLoading}
-                      style={{ ...EK.knopf, ...EK.riesig, background: actionLoading ? '#9ca3af' : MARKE.gold, color: MARKE.navyDunkel }}>
-                      <PlayCircle size={44} strokeWidth={3} aria-hidden="true" /> PAUSE BEENDEN
+                      style={{ ...EK.knopf, ...EK.riesig, fontSize: '34px', flexDirection: 'column', gap: '10px', background: actionLoading ? '#9ca3af' : MARKE.gold, color: MARKE.navyDunkel }}>
+                      <PlayCircle size={52} strokeWidth={3} aria-hidden="true" /> PAUSE BEENDEN
                     </button>
                     <button onClick={handleCheckOut} disabled={actionLoading} style={EK.textKnopf}>
                       <Square size={18} aria-hidden="true" /> Gehen
