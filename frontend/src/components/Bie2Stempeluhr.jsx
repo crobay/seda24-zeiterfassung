@@ -431,6 +431,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       }
       // Erfolg: State zuruecksetzen, Server-Status holen (liefert bestaetigte today_entries)
       if (wasCheckout) {
+        saveOfflineState(null);
         setIsWorking(false);
         setCheckInTime(null);
         setIsPaused(false);
@@ -524,7 +525,8 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         setScheduledEndTime(data.scheduled_end_time || null);
         setOverdueMinutes(data.overdue_minutes || 0);
         // todayEntries NICHT löschen — bleiben sichtbar auch während nächster Schicht
-        saveOfflineState(null); // Server-State ist da, kein Offline-State nötig
+        // Server-Stand merken: oeffnet die App spaeter ohne Netz (oder im Gast-WLAN), bleibt "eingestempelt" sichtbar
+        saveOfflineState({ action: 'checked_in', objectId: data.object_id, checkInTime: data.check_in });
       } else {
         // Heutige abgeschlossene Eintraege uebernehmen (nur Server-Daten)
         if (data && data.today_entries) {
