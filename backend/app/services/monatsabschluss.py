@@ -1,7 +1,7 @@
 """Monatsabschluss mit einem Klick (PROTOTYP, nur DEV) - ersetzt das PC-Skript seda_lohn_email.py.
 
 Schritt 1  Pruefliste wie bei Lexware: "Hast du ... erledigt?" mit Haken je Punkt. Automatische Pruefungen
-           (Bestaetigungen, offene Stempel/Antraege, KM, Plausibilitaet, Minijob-Grenze) muessen gruen sein,
+           (offene Stempel/Antraege, KM, Plausibilitaet, Minijob-Grenze) muessen gruen sein,
            bevor der Haken gesetzt werden kann. Erst wenn alle Punkte abgehakt sind, geht es weiter.
 Schritt 2  "Fuer Lexware erzeugen": EINE Importdatei fuer alle MA (Import-Assistent Lohndaten von Lexware
            lohn+gehalt: ASCII, Semikolon, Dezimalkomma, Felder Jahr;Monat;Personalnummer;Lohnart;Wert;Stundensatz)
@@ -149,12 +149,7 @@ def pruefliste(db, y, m):
     name = {r["employee_id"]: r["name"] for r in rows}
     out = []
 
-    conf = {r["employee_id"] for r in _q(db, """SELECT employee_id FROM monthly_confirmations
-                                                  WHERE year = :y AND month = :m AND status = 'confirmed'""", y=y, m=m)}
-    fehlt = [name[i] for i in ids if i not in conf]
-    out.append(_punkt("bestaetigt", "Haben alle Mitarbeiter ihren Monat bestätigt?", not fehlt,
-                      f"{len(fehlt)} von {len(ids)} offen: " + ", ".join(fehlt[:6]) + (" …" if len(fehlt) > 6 else "") if fehlt
-                      else f"alle {len(ids)} bestätigt", f"/cockpit/abrechnung"))
+    # Punkt "Haben alle MA ihren Monat bestaetigt?" entfernt (18.11.2026, Drazen: Monatsbestaetigung wird nicht genutzt)
 
     offen = _q(db, """SELECT t.id, e.first_name || ' ' || e.last_name AS n, t.check_in FROM time_entries t
                       JOIN employees e ON e.id = t.employee_id

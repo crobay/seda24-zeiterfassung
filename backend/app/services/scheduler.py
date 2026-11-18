@@ -71,14 +71,15 @@ def init_scheduler():
         max_instances=1,
     )
 
-    # Job 7: Monatsbestaetigung automatisch (taeglich 09:00 - Morgen nach letzter Schicht)
-    scheduler.add_job(
-        auto_monthly_confirmation,
-        CronTrigger(hour=9, minute=0),
-        id='auto_monthly_confirmation',
-        replace_existing=True,
-        max_instances=1,
-    )
+    # Job 7: Monatsbestaetigung automatisch - ABGESCHALTET 18.11.2026 (GO Drazen: wird nicht genutzt).
+    # Funktion auto_monthly_confirmation bleibt erhalten; zum Wiedereinschalten die Zeilen einkommentieren.
+    # scheduler.add_job(
+    #     auto_monthly_confirmation,
+    #     CronTrigger(hour=9, minute=0),
+    #     id='auto_monthly_confirmation',
+    #     replace_existing=True,
+    #     max_instances=1,
+    # )
 
     # Job 7b: Sonntagsbestaetigung D0002 - Nachsenden, Erinnerung, Admin-Hinweis (taeglich 09:00)
     scheduler.add_job(
@@ -172,7 +173,7 @@ def init_scheduler():
     )
 
     scheduler.start()
-    logger.info("APScheduler gestartet mit 15 Jobs")
+    logger.info(f"APScheduler gestartet mit {len(scheduler.get_jobs())} Jobs (Monatsbestaetigung abgeschaltet)")
 
 
 def shutdown_scheduler():

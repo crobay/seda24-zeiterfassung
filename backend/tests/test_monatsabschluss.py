@@ -49,6 +49,7 @@ def test_ueberspringen_und_anrede():
 def test_haken_erst_wenn_gruen(client, db, monkeypatch):
     h = admin_h(db)
     p = client.get(f"{API}/2026-10", headers=h).json()["pruefliste"]
+    assert "bestaetigt" not in {x["key"] for x in p["punkte"]}  # Monatsbestaetigung wird nicht genutzt (Drazen 18.11.)
     rot = [x for x in p["punkte"] if x["auto"] is False]
     if rot:
         r = client.post(f"{API}/2026-10/haken", json={"key": rot[0]["key"]}, headers=h)
