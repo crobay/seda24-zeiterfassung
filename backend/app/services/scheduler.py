@@ -688,6 +688,13 @@ def auto_fill_monthly_revenues():
             Obj.monthly_amount_netto > 0,
         ).all()
 
+        # Objekte mit auto_umsatz = False (Einzelauftraege, kein Vertragsumsatz) nie automatisch fuellen
+        ohne_auto = [o for o in objects if o.auto_umsatz is False]
+        if ohne_auto:
+            logger.info("auto_fill_revenues: ohne Auto-Umsatz (Einzelauftraege) uebersprungen: "
+                        + ", ".join(f"{o.id} {o.name}" for o in ohne_auto))
+        objects = [o for o in objects if o.auto_umsatz is not False]
+
         filled = 0
         skipped = 0
         for obj in objects:

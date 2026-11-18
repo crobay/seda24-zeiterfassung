@@ -103,6 +103,7 @@ class Object(Base):
     monthly_amount_netto = Column(Float, nullable=True)
     ip_prefix = Column(String(32), nullable=True)  # Netz-Erkennung: Praefix der Objekt-Standleitung
     is_test = Column(Boolean, default=False, nullable=False)  # Test-Objekt: keine echten Kunden
+    auto_umsatz = Column(Boolean, default=True, nullable=False)  # False = Einzelauftraege, kein automatischer Vertrags-Monatsumsatz (Drazen 18.11.2026)
     created_at = Column(DateTime, default=datetime.now)
 
     customer = relationship("Customer", back_populates="objects")
