@@ -132,7 +132,9 @@ def _fmt_sched_change(old, new):
 def _audit_sentence(action, old, new, actor, subject, details):
     """Formuliert eine Audit-Zeile als lesbaren deutschen Satz (ohne Zeitstempel)."""
     a = action or ''
-    o, n = old or {}, new or {}
+    # Aeltere Eintraege (bis Anfang Nov. 2026) speichern Text "feld=wert, ..." statt JSON -> nur der allgemeine Satz
+    o = old if isinstance(old, dict) else {}
+    n = new if isinstance(new, dict) else {}
     if a in ('schedule_updated', 'schedule_split', 'schedule_unsplit'):
         datum = n.get('datum') or o.get('datum') or '?'
         chg = _fmt_sched_change(o, n)
