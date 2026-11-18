@@ -238,3 +238,13 @@ def test_protokoll_mit_systemeintrag_ohne_benutzer(client, db):
     r = client.get("/api/v1/admin/audit-log?limit=50", headers=token(db, "ADMIN"))
     assert r.status_code == 200, r.text
 
+
+
+def test_protokoll_mit_altem_textformat(client, db):
+    """LIVE 18.11.: aeltere Eintraege speichern 'feld=wert' statt JSON -> Satzbildung brach mit 500 ab."""
+    db.execute(text("""INSERT INTO audit_log (user_id, action, old_value, new_value, created_at)
+                       VALUES (NULL, 'booking_updated', 'check_out=2026-10-26 16:37:45', 'check_out=2026-10-26 16:38:00', now())"""))
+    r = client.get("/api/v1/admin/audit-log?limit=50", headers=token(db, "ADMIN"))
+    assert r.status_code == 200, r.text
+    e = next(x for x in r.json() if x["action"] == "booking_updated" and x["old_value"] == "check_out=2026-10-26 16:37:45")
+    assert "hat die Buchung" in e["message"]
