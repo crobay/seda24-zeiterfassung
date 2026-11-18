@@ -72,7 +72,7 @@ def lexware_vorschau(monat: str, db: Session = Depends(get_db), user=Depends(nur
     y, m = _ym(monat)
     z = ma.lexware_zeilen(db, y, m)
     return {"zeilen": [{"personal_nr": p, "name": n, "lohnart": la, "wert": w, "stundensatz": s, "bezeichnung": b} for p, n, la, w, s, b in z],
-            "lohnarten": ma.lohnarten(db)}
+            "lohnarten": ma.lohnarten(db), "fehlende_lohnarten": ma.fehlende_lohnarten(db, y, m)}
 
 
 @router.post("/{monat}/erzeugen")
@@ -122,6 +122,24 @@ def vorschau(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin))
 def versenden(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
     y, m = _ym(monat)
     return _fehler(lambda: ma.versenden(db, y, m, user.id))
+
+
+@router.post("/{monat}/versenden/{employee_id}")
+def erneut_senden(monat: str, employee_id: int, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.erneut_senden(db, y, m, employee_id, user.id))
+
+
+@router.put("/einstellungen/lohnversand")
+def lohnversand(data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    from app.services import lohnversand as lv
+    return _fehler(lambda: {"einstellungen": lv.einstellungen_speichern(db, data, user.id), "versandweg": lv.status_versand()})
+
+
+@router.post("/{monat}/sperren")
+def sperren(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.sperren(db, y, m, user.id))
 
 
 @router.post("/{monat}/wieder-oeffnen")

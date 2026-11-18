@@ -1,4 +1,4 @@
-// Monatsabschluss mit einem Klick (PROTOTYP, nur Admin): 1 Prüfliste -> 2 Für Lexware erzeugen -> 3 Lohnabrechnungen
+// Monatsabschluss mit einem Klick (nur Admin): 1 Prüfliste -> 2 Für Lexware erzeugen -> 3 Lohnabrechnungen
 // hochladen -> 4 Vorschau je MA -> 5 Alle versenden + Monat sperren. Ersetzt das PC-Skript seda_lohn_email.py.
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -132,10 +132,11 @@ function Lexware({ monat, data, zu, onDone, toast, reload }) {
       <section className="ck-card" style={{ marginBottom: 16 }}>
         <div className="ck-card-head"><h2><FileSpreadsheet size={20} />{t('ab.la_title')}</h2></div>
         {la && !la.bestaetigt && <div className="ck-callout" data-la-unbestaetigt><AlertTriangle size={18} />{t('ab.la_unconfirmed')}</div>}
+        {v.data?.fehlende_lohnarten?.length > 0 && <div className="ck-callout" data-la-fehlt><AlertTriangle size={18} />{t('ab.la_fehlt', { was: v.data.fehlende_lohnarten.join(', ') })}</div>}
         {la && <div className="ab-la">
           {['normal', 'sonder', 'nacht', 'sonntag', 'feiertag', 'urlaub', 'km'].map((k) => (
             <label key={k}><span>{t(`ab.la_${k}`)}</span>
-              <input className="ck-input ck-num" inputMode="numeric" value={la[k] ?? ''} disabled={zu} onChange={(e) => setLa({ ...la, [k]: e.target.value.replace(/\D/g, '') })} /></label>))}
+              <input className="ck-input ck-num" inputMode="numeric" value={la[k] ?? ''} placeholder={t('ab.la_leer')} disabled={zu} onChange={(e) => setLa({ ...la, [k]: e.target.value.replace(/\D/g, '') })} /></label>))}
           <label><span>{t('ab.la_persnr')}</span>
             <select className="ck-input" value={la.persnr} disabled={zu} onChange={(e) => setLa({ ...la, persnr: e.target.value })}>
               <option value="wie_app">D0040</option><option value="nur_ziffern">40</option></select></label>
@@ -157,7 +158,7 @@ function Lexware({ monat, data, zu, onDone, toast, reload }) {
             <thead><tr><th>{t('ab.c_pnr')}</th><th>{t('abr.c_name')}</th><th style={{ textAlign: 'right' }}>{t('ab.c_la')}</th><th>{t('ab.c_bez')}</th>
               <th style={{ textAlign: 'right' }}>{t('ab.c_wert')}</th><th style={{ textAlign: 'right' }}>{t('ab.c_satz')}</th></tr></thead>
             <tbody>{zeilen.map((z, i) => (
-              <tr key={i}><td className="ck-num">{z.personal_nr}</td><td>{z.name}</td><td className="ck-num" style={{ textAlign: 'right' }}>{z.lohnart}</td>
+              <tr key={i}><td className="ck-num">{z.personal_nr}</td><td>{z.name}</td><td className="ck-num" style={{ textAlign: 'right' }}>{z.lohnart ?? <Status s="fehlt" label={t('ab.la_leer')} />}</td>
                 <td>{z.bezeichnung}</td><td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(z.wert, 2)}</td>
                 <td className="ck-num" style={{ textAlign: 'right' }}>{z.stundensatz ? fmtNum(z.stundensatz, 2) : ''}</td></tr>))}</tbody>
           </table></div>)}
@@ -251,46 +252,109 @@ function Vorschau({ monat, onDone }) {
 }
 
 // ---------- Schritt 5: Alle versenden + Monat sperren ----------
+// Versand über Microsoft Graph aus buchhaltung@seda.de (Kopie in „Gesendete Elemente“, kein BCC). Testmodus = alles an Drazen.
 function Versand({ monat, data, toast, reload }) {
   const v = useApi(`/abschluss/${monat}/vorschau`);
   const [frage, setFrage] = useState(false);
   const [oeffnen, setOeffnen] = useState(false);
   const [grund, setGrund] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const [verlauf, setVerlauf] = useState(false);
   const prot = data?.protokoll;
+  const ein = prot?.einstellungen || {};
+  const weg = prot?.versandweg || {};
+  const [testAn, setTestAn] = useState('');
+  useEffect(() => { setTestAn(ein.test_an || ''); }, [ein.test_an]);
   const zu = data?.status === 'abgeschlossen';
+  const test = ein.testmodus !== false;
   const bereit = v.data && v.data.bereit === v.data.gesamt && !v.data.nicht_zugeordnet.length;
   const los = async () => {
-    setBusy(true);
-    try { await api.post(`/abschluss/${monat}/versenden`); toast(t('ab.sent')); setFrage(false); reload(); }
+    setBusy('alle');
+    try {
+      const r = await api.post(`/abschluss/${monat}/versenden`);
+      const e = r.data.ergebnis;
+      toast(t(e.testmodus ? 'ab.sent_test' : 'ab.sent', { n: e.gesendet, f: e.fehler }), e.fehler ? { tone: 'warn' } : undefined);
+      setFrage(false); reload();
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setBusy(null);
+  };
+  const einzeln = async (eid) => {
+    setBusy(eid);
+    try { const r = await api.post(`/abschluss/${monat}/versenden/${eid}`); toast(r.data.ergebnis.fehler ? t('ab.resend_bad') : t('ab.resend_ok'), r.data.ergebnis.fehler ? { tone: 'warn' } : undefined); reload(); }
     catch (e) { toast(apiError(e), { tone: 'warn' }); }
-    setBusy(false);
+    setBusy(null);
+  };
+  const einstellen = async (werte) => {
+    try { await api.put('/abschluss/einstellungen/lohnversand', { ...ein, ...werte }); toast(t('ab.set_saved')); reload(); }
+    catch (e) { toast(apiError(e), { tone: 'warn' }); }
+  };
+  const sperren = async () => {
+    try { await api.post(`/abschluss/${monat}/sperren`); reload(); toast(t('ab.locked')); }
+    catch (e) { toast(apiError(e), { tone: 'warn' }); }
   };
   const auf = async () => {
     try { await api.post(`/abschluss/${monat}/wieder-oeffnen`, { grund }); setOeffnen(false); setGrund(''); reload(); toast(t('ab.reopened')); }
     catch (e) { toast(apiError(e), { tone: 'warn' }); }
   };
+  const stat = (r) => r.status === 'gesendet' ? <Status s="approved" label={t('ab.st_sent')} />
+    : r.status === 'test' ? <Status s="pending" label={t('ab.st_test')} />
+    : r.status === 'simuliert' ? <Status s="pending" label={t('ab.st_sim')} /> : <Status s="fehlt" label={r.fehler || r.status} />;
+  const vorschauMa = v.data?.mitarbeiter || [];
+  const jeMa = Object.fromEntries((prot?.je_ma || []).map((r) => [r.employee_id, r]));
   return (
     <section className="ck-card">
       <div className="ck-card-head"><h2>{zu ? <Lock size={20} /> : <Send size={20} />}{zu ? t('ab.closed_title', { m: monatLabel(monat) }) : t('ab.send_title')}</h2>
         {zu && <span className="ck-tag tone-ok" data-gesperrt>{t('ab.closed_at', { am: (prot?.gesperrt_am || '').replace('T', ' ') })}</span>}</div>
-      {!zu && <>
-        <p>{t('ab.send_text', { n: v.data?.gesamt ?? '…' })}</p>
+
+      <div className={`ck-callout${test ? '' : ' c-info'}`} data-versandweg>
+        <Mail size={18} style={{ flex: 'none' }} />
+        <div style={{ flex: 1 }}>
+          <div>{t('ab.weg', { von: weg.absender || 'buchhaltung@seda.de' })}{!weg.konfiguriert && <b> {t('ab.weg_fehlt')}</b>}</div>
+          <label className="ab-la-check" style={{ marginTop: 6 }}>
+            <input type="checkbox" checked={test} data-testmodus onChange={(e) => einstellen({ testmodus: e.target.checked })} disabled={!weg.echt_erlaubt && test} />
+            {t('ab.testmodus')}</label>
+          {test && <label className="ck-field" style={{ maxWidth: 360 }}><span>{t('ab.test_an')}</span>
+            <span style={{ display: 'flex', gap: 6 }}><input className="ck-input" value={testAn} onChange={(e) => setTestAn(e.target.value)} />
+              <button className="ck-btn" disabled={testAn === ein.test_an} onClick={() => einstellen({ test_an: testAn })}>{t('app.save')}</button></span></label>}
+          {!weg.echt_erlaubt && <div className="ck-subtle">{t('ab.nur_test')}</div>}
+        </div>
+      </div>
+
+      {(!zu || test) && <>
+        <p>{t(test ? 'ab.send_text_test' : 'ab.send_text', { n: v.data?.gesamt ?? '…', an: ein.test_an })}</p>
         {!bereit && v.data && <div className="ck-callout"><AlertTriangle size={18} />{t('ab.send_notready', { n: v.data.gesamt - v.data.bereit })}</div>}
-        <button className="ck-btn ck-btn-primary ab-big" disabled={!bereit || busy} onClick={() => setFrage(true)} data-versenden><Send size={18} />{t('ab.send_btn', { n: v.data?.gesamt ?? '' })}</button>
+        <button className="ck-btn ck-btn-primary ab-big" disabled={!bereit || !!busy || !weg.konfiguriert} onClick={() => setFrage(true)} data-versenden>
+          <Send size={18} />{busy === 'alle' ? t('ab.sending') : t(test ? 'ab.send_btn_test' : 'ab.send_btn', { n: v.data?.gesamt ?? '' })}</button>
       </>}
-      {prot?.versand?.length > 0 && <div className="ck-table-wrap" style={{ marginTop: 16 }}><table className="ck-table" data-protokoll>
-        <thead><tr><th>{t('abr.c_name')}</th><th>{t('ab.c_mail')}</th><th>{t('ab.c_anh')}</th><th>{t('ab.c_status')}</th><th>{t('ab.c_am')}</th></tr></thead>
-        <tbody>{prot.versand.map((r) => (
-          <tr key={r.id}><td><b>{r.name}</b> <span className="ck-subtle">{r.personal_nr}</span></td><td>{r.an}</td><td className="ck-subtle">{r.anhaenge.length} {t('ab.files')}</td>
-            <td>{r.status === 'gesendet' ? <Status s="approved" label={t('ab.st_sent')} /> : r.status === 'simuliert' ? <Status s="pending" label={t('ab.st_sim')} /> : <Status s="fehlt" label={r.fehler || r.status} />}</td>
-            <td className="ck-num">{r.am.replace('T', ' ')}</td></tr>))}</tbody></table></div>}
-      {zu && <div className="ab-foot"><span className="ck-subtle">{t('ab.closed_hint')}</span>
-        <button className="ck-btn" onClick={() => setOeffnen(true)}><LockOpen size={16} />{t('ab.reopen')}</button></div>}
-      {frage && <Dialog title={t('ab.confirm_title')} onClose={() => setFrage(false)}
+
+      {vorschauMa.length > 0 && <div className="ck-table-wrap" style={{ marginTop: 16 }}><table className="ck-table" data-je-ma>
+        <thead><tr><th>{t('abr.c_name')}</th><th>{t('ab.c_mail')}</th><th>{t('ab.c_status')}</th><th>{t('ab.c_am')}</th><th /></tr></thead>
+        <tbody>{vorschauMa.map((m) => { const r = jeMa[m.employee_id]; return (
+          <tr key={m.employee_id} data-ma={m.personal_nr}><td><b>{m.name}</b> <span className="ck-subtle">{m.personal_nr}</span></td>
+            <td>{r?.an || m.email || '–'}</td><td>{r ? stat(r) : <span className="ck-subtle">{t('ab.st_offen')}</span>}</td>
+            <td className="ck-num">{r ? r.am.replace('T', ' ') : ''}</td>
+            <td style={{ textAlign: 'right' }}>{r && <button className="ck-btn ck-btn-sm" disabled={!!busy || !m.bereit || !weg.konfiguriert} onClick={() => einzeln(m.employee_id)} data-erneut>
+              <Send size={14} />{busy === m.employee_id ? t('ab.sending') : t('ab.resend')}</button>}</td></tr>); })}</tbody></table></div>}
+
+      {prot?.versand?.length > 0 && <div style={{ marginTop: 12 }}>
+        <button className="ck-btn ck-btn-ghost" onClick={() => setVerlauf((x) => !x)}>{t('ab.verlauf', { n: prot.versand.length })}</button>
+        {verlauf && <div className="ck-table-wrap" style={{ marginTop: 8 }}><table className="ck-table" data-protokoll>
+          <thead><tr><th>{t('ab.c_am')}</th><th>{t('abr.c_name')}</th><th>{t('ab.c_mail')}</th><th>{t('ab.c_anh')}</th><th>{t('ab.c_status')}</th></tr></thead>
+          <tbody>{prot.versand.slice().reverse().map((r) => (
+            <tr key={r.id}><td className="ck-num">{r.am.replace('T', ' ')}</td><td>{r.name}</td><td>{r.an}</td>
+              <td className="ck-subtle" title={r.anhaenge.join('\n')}>{r.anhaenge.length} {t('ab.files')}</td><td>{stat(r)}</td></tr>))}</tbody></table></div>}
+      </div>}
+
+      <div className="ab-foot">
+        {zu ? <><span className="ck-subtle">{t('ab.closed_hint')}</span>
+          <button className="ck-btn" onClick={() => setOeffnen(true)}><LockOpen size={16} />{t('ab.reopen')}</button></>
+          : data?.status === 'erzeugt' && prot?.versand?.some((r) => r.status === 'gesendet') &&
+            <button className="ck-btn" onClick={sperren} data-sperren><Lock size={16} />{t('ab.lock')}</button>}
+      </div>
+      {frage && <Dialog title={t(test ? 'ab.confirm_title_test' : 'ab.confirm_title')} onClose={() => setFrage(false)}
         footer={<><button className="ck-btn" onClick={() => setFrage(false)}>{t('app.cancel')}</button>
-          <button className="ck-btn ck-btn-primary" disabled={busy} onClick={los} data-ja>{t('ab.confirm_yes')}</button></>}>
-        <p>{t('ab.confirm_text', { n: v.data?.gesamt, m: monatLabel(monat) })}</p></Dialog>}
+          <button className="ck-btn ck-btn-primary" disabled={!!busy} onClick={los} data-ja>{busy ? t('ab.sending') : t('ab.confirm_yes')}</button></>}>
+        <p>{t(test ? 'ab.confirm_text_test' : 'ab.confirm_text', { n: v.data?.gesamt, m: monatLabel(monat), an: ein.test_an })}</p></Dialog>}
       {oeffnen && <Dialog title={t('ab.reopen')} onClose={() => setOeffnen(false)}
         footer={<><button className="ck-btn" onClick={() => setOeffnen(false)}>{t('app.cancel')}</button>
           <button className="ck-btn ck-btn-primary" disabled={!grund.trim()} onClick={auf}>{t('ab.reopen')}</button></>}>

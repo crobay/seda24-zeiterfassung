@@ -9,11 +9,14 @@ Schritt 2  "Fuer Lexware erzeugen": EINE Importdatei fuer alle MA (Import-Assist
            (admin.get_lohn_uebersicht) bzw. festgehalt.lexware_lohnarten - an der Gehaltslogik aendert sich nichts.
 Schritt 3  Lohnabrechnungen aus Lexware hochladen (ZIP oder PDFs), Zuordnung nach PersNr/Name im Dateinamen.
 Schritt 4  Vorschau je MA: Mail-Adresse, Anrede, Anhaenge.
-Schritt 5  "Alle versenden" + Versandprotokoll + Monat sperren. Im Prototyp NUR Trockenlauf: es wird nichts
-           verschickt (kein Versand-Adapter eingebaut), das Protokoll zeigt "simuliert".
+Schritt 5  "Alle versenden" (Graph aus buchhaltung@seda.de, Kopie in "Gesendete Elemente", kein BCC; siehe
+           lohnversand.py) + Status je MA +
+           einzelnen MA erneut senden + Monat sperren. Testmodus (Schalter): alles geht an Drazen statt an die MA,
+           der Monat wird dabei nicht gesperrt.
 
-Regeln aus dem PC-Skript (laut Drazen): A*- und TEST*-Konten (und is_test) ueberspringen, D0002 ohne KM-Anhang,
-Anrede je MA. Dateien liegen unter backend/data/abschluss/JJJJ-MM/ (nicht im Git).
+Regeln aus dem PC-Skript / Drazen 18.11.2026: A*- und TEST*-Konten (und is_test) ueberspringen, D0002 ohne KM
+(kein KM-Anhang, kein KM-Geld im Export - Elektro-Dienstwagen), Anrede je MA, 3 Anhaenge (Lohnabrechnung, Zeitnachweis,
+KM-Journal), Dateinamen wie Skript v2.5: Lohnabrechnung_{Jahr}_{Monat}_{PersNr}_{Nachname}_{Vorname}.pdf. Dateien liegen unter backend/data/abschluss/JJJJ-MM/ (nicht im Git).
 """
 import hashlib
 import io
@@ -21,6 +24,7 @@ import json
 import os
 import re
 import shutil
+import time
 import unicodedata
 import zipfile
 from calendar import monthrange
@@ -31,10 +35,11 @@ from sqlalchemy import text
 BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATEN = os.path.join(BACKEND, "data", "abschluss")
 OBJ_URLAUB, OBJ_KRANK = 999, 19
-OHNE_KM_ANHANG = {"D0002"}                    # Ausnahme aus dem PC-Skript
+OHNE_KM_ANHANG = {"D0002"}                    # kein KM-Anhang und kein KM-Geld im Export (Elektro-Dienstwagen)
 LOHNART_KEY = "lexware_lohnarten"
-# Vorschlag - Nummern muss Drazen aus seinem Lexware-Mandanten bestaetigen (bestaetigt=False -> Hinweis im Cockpit)
-LOHNART_DEFAULT = {"normal": 2, "sonder": 2, "sonntag": 13, "nacht": 11, "feiertag": 16, "urlaub": 14, "km": 700,
+# Nummern aus dem bestehenden XML-Export (13/11/16/14); normal/sonder/km gibt es dort nicht -> Platzhalter (leer),
+# Drazen traegt sie aus seinem Lexware-Mandanten ein. Ohne Nummer wird keine Lexware-Datei erzeugt.
+LOHNART_DEFAULT = {"normal": None, "sonder": None, "sonntag": 13, "nacht": 11, "feiertag": 16, "urlaub": 14, "km": None,
                    "kopfzeile": True, "persnr": "wie_app", "bestaetigt": False}
 MONATE = ["", "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
           "November", "Dezember"]
@@ -78,7 +83,7 @@ def zustand(db, y, m):
 
 
 def gesperrt(db, y, m) -> bool:
-    """Fuer spaetere Sperr-Pruefungen an allen Aenderungs-Endpunkten (Zeiten, KM, Urlaub) - siehe Konzept."""
+    """Durchgesetzt wird die Sperre in der Datenbank (migrations/monatssperre.sql, Trigger auf allen Lohndaten)."""
     return zustand(db, y, m)["status"] == "abgeschlossen"
 
 
@@ -96,6 +101,9 @@ def lohnarten_speichern(db, werte: dict, user_id):
     neu = {**alt}
     for k in ("normal", "sonder", "sonntag", "nacht", "feiertag", "urlaub", "km"):
         if k in werte:
+            if werte[k] in (None, ""):
+                neu[k] = None
+                continue
             v = int(werte[k])
             if not 1 <= v <= 9999:
                 raise ValueError(f"Lohnart {k}: 1 bis 9999")
@@ -283,19 +291,43 @@ def lexware_zeilen(db, y, m):
             if r.get("sonder_hours"):
                 satz = round((r.get("sonder_amount") or 0) / r["sonder_hours"], 2) if r["sonder_hours"] else None
                 out.append((p, n, la["sonder"], round(r["sonder_hours"], 2), satz, "Sonderstunden"))
-        if r.get("km_amount"):
+        if r.get("km_amount") and p not in OHNE_KM_ANHANG:
             out.append((p, n, la["km"], round(r["km_amount"], 2), None, "Fahrtkosten (KM-Geld)"))
     return out
 
 
+def fehlende_lohnarten(db, y, m):
+    """Bezeichnungen, fuer die im Monat Werte anfallen, aber noch keine Lexware-Lohnart-Nummer eingetragen ist."""
+    return sorted({z[5] for z in lexware_zeilen(db, y, m) if z[2] in (None, "")})
+
+
 def lexware_datei(db, y, m) -> bytes:
     la = lohnarten(db)
+    fehlt = fehlende_lohnarten(db, y, m)
+    if fehlt:
+        raise ValueError("Lexware-Lohnart-Nummer fehlt für: " + ", ".join(fehlt) + " (Schritt 2 › Lohnarten eintragen)")
     zeilen = []
     if la["kopfzeile"]:
         zeilen.append("Jahr;Monat;Personalnummer;Lohnart;Wert;Stundensatz")
     for p, _n, nr, wert, satz, _b in lexware_zeilen(db, y, m):
         zeilen.append(f"{y};{m};{_persnr(p, la['persnr'])};{nr};{_num(wert)};{_num(satz) if satz else ''}")
     return ("\r\n".join(zeilen) + "\r\n").encode("cp1252", errors="replace")
+
+
+def _datei_teil(s):
+    s = (s or "").strip()
+    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
+        s = s.replace(a, b)
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+    return re.sub(r"[^A-Za-z0-9]+", "-", s).strip("-") or "x"
+
+
+ANH_PRAEFIX = {"lohnabrechnung": "Lohnabrechnung", "zeitnachweis": "Zeitnachweis", "km": "KM-Journal"}
+
+
+def anhang_name(art, y, m, pnr, nachname, vorname):
+    """Wie Skript v2.5: Lohnabrechnung_{Jahr}_{Monat}_{PersNr}_{Nachname}_{Vorname}.pdf (Zeitnachweis/KM-Journal analog)."""
+    return f"{ANH_PRAEFIX[art]}_{y}_{m:02d}_{_datei_teil(pnr)}_{_datei_teil(nachname)}_{_datei_teil(vorname)}.pdf"
 
 
 def ordner(y, m):
@@ -336,7 +368,7 @@ def erzeugen(db, y, m, user_id):
                 quelle = fn(r["employee_id"], y, m)
                 if os.path.dirname(quelle) != gen.output_dir or os.path.getmtime(quelle) < start:
                     raise RuntimeError("PDF nicht frisch erzeugt")
-                ziel = os.path.join(d, os.path.basename(quelle))
+                ziel = os.path.join(d, anhang_name(art, y, m, r["personal_nr"], *_namen(db, r["employee_id"])))
                 os.replace(quelle, ziel)
                 _dok(db, y, m, r["employee_id"], art, os.path.basename(ziel), ziel, "automatisch", user_id)
             except Exception as e:  # einzelner MA bricht den Lauf nicht ab
@@ -348,6 +380,11 @@ def erzeugen(db, y, m, user_id):
               details=f"Monatsabschluss {m:02d}/{y}: Lexware-Datei und PDFs erzeugt" + (f", {len(fehler)} Fehler" if fehler else ""))
     db.commit()
     return {"lexware_datei": lex, "zeilen": len(lexware_zeilen(db, y, m)), "fehler": fehler, **dokumente(db, y, m)}
+
+
+def _namen(db, eid):
+    r = db.execute(text("SELECT last_name, first_name FROM employees WHERE id = :i"), {"i": eid}).fetchone()
+    return (r[0], r[1]) if r else ("", "")
 
 
 def paket_zip(db, y, m) -> bytes:
@@ -522,37 +559,130 @@ def mailtext(vorname, gender, y, m):
 
 # ------------------------------------------------------------------ Schritt 5: versenden + sperren
 
+def _anhaenge(db, y, m, eid, pnr):
+    """[(Dateiname fuer die Mail, Pfad)] in der Reihenfolge Lohnabrechnung, Zeitnachweis, KM-Journal."""
+    nach, vor = _namen(db, eid)
+    docs = _q(db, """SELECT art, pfad FROM monatsabschluss_dokument WHERE monat = :k AND employee_id = :e
+                     ORDER BY array_position(ARRAY['lohnabrechnung','zeitnachweis','km']::varchar[], art), id""",
+              k=monat_key(y, m), e=eid)
+    out, gesehen = [], set()
+    for d in docs:
+        if d["art"] in gesehen or (d["art"] == "km" and pnr in OHNE_KM_ANHANG):
+            continue
+        if not os.path.exists(d["pfad"]):
+            raise RuntimeError(f"Datei fehlt auf dem Server ({ANH_PRAEFIX[d['art']]})")
+        gesehen.add(d["art"])
+        out.append((anhang_name(d["art"], y, m, pnr, nach, vor), d["pfad"]))
+    return out
+
+
+def _senden(db, y, m, user_id, mas):
+    """Schickt die Mails fuer die Vorschau-Eintraege mas mit EINER Anmeldung. Status je MA sofort gespeichert."""
+    from app.services import lohnversand as lv
+    einst = lv.einstellungen(db)
+    test = einst["testmodus"] or not lv.echt_erlaubt()
+    try:
+        conn = lv.verbinden()
+    except Exception as e:
+        raise ValueError(f"Mail-Server nicht erreichbar: {type(e).__name__} {str(e)[:150]}")
+    ergebnis = {"gesendet": 0, "fehler": 0, "testmodus": test}
+    try:
+        for i, x in enumerate(mas):
+            an_ma = x["email"]
+            an = einst["test_an"] if test else an_ma
+            betreff = (f"[TEST – an {x['name']} <{an_ma}>] " if test else "") + x["betreff"]
+            koerper = (f"TESTMODUS – diese Mail ginge an: {x['name']} <{an_ma}>\n\n" if test else "") + x["text"]
+            status, fehler, namen = ("test" if test else "gesendet"), None, []
+            try:
+                anh = _anhaenge(db, y, m, x["employee_id"], x["personal_nr"])
+                namen = [n for n, _ in anh]
+                conn.senden(lv.nachricht(an, betreff, koerper, anh))
+                ergebnis["gesendet"] += 1
+            except Exception as e:      # ein MA bricht den Lauf nicht ab
+                status, fehler = "fehler", f"{type(e).__name__}: {str(e)[:200]}"
+                ergebnis["fehler"] += 1
+            db.execute(text("""INSERT INTO monatsabschluss_versand (monat, employee_id, an, betreff, anhaenge, status, fehler, von)
+                               VALUES (:k, :e, :an, :b, :a, :s, :f, :u)"""),
+                       {"k": monat_key(y, m), "e": x["employee_id"], "an": an, "b": betreff,
+                        "a": json.dumps(namen), "s": status, "f": fehler, "u": user_id})
+            db.commit()
+            if i < len(mas) - 1:
+                time.sleep(lv.PAUSE_S)
+    finally:
+        conn.schliessen()
+    return ergebnis
+
+
 def versenden(db, y, m, user_id):
-    """Prototyp: Trockenlauf - nichts wird verschickt. Protokoll je MA, danach Monat sperren."""
+    """Alle MA verschicken. Echter Versand sperrt danach den Monat (auch wenn einzelne fehlschlagen - die werden
+    einzeln erneut gesendet). Im Testmodus geht alles an Drazen und der Monat bleibt offen."""
+    from app.services import lohnversand as lv
     from app.services.booking_service import log_audit
     z = zustand(db, y, m)
-    if z["status"] == "abgeschlossen":
-        raise PermissionError("Der Monat ist bereits abgeschlossen")
+    test = lv.einstellungen(db)["testmodus"] or not lv.echt_erlaubt()
+    if z["status"] == "abgeschlossen" and not test:
+        raise PermissionError("Der Monat ist bereits abgeschlossen – einzelne Mitarbeiter über „Erneut senden“")
     if not pruefliste(db, y, m)["alle_gruen"]:
         raise ValueError("Erst alle Punkte der Prüfliste abhaken")
     v = vorschau(db, y, m)
     if v["bereit"] < v["gesamt"] or v["nicht_zugeordnet"]:
         raise ValueError(f"Noch nicht alle bereit: {v['gesamt'] - v['bereit']} Mitarbeiter, {len(v['nicht_zugeordnet'])} Datei(en) ohne Zuordnung")
-    for x in v["mitarbeiter"]:
-        db.execute(text("""INSERT INTO monatsabschluss_versand (monat, employee_id, an, betreff, anhaenge, status, von)
-                           VALUES (:k, :e, :an, :b, :a, 'simuliert', :u)"""),
-                   {"k": monat_key(y, m), "e": x["employee_id"], "an": x["email"], "b": x["betreff"],
-                    "a": json.dumps([a["datei"] for a in x["anhaenge"]]), "u": user_id})
-    db.execute(text("UPDATE monatsabschluss SET status = 'abgeschlossen', gesperrt_am = now(), gesperrt_von = :u WHERE monat = :k"),
-               {"u": user_id, "k": monat_key(y, m)})
+    erg = _senden(db, y, m, user_id, v["mitarbeiter"])
+    if not test:
+        db.execute(text("UPDATE monatsabschluss SET status = 'abgeschlossen', gesperrt_am = now(), gesperrt_von = :u WHERE monat = :k"),
+                   {"u": user_id, "k": monat_key(y, m)})
     log_audit(db, user_id, None, "abschluss_versand", entity_type="monat", entity_id=y * 100 + m,
-              details=f"Monatsabschluss {m:02d}/{y}: {len(v['mitarbeiter'])} Mails (Trockenlauf, nichts versendet), Monat gesperrt")
+              details=f"Monatsabschluss {m:02d}/{y}: " + (f"TESTVERSAND an {lv.einstellungen(db)['test_an']}: " if test else "")
+              + f"{erg['gesendet']} gesendet, {erg['fehler']} Fehler" + ("" if test else ", Monat gesperrt"))
     db.commit()
-    return protokoll(db, y, m)
+    return {**protokoll(db, y, m), "ergebnis": erg}
+
+
+def erneut_senden(db, y, m, employee_id, user_id):
+    """Einen MA (erneut) schicken - z. B. nach Fehler oder falscher Adresse. Geht auch im gesperrten Monat."""
+    from app.services.booking_service import log_audit
+    if zustand(db, y, m)["status"] not in ("erzeugt", "abgeschlossen"):
+        raise ValueError("Erst Schritt 2 (Für Lexware erzeugen)")
+    x = next((x for x in vorschau(db, y, m)["mitarbeiter"] if x["employee_id"] == employee_id), None)
+    if not x:
+        raise ValueError("Mitarbeiter ist in diesem Monat nicht im Abschluss")
+    if not x["bereit"]:
+        raise ValueError("Noch nicht bereit: " + ", ".join(x["fehlt"]))
+    erg = _senden(db, y, m, user_id, [x])
+    log_audit(db, user_id, employee_id, "abschluss_erneut_gesendet", entity_type="monat", entity_id=y * 100 + m,
+              details=f"Monatsabschluss {m:02d}/{y}: {x['name']} erneut gesendet" + (" (Test)" if erg["testmodus"] else "")
+              + (" – FEHLER" if erg["fehler"] else ""))
+    db.commit()
+    return {**protokoll(db, y, m), "ergebnis": erg}
 
 
 def protokoll(db, y, m):
+    from app.services import lohnversand as lv
     rows = _q(db, """SELECT v.id, v.employee_id, e.personal_nr, e.first_name || ' ' || e.last_name AS name, v.an, v.anhaenge,
                             v.status, v.fehler, v.am FROM monatsabschluss_versand v LEFT JOIN employees e ON e.id = v.employee_id
-                      WHERE v.monat = :k ORDER BY v.am, e.personal_nr""", k=monat_key(y, m))
+                      WHERE v.monat = :k ORDER BY v.am, v.id""", k=monat_key(y, m))
     z = zustand(db, y, m)
-    return {"monat": monat_key(y, m), "status": z["status"], "gesperrt_am": z["gesperrt_am"] and z["gesperrt_am"].isoformat(timespec="minutes"),
-            "versand": [{**dict(r), "anhaenge": json.loads(r["anhaenge"] or "[]"), "am": r["am"].isoformat(timespec="minutes")} for r in rows]}
+    versand = [{**dict(r), "anhaenge": json.loads(r["anhaenge"] or "[]"), "am": r["am"].isoformat(timespec="minutes")} for r in rows]
+    je_ma = {}
+    for r in versand:          # letzter Stand je MA
+        je_ma[r["employee_id"]] = r
+    return {"monat": monat_key(y, m), "status": z["status"],
+            "gesperrt_am": z["gesperrt_am"] and z["gesperrt_am"].isoformat(timespec="minutes"),
+            "versand": versand, "je_ma": sorted(je_ma.values(), key=lambda r: r["personal_nr"] or ""),
+            "einstellungen": lv.einstellungen(db), "versandweg": lv.status_versand()}
+
+
+def sperren(db, y, m, user_id):
+    """Monat (wieder) sperren ohne neuen Versand - z. B. nach einer Korrektur im wieder geoeffneten Monat."""
+    from app.services.booking_service import log_audit
+    if zustand(db, y, m)["status"] != "erzeugt":
+        raise ValueError("Sperren geht erst nach Schritt 2 (Für Lexware erzeugen)")
+    db.execute(text("UPDATE monatsabschluss SET status = 'abgeschlossen', gesperrt_am = now(), gesperrt_von = :u WHERE monat = :k"),
+               {"u": user_id, "k": monat_key(y, m)})
+    log_audit(db, user_id, None, "abschluss_gesperrt", entity_type="monat", entity_id=y * 100 + m,
+              details=f"Monatsabschluss {m:02d}/{y} gesperrt (ohne Versand)")
+    db.commit()
+    return protokoll(db, y, m)
 
 
 def wieder_oeffnen(db, y, m, user_id, grund):

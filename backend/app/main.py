@@ -101,6 +101,36 @@ from app.middleware.server_kennung import server_kennung  # noqa: E402
 app.middleware("http")(server_kennung)
 
 
+# Monatssperre (DB-Trigger migrations/monatssperre.sql, Fehlercode SD423): abgeschlossener Monat -> 423 mit Klartext.
+# Viele Endpunkte fangen Exception und werfen 500 mit dem Text weiter - auch die werden zu 423.
+from fastapi import HTTPException as _HTTPException  # noqa: E402
+from fastapi.exception_handlers import http_exception_handler as _http_handler  # noqa: E402
+from fastapi.responses import JSONResponse as _JSONResponse  # noqa: E402
+from sqlalchemy.exc import DBAPIError as _DBAPIError  # noqa: E402
+
+
+def _sperr_text(s):
+    s = str(s or "")
+    i = s.find("MONATSSPERRE:")
+    return s[i + 14:].split("\n")[0].strip() if i >= 0 else None
+
+
+@app.exception_handler(_DBAPIError)
+async def _monatssperre_db(request, exc):
+    if getattr(exc.orig, "pgcode", None) == "SD423" or _sperr_text(exc):
+        return _JSONResponse(status_code=423, content={"detail": _sperr_text(exc) or "Monat ist abgeschlossen"})
+    logger.error(f"DB-Fehler {request.method} {request.url.path}: {exc}", exc_info=exc)
+    return _JSONResponse(status_code=500, content={"detail": "Interner Fehler (Datenbank)"})
+
+
+@app.exception_handler(_HTTPException)
+async def _monatssperre_http(request, exc):
+    t = _sperr_text(exc.detail) if exc.status_code >= 400 else None
+    if t:
+        return _JSONResponse(status_code=423, content={"detail": t})
+    return await _http_handler(request, exc)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
