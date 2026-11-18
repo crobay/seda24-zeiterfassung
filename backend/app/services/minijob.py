@@ -10,6 +10,7 @@ Nur lesen/hochrechnen: an der Lohnberechnung aendert sich nichts. Ist-Betrag wie
 """
 import json
 from calendar import monthrange
+from math import floor
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import text
@@ -125,10 +126,17 @@ def hochrechnung(db, jahr: int, monat: int, jetzt: datetime = None, employee_ids
         out.append({"employee_id": e["id"], "personal_nr": e["personal_nr"], "name": e["name"], "stundenlohn": rate,
                     "ist": round(ist, 2), "geplant": round(geplant, 2), "hochrechnung": round(hoch, 2), "grenze": grenze,
                     "quote": quote, "stufe": stufe,
-                    "rest_stunden": round(max(0.0, grenze - hoch) / rate, 1) if rate else None,
+                    "rest_stunden": rest_stunden(grenze, hoch, rate),
                     "unter_mindestlohn": bool(rate) and rate < ml, "mindestlohn": ml})
     out.sort(key=lambda r: -r["quote"])
     return out
+
+
+def rest_stunden(grenze: float, hochrechnung: float, stundenlohn: float):
+    """Stunden bis zur Grenze, auf 0,1 ABgerundet - wer die angezeigten Stunden arbeitet, bleibt sicher darunter."""
+    if not stundenlohn:
+        return None
+    return floor(max(0.0, grenze - hochrechnung) / stundenlohn * 10 + 1e-9) / 10
 
 
 def naechste_aenderung(db, heute: date = None):

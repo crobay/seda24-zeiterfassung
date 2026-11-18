@@ -136,3 +136,11 @@ def test_marge_umsatz_ohne_stunden(db):
     z = [x for x in om.marge(db, 2027, 2, JETZT)["objekte"] if x["object_id"] == 9][0]
     assert z["status"] == "ohne_stunden"
 
+
+
+def test_rest_stunden_abgerundet():
+    from app.services import minijob as mj
+    # Azra Nov. 2026: 603 € - 456,49 € Hochrechnung = 146,51 € / 15,50 € = 9,45 Std. -> 9,4 (9,5 waeren 0,74 € drueber)
+    assert mj.rest_stunden(603, 456.49, 15.5) == 9.4
+    assert mj.rest_stunden(633, 604.5, 15.5) == 1.8
+    assert mj.rest_stunden(603, 700, 15.5) == 0 and mj.rest_stunden(603, 100, 0) is None
