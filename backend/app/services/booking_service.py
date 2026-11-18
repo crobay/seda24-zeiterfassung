@@ -33,6 +33,23 @@ def log_audit(db: Session, user_id: int, employee_id: int, action: str,
     db.add(entry)
 
 
+def zeiten_ohne_ueberlappung(check_in, check_out, plan_start, andere):
+    """Kommen/Gehen einer bestaetigten Schicht gegen die anderen Buchungen des Tages abgrenzen.
+    andere: [(kommen, gehen)]. Buchungen, die VOR dem Planbeginn anfangen, sind fruehere Schichten -> Kommen
+    frühestens 1 Min. nach deren Gehen. Spaetere Buchungen -> Gehen spaetestens 1 Min. vor deren Kommen.
+    Kommen bleibt immer vor Gehen."""
+    for k, g in andere:
+        if k < plan_start:
+            if g and check_in < g <= check_out:
+                check_in = g + timedelta(minutes=1)
+        elif check_out > k >= check_in:
+            check_out = k - timedelta(minutes=1)
+    if check_out <= check_in:   # Grenzfall: nichts verschieben, was die Schicht umdreht
+        check_in = min(check_in, plan_start)
+        check_out = max(check_out, check_in + timedelta(minutes=1))
+    return check_in, check_out
+
+
 class BookingService:
     """Zentrale Buchungslogik fuer alle Kategorie-B-Szenarien."""
 
@@ -91,27 +108,20 @@ class BookingService:
         check_in = datetime.combine(schedule.date, schedule.start_time) + timedelta(minutes=start_var)
         check_out = datetime.combine(schedule.date, schedule.end_time) + timedelta(minutes=end_var)
 
-        # Ueberlappung mit vorherigen Schichten verhindern:
-        # Bei aufeinanderfolgenden Schichten (z.B. 10:30 Ende -> 10:30 Start)
-        # koennen die Zufallszeiten Ueberlappungen erzeugen.
-        # Fix: check_in muss nach dem letzten check_out des gleichen MA am selben Tag liegen.
+        # Ueberlappung mit anderen Buchungen des MA am selben Tag verhindern (Zufallszeiten bei
+        # aufeinanderfolgenden Schichten, z.B. 10:30 Ende -> 10:30 Start). Wird eine fruehere Schicht erst
+        # NACH einer spaeteren bestaetigt, darf Kommen nicht hinter das spaetere Gehen rutschen (D0036 03.10.2026).
         day_start = datetime.combine(schedule.date, time(0, 0))
         day_end = datetime.combine(schedule.date, time(23, 59, 59))
-        prev_entries = self.db.query(TimeEntry).filter(
+        andere = self.db.query(TimeEntry).filter(
             TimeEntry.employee_id == employee.id,
             TimeEntry.check_in >= day_start,
             TimeEntry.check_in <= day_end,
             TimeEntry.check_out.isnot(None),
-        ).order_by(TimeEntry.check_out.desc()).all()
-
-        for prev in prev_entries:
-            if prev.check_out and check_in < prev.check_out:
-                check_in = prev.check_out + timedelta(minutes=1)
-                logger.info(
-                    f"Overlap-Fix: check_in verschoben auf {check_in} "
-                    f"(vorherige Schicht endet {prev.check_out})"
-                )
-                break
+        ).all()
+        check_in, check_out = zeiten_ohne_ueberlappung(
+            check_in, check_out, datetime.combine(schedule.date, schedule.start_time),
+            [(e.check_in, e.check_out) for e in andere])
 
         # Stundensatz bestimmen
         hourly_rate = self._get_hourly_rate(employee, schedule)
