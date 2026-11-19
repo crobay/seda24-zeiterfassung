@@ -64,6 +64,13 @@ Das machen wir gemeinsam; die Befehle stehen hier zum Nachschlagen.
 | 8 | Drazen | Cockpit **Schritt 3**: „**12 von 12 Lohnabrechnungen da ✓**“. Nicht zugeordnete Dateien hier per Auswahl zuordnen. | |
 | 9 | Drazen | **Schritt 4 Vorschau** je MA: Anrede, Mail-Adresse, 3 Anhänge (D0002 ohne KM-Journal) | 12 von 12 bereit |
 | 10 | Drazen | **Schritt 5 Testversand.** Der Testmodus bleibt an. Die Mails gehen nur an die Test-Adresse (siehe C). | Status je MA „Test“ |
+| 11 | Drazen | **Super-PIN einrichten:** Schritt 5 › „Super-PIN einrichten“. Erst dein Login-Passwort zur Bestätigung, dann eine eigene PIN mit 6–10 Ziffern, zweimal. Nicht das Login-Passwort, keine Zahlenreihe; die PIN nie aufschreiben oder in den Chat. | „Super-PIN gespeichert“ |
+| 12 | Drazen | **Sperre testen:** „Monat sperren“. Dann „Wieder öffnen“ mit Grund und Super-PIN, einmal absichtlich mit falscher PIN. Eine kleine Korrektur machen, z. B. eine Notiz in **Zeiten**, und wieder sperren. | Unten „Nachträgliche Änderungen“: Öffnung mit Grund, Änderung alt → neu, wer/wann, „Wieder gesperrt“; „Protokoll unverändert ✓“ |
+
+**Super-PIN, Regeln:**
+- Nur du als Inhaber; die Objektleitung sieht den Knopf nicht.
+- Nach 5 Fehlversuchen ist die PIN 15 Minuten gesperrt, nach 10 dauerhaft. Zurücksetzen nur auf dem Server (`tools/superpin_reset.sh`), danach richtest du sie mit dem Login-Passwort neu ein.
+- Die DEV-PIN bleibt beim Refresh erhalten. Für LIVE richtest du sie später einmal neu ein.
 
 Nach dem Test: Testfirma in Lexware löschen oder deutlich als „TEST“ liegen lassen. Die Aufgabe „SEDA24 Lohnabrechnungen Upload“ bleibt bis zum LIVE-Umzug auf DEV gerichtet. Danach mit `-Install -Server https://app.seda.de …` umstellen oder mit `-Uninstall` entfernen.
 

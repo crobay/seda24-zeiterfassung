@@ -31,13 +31,13 @@ def ma_header(email):
     return {"Authorization": f"Bearer {tk}"}
 
 
-def gesperrt_sql(db, sql, **p):
+def gesperrt_sql(db, sql, meldung="10/2026 ist abgeschlossen", **p):
     db.execute(text("SAVEPOINT t"))
     try:
         with pytest.raises(DBAPIError) as e:
             db.execute(text(sql), p)
         assert e.value.orig.pgcode == "SD423", (sql, e.value.orig)
-        assert "10/2026 ist abgeschlossen" in str(e.value)
+        assert meldung in str(e.value)
     finally:
         db.execute(text("ROLLBACK TO SAVEPOINT t"))
 
@@ -57,7 +57,11 @@ def test_trigger_auf_allen_lohndaten(db):
     # Planung, andere Monate und No-op-Updates bleiben frei
     db.execute(text("UPDATE time_entries SET notes = notes WHERE id = :i"), {"i": tid})
     db.execute(text("""INSERT INTO time_entries (employee_id, object_id, check_in, check_out) VALUES (:e, 15, '2026-11-02 08:00', '2026-11-02 09:00')"""), {"e": eid})
-    # wieder geoeffnet -> erlaubt
+    # Entsperren direkt per SQL (ohne Oeffnung mit Grund = ohne Protokoll) geht nicht
+    gesperrt_sql(db, "UPDATE monatsabschluss SET status = 'erzeugt' WHERE monat = '2026-10'", meldung="nur mit Super-PIN")
+    gesperrt_sql(db, "DELETE FROM monatsabschluss WHERE monat = '2026-10'", meldung="Sperr-Protokoll")
+    # wieder geoeffnet (mit Grund) -> erlaubt
+    db.execute(text("INSERT INTO monatsabschluss_oeffnung (monat, grund) VALUES ('2026-10', 'Test: Korrektur erlaubt')"))
     sperren(db, status="erzeugt")
     db.execute(text("UPDATE time_entries SET notes = coalesce(notes, '') || 'x' WHERE id = :i"), {"i": tid})
 

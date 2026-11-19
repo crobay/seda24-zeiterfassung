@@ -80,13 +80,16 @@ async def _test_employee_guard(request, call_next):
     notify_admin sendet dann keine Telegram-Meldungen an Admin/Rosi."""
     from starlette.concurrency import run_in_threadpool
     from app.services.telegram_bot import TEST_REQUEST, is_test_email
-    marker = None
+    marker = wer = None
     auth = request.headers.get("authorization", "")
     if auth[:7].lower() == "bearer ":
         try:
             from jose import jwt as _jwt
             email = _jwt.decode(auth[7:], _os.getenv("SECRET_KEY"),
                                 algorithms=[_os.getenv("ALGORITHM")]).get("sub")
+            if email:
+                from app.db.database import APP_BENUTZER
+                wer = APP_BENUTZER.set(email)     # fuer das Protokoll im wieder geoeffneten Monat
             if email and await run_in_threadpool(is_test_email, email):
                 marker = TEST_REQUEST.set(True)
         except Exception:
@@ -96,6 +99,9 @@ async def _test_employee_guard(request, call_next):
     finally:
         if marker is not None:
             TEST_REQUEST.reset(marker)
+        if wer is not None:
+            from app.db.database import APP_BENUTZER
+            APP_BENUTZER.reset(wer)
 
 
 from app.middleware.server_kennung import server_kennung  # noqa: E402

@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, CheckCircle2, ListChecks, FileSpreadsheet, Upload, Eye, Send, Lock, Download,
-  AlertTriangle, FileText, Car, Receipt, Trash2, Mail, LockOpen, ArrowRight } from 'lucide-react';
+  AlertTriangle, FileText, Car, Receipt, Trash2, Mail, LockOpen, ArrowRight, KeyRound, History, ShieldCheck } from 'lucide-react';
 import { api, apiError, t, fmtNum, useApi, useApp, Status, SkeletonRows, ErrorBox, Dialog } from '../core';
 
 const SCHRITTE = [['pruef', ListChecks], ['lexware', FileSpreadsheet], ['upload', Upload], ['vorschau', Eye], ['versand', Send]];
@@ -25,7 +25,9 @@ export default function Abschluss() {
   const [schritt, setSchritt] = useState(0);
   const p = data?.pruefliste;
   const zu = data?.status === 'abgeschlossen';
-  const erreichbar = (i) => i === 0 || (p?.alle_gruen && (i <= 1 || ['erzeugt', 'abgeschlossen'].includes(data?.status)));
+  const offen = data?.protokoll?.nachtraege?.oeffnungen?.find((o) => o.offen);
+  // geoeffneter Monat: Schritt 5 (wieder sperren) immer erreichbar - auch wenn die Korrektur die Pruefliste rot macht
+  const erreichbar = (i) => i === 0 || (offen && i === 4) || (p?.alle_gruen && (i <= 1 || ['erzeugt', 'abgeschlossen'].includes(data?.status)));
   useEffect(() => { if (zu) setSchritt(4); }, [zu]);
   useEffect(() => { setSchritt(0); }, [monat]);
 
@@ -41,6 +43,10 @@ export default function Abschluss() {
       </div>
 
       <div className="ck-callout ab-proto" role="note"><AlertTriangle size={18} style={{ flex: 'none' }} /><span>{t('ab.proto')}</span></div>
+      {offen && <div className="ck-callout" role="alert" data-geoeffnet><LockOpen size={18} style={{ flex: 'none' }} />
+        <span style={{ flex: 1 }}>{t('ab.offen_hinweis', { am: offen.geoeffnet_am.replace('T', ' ').slice(0, 16), wer: offen.geoeffnet_von, grund: offen.grund })}</span>
+        <button className="ck-btn ck-btn-sm" onClick={async () => { try { await api.post(`/abschluss/${monat}/sperren`); reload(); toast(t('ab.locked')); } catch (e) { toast(apiError(e), { tone: 'warn' }); } }}
+          data-sperren-oben><Lock size={14} />{t('ab.lock')}</button></div>}
 
       <ol className="ab-steps" aria-label={t('ab.steps')}>
         {SCHRITTE.map(([k, Icon], i) => {
@@ -62,6 +68,7 @@ export default function Abschluss() {
           {schritt === 2 && <Hochladen monat={monat} data={data} zu={zu} onDone={() => setSchritt(3)} toast={toast} reload={reload} />}
           {schritt === 3 && <Vorschau monat={monat} onDone={() => setSchritt(4)} />}
           {schritt === 4 && <Versand monat={monat} data={data} toast={toast} reload={reload} />}
+          <Nachtraege n={data?.protokoll?.nachtraege} />
         </>)}
     </>
   );
@@ -268,6 +275,9 @@ function Versand({ monat, data, toast, reload }) {
   const [frage, setFrage] = useState(false);
   const [oeffnen, setOeffnen] = useState(false);
   const [grund, setGrund] = useState('');
+  const [pin, setPin] = useState('');
+  const [pinDlg, setPinDlg] = useState(false);
+  const sp = data?.superpin || {};
   const [busy, setBusy] = useState(null);
   const [verlauf, setVerlauf] = useState(false);
   const prot = data?.protokoll;
@@ -304,8 +314,8 @@ function Versand({ monat, data, toast, reload }) {
     catch (e) { toast(apiError(e), { tone: 'warn' }); }
   };
   const auf = async () => {
-    try { await api.post(`/abschluss/${monat}/wieder-oeffnen`, { grund }); setOeffnen(false); setGrund(''); reload(); toast(t('ab.reopened')); }
-    catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    try { await api.post(`/abschluss/${monat}/wieder-oeffnen`, { grund, pin }); setOeffnen(false); setGrund(''); setPin(''); reload(); toast(t('ab.reopened')); }
+    catch (e) { setPin(''); toast(apiError(e), { tone: 'warn' }); reload(); }
   };
   const stat = (r) => r.status === 'gesendet' ? <Status s="approved" label={t('ab.st_sent')} />
     : r.status === 'test' ? <Status s="pending" label={t('ab.st_test')} />
@@ -361,18 +371,30 @@ function Versand({ monat, data, toast, reload }) {
 
       <div className="ab-foot">
         {zu ? <><span className="ck-subtle">{t('ab.closed_hint')}</span>
-          <button className="ck-btn" onClick={() => setOeffnen(true)}><LockOpen size={16} />{t('ab.reopen')}</button></>
-          : data?.status === 'erzeugt' && prot?.versand?.some((r) => r.status === 'gesendet') &&
+          {sp.inhaber && <button className="ck-btn" onClick={() => setOeffnen(true)} data-oeffnen><LockOpen size={16} />{t('ab.reopen')}</button>}</>
+          : data?.status === 'erzeugt' &&
             <button className="ck-btn" onClick={sperren} data-sperren><Lock size={16} />{t('ab.lock')}</button>}
+        {sp.inhaber && <button className="ck-btn ck-btn-ghost ck-btn-sm" onClick={() => setPinDlg(true)} data-pin-einrichten>
+          <KeyRound size={14} />{t(sp.eingerichtet ? 'ab.pin_aendern' : 'ab.pin_einrichten')}</button>}
       </div>
+      {pinDlg && <SuperPin sp={sp} onClose={() => setPinDlg(false)} toast={toast} reload={reload} />}
       {frage && <Dialog title={t(test ? 'ab.confirm_title_test' : 'ab.confirm_title')} onClose={() => setFrage(false)}
         footer={<><button className="ck-btn" onClick={() => setFrage(false)}>{t('app.cancel')}</button>
           <button className="ck-btn ck-btn-primary" disabled={!!busy} onClick={los} data-ja>{busy ? t('ab.sending') : t('ab.confirm_yes')}</button></>}>
         <p>{t(test ? 'ab.confirm_text_test' : 'ab.confirm_text', { n: v.data?.gesamt, m: monatLabel(monat), an: ein.test_an })}</p></Dialog>}
-      {oeffnen && <Dialog title={t('ab.reopen')} onClose={() => setOeffnen(false)}
-        footer={<><button className="ck-btn" onClick={() => setOeffnen(false)}>{t('app.cancel')}</button>
-          <button className="ck-btn ck-btn-primary" disabled={!grund.trim()} onClick={auf}>{t('ab.reopen')}</button></>}>
-        <label className="ck-field"><span>{t('ab.reopen_why')}</span><input className="ck-input" value={grund} onChange={(e) => setGrund(e.target.value)} autoFocus /></label></Dialog>}
+      {oeffnen && <Dialog title={t('ab.reopen_title', { m: monatLabel(monat) })} onClose={() => { setOeffnen(false); setPin(''); }}
+        footer={<><button className="ck-btn" onClick={() => { setOeffnen(false); setPin(''); }}>{t('app.cancel')}</button>
+          <button className="ck-btn ck-btn-primary" disabled={grund.trim().length < 10 || pin.length < 6 || !sp.eingerichtet} onClick={auf} data-oeffnen-ok>
+            <LockOpen size={16} />{t('ab.reopen')}</button></>}>
+        <p>{t('ab.reopen_text')}</p>
+        {!sp.eingerichtet ? <div className="ck-callout"><KeyRound size={18} />{t('ab.pin_fehlt')}</div>
+          : (sp.gesperrt_bis || sp.dauerhaft_gesperrt) && <div className="ck-callout"><AlertTriangle size={18} />
+            {sp.dauerhaft_gesperrt ? t('ab.pin_dauerhaft') : t('ab.pin_gesperrt', { bis: sp.gesperrt_bis.slice(11, 16) })}</div>}
+        <label className="ck-field"><span>{t('ab.reopen_why')}</span>
+          <textarea className="ck-input" rows={3} value={grund} onChange={(e) => setGrund(e.target.value)} autoFocus data-grund placeholder={t('ab.reopen_why_ph')} /></label>
+        <label className="ck-field" style={{ maxWidth: 220 }}><span>{t('ab.pin')}</span>
+          <input className="ck-input" type="password" inputMode="numeric" autoComplete="off" maxLength={10} value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} data-pin /></label></Dialog>}
     </section>);
 }
 
@@ -399,4 +421,58 @@ function MicrosoftZugang({ weg, toast, reload }) {
         <span className="ck-subtle">{t('ab.ms_hint')}</span>
       </div>}
     </div>);
+}
+
+// Super-PIN (nur Inhaber = Drazen): erstes Einrichten mit Login-Passwort, Ändern mit alter PIN. Nichts wird angezeigt.
+function SuperPin({ sp, onClose, toast, reload }) {
+  const [f, setF] = useState({ passwort: '', pin_alt: '', pin: '', pin2: '' });
+  const set = (k) => (e) => setF({ ...f, [k]: k === 'passwort' ? e.target.value : e.target.value.replace(/\D/g, '') });
+  const ok = f.pin.length >= 6 && f.pin === f.pin2 && (sp.eingerichtet ? f.pin_alt.length >= 6 : f.passwort);
+  const speichern = async () => {
+    try {
+      await api.put('/abschluss/einstellungen/superpin', sp.eingerichtet ? { pin_alt: f.pin_alt, pin: f.pin } : { passwort: f.passwort, pin: f.pin });
+      toast(t('ab.pin_ok')); onClose(); reload();
+    } catch (e) { setF({ ...f, pin_alt: '', passwort: '' }); toast(apiError(e), { tone: 'warn' }); reload(); }
+  };
+  const feld = (k, label, art = 'pin') => (
+    <label className="ck-field" style={{ maxWidth: 260 }}><span>{t(label)}</span>
+      <input className="ck-input" type="password" autoComplete={art === 'pin' ? 'off' : 'current-password'} inputMode={art === 'pin' ? 'numeric' : undefined}
+        maxLength={art === 'pin' ? 10 : undefined} value={f[k]} onChange={set(k)} data-feld={k} /></label>);
+  return (
+    <Dialog title={t(sp.eingerichtet ? 'ab.pin_aendern' : 'ab.pin_einrichten')} onClose={onClose}
+      footer={<><button className="ck-btn" onClick={onClose}>{t('app.cancel')}</button>
+        <button className="ck-btn ck-btn-primary" disabled={!ok} onClick={speichern} data-pin-speichern>{t('app.save')}</button></>}>
+      <p>{t('ab.pin_regeln')}</p>
+      {sp.eingerichtet ? feld('pin_alt', 'ab.pin_alt') : feld('passwort', 'ab.pin_passwort', 'pw')}
+      {feld('pin', 'ab.pin_neu')}
+      {feld('pin2', 'ab.pin_neu2')}
+      {f.pin2 && f.pin !== f.pin2 && <div className="ck-subtle">{t('ab.pin_ungleich')}</div>}
+    </Dialog>);
+}
+
+// „Nachträgliche Änderungen“: jede Öffnung (Grund, wer, wann), jede Änderung alt → neu, erneutes Sperren. Nur lesen.
+const wert = (v) => v === null || v === undefined || v === '' ? '(leer)' : typeof v === 'object' ? JSON.stringify(v) : String(v).replace(/^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)(:\d\d(\.\d+)?)?$/, '$1 $2');
+function Nachtraege({ n }) {
+  if (!n?.oeffnungen?.length) return null;
+  return (
+    <section className="ck-card" style={{ marginTop: 16 }} data-nachtraege>
+      <div className="ck-card-head"><h2><History size={20} />{t('ab.nach_title')}</h2>
+        <span className={`ck-tag ${n.kette_ok ? 'tone-ok' : 'tone-bad'}`} data-kette title={t('ab.kette_hint')}>
+          {n.kette_ok ? <><ShieldCheck size={14} /> {t('ab.kette_ok', { n: n.zeilen })}</> : t('ab.kette_bad')}</span></div>
+      <p className="ck-subtle">{t('ab.nach_text')}</p>
+      {n.oeffnungen.slice().reverse().map((o) => (
+        <div key={o.id} className="ab-nach" data-oeffnung={o.id} style={{ borderTop: '1px solid var(--ck-border)', paddingTop: 10, marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><LockOpen size={15} /> <b>{t('ab.nach_geoeffnet', { am: wert(o.geoeffnet_am), wer: o.geoeffnet_von })}</b></div>
+          <div style={{ margin: '4px 0 8px 22px' }}>{t('ab.nach_grund')}: <i>{o.grund}</i></div>
+          {o.aenderungen.length ? <div className="ck-table-wrap"><table className="ck-table">
+            <thead><tr><th>{t('ab.c_am')}</th><th>{t('ab.nach_wer')}</th><th>{t('ab.nach_was')}</th><th>{t('abr.c_name')}</th><th>{t('ab.nach_felder')}</th></tr></thead>
+            <tbody>{o.aenderungen.map((a) => (
+              <tr key={a.id} data-aenderung={a.id}><td className="ck-num">{wert(a.am)}</td><td>{a.wer}</td>
+                <td>{a.tabelle} #{a.datensatz_id ?? '–'} <b>{a.aktion}</b></td><td>{a.mitarbeiter || '–'}</td>
+                <td>{a.felder.map((f) => <div key={f.feld}><span className="ck-subtle">{f.feld}:</span> {a.aktion !== 'neu' && <><s>{wert(f.alt)}</s> → </>}{a.aktion === 'gelöscht' ? '' : wert(f.neu)}</div>)}</td></tr>))}</tbody>
+          </table></div> : <div className="ck-subtle" style={{ marginLeft: 22 }}>{t('ab.nach_keine')}</div>}
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>{o.offen ? <span className="ck-tag tone-warn">{t('ab.nach_offen')}</span>
+            : <><Lock size={15} /> {t('ab.nach_gesperrt', { am: wert(o.gesperrt_am), wer: o.gesperrt_von })}</>}</div>
+        </div>))}
+    </section>);
 }

@@ -53,7 +53,12 @@ def uebersicht(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin
     p = ma.pruefliste(db, y, m)
     return {"monat": monat, "status": z["status"], "pruefliste": p, "lohnarten": ma.lohnarten(db),
             "erzeugt_am": z["erzeugt_am"] and z["erzeugt_am"].isoformat(timespec="minutes"), **ma.dokumente(db, y, m),
-            "protokoll": ma.protokoll(db, y, m), "lohnablage": _ablage(db, monat)}
+            "protokoll": ma.protokoll(db, y, m), "lohnablage": _ablage(db, monat), "superpin": _superpin(db, user)}
+
+
+def _superpin(db, user):
+    from app.services import superpin
+    return superpin.status(db, user)
 
 
 def _ablage(db, monat):
@@ -192,4 +197,17 @@ def sperren(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
 @router.post("/{monat}/wieder-oeffnen")
 def wieder_oeffnen(monat: str, data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
     y, m = _ym(monat)
-    return _fehler(lambda: ma.wieder_oeffnen(db, y, m, user.id, data.get("grund")))
+    return _fehler(lambda: ma.wieder_oeffnen(db, y, m, user, data.get("grund"), data.get("pin")))
+
+
+@router.get("/einstellungen/superpin")
+def superpin_status(db: Session = Depends(get_db), user=Depends(nur_admin)):
+    from app.services import superpin
+    return superpin.status(db, user)
+
+
+@router.put("/einstellungen/superpin")
+def superpin_setzen(data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    """Body: pin (neu), passwort (nur beim ersten Mal) oder pin_alt. Antwort ohne Hash."""
+    from app.services import superpin
+    return _fehler(lambda: superpin.setzen(db, user, data.get("pin"), data.get("passwort"), data.get("pin_alt")))

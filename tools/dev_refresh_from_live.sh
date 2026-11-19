@@ -16,6 +16,10 @@ PG="sudo -n -u postgres"
 echo "1) DEV sichern -> $BK/dev_cockpit_vor_refresh_$STAMP.sql.gz"
 $PG pg_dump dev_cockpit | gzip > "$BK/dev_cockpit_vor_refresh_$STAMP.sql.gz"
 $PG pg_dump --data-only -t app_settings -t objekt_marken dev_cockpit > "$TMP/dev_settings.sql"; chmod 644 "$TMP/dev_settings.sql"
+# Super-PIN (nur Hash) ueber den Refresh behalten, damit Drazen sie nicht neu setzen muss
+$PG psql -X -At -d dev_cockpit -c "SELECT CASE WHEN to_regclass('superpin') IS NOT NULL THEN (SELECT coalesce(string_agg(format(
+    'UPDATE superpin SET pin_hash = %L, gesetzt_am = %L;', pin_hash, gesetzt_am), ''), '') FROM superpin WHERE pin_hash IS NOT NULL) END" \
+    > "$TMP/dev_superpin.sql"; chmod 644 "$TMP/dev_superpin.sql"
 
 echo "2) LIVE lesen (pg_dump seda24_zeiterfassung)"
 $PG pg_dump seda24_zeiterfassung > "$TMP/live.sql"; chmod 644 "$TMP/live.sql"
@@ -30,12 +34,14 @@ $PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -f "$TMP/live.sql" >/dev/null
 
 echo "4) Cockpit-Tabellen + Monatssperre (DEV = Stand Etappe 2)"
 BACKUP_DIR="$TMP" "$DEV/tools/etappe1_migration.sh" dev_cockpit | tail -1
+$PG psql -X -q -d dev_cockpit -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO seda24_user; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO seda24_user"
+# danach: Protokoll-Tabellen gehoeren postgres, App nur lesen/anfuegen (Rechte setzt monatssperre.sql selbst)
 $PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -f "$DEV/backend/migrations/monatssperre.sql"
 $PG psql -X -q -d dev_cockpit -c "ALTER FUNCTION monatssperre_check(date,date) OWNER TO seda24_user; ALTER FUNCTION monatssperre_trigger() OWNER TO seda24_user"
-$PG psql -X -q -d dev_cockpit -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO seda24_user; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO seda24_user"
 
 echo "5) DEV-Einstellungen zurueck, Nachrichtenwege auf der Kopie aus"
 $PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -f "$TMP/dev_settings.sql" >/dev/null
+$PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -f "$TMP/dev_superpin.sql" >/dev/null
 $PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -c "UPDATE employees SET telegram_chat_id = NULL WHERE telegram_chat_id IS NOT NULL;
     UPDATE push_subscriptions SET is_active = false WHERE is_active"
 
@@ -48,5 +54,5 @@ if [ -d "$DEV/backend/data/abschluss" ]; then mv "$DEV/backend/data/abschluss" "
 echo "7) DEV-Backend starten"
 "$DEV/dev_backend.sh" start
 $PG psql -X -At -d dev_cockpit -c "SELECT 'Kontrolle: ' || (SELECT count(*) FROM time_entries) || ' Zeiten, ' || (SELECT count(*) FROM employees WHERE telegram_chat_id IS NOT NULL)
-    || ' Chat-IDs, ' || (SELECT count(*) FROM pg_trigger WHERE tgname = 'monatssperre') || ' Sperr-Trigger, letzte Buchung ' || (SELECT max(check_in) FROM time_entries)"
+    || ' Chat-IDs, ' || (SELECT count(*) FROM pg_trigger WHERE tgname = 'monatssperre') || ' Sperr-Trigger, Super-PIN-Inhaber ' || (SELECT user_id FROM superpin) || ', letzte Buchung ' || (SELECT max(check_in) FROM time_entries)"
 echo "REFRESH OK ($STAMP)"

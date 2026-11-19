@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_cockpit_rechte import db, client, q, token, ol_headers  # noqa: E402,F401
 
 from app.services import monatsabschluss as ma  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
 API = "/api/v1/cockpit/abschluss"
 PDF = b"%PDF-1.4\n% Muster\n"
@@ -173,8 +174,10 @@ def test_upload_vorschau_versand_sperre(client, db, monkeypatch):
     p = client.post(f"{API}/2026-10/versenden/{lara}", headers=h).json()
     assert p["je_ma"][0]["status"] == "gesendet" and len(p["versand"]) == 4
     assert client.post(f"{API}/2026-10/versenden/999999", headers=h).status_code == 409
-    assert client.post(f"{API}/2026-10/wieder-oeffnen", json={"grund": ""}, headers=h).status_code == 409
-    assert client.post(f"{API}/2026-10/wieder-oeffnen", json={"grund": "Korrektur Lara"}, headers=h).json()["status"] == "erzeugt"
+    from app.core.security import pwd_context
+    db.execute(text("UPDATE superpin SET pin_hash = :h"), {"h": pwd_context.hash("482915")})
+    assert client.post(f"{API}/2026-10/wieder-oeffnen", json={"grund": "", "pin": "482915"}, headers=h).status_code == 409
+    assert client.post(f"{API}/2026-10/wieder-oeffnen", json={"grund": "Korrektur Lara Stunden", "pin": "482915"}, headers=h).json()["status"] == "erzeugt"
     assert client.post(f"{API}/2026-10/sperren", headers=h).json()["status"] == "abgeschlossen"
     assert q(db, "SELECT count(*) FROM audit_log WHERE action LIKE 'abschluss_%' AND created_at > now() - interval '1 minute'")[0][0] >= 5
 

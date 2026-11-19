@@ -770,7 +770,7 @@ def protokoll(db, y, m):
     return {"monat": monat_key(y, m), "status": z["status"],
             "gesperrt_am": z["gesperrt_am"] and z["gesperrt_am"].isoformat(timespec="minutes"),
             "versand": versand, "je_ma": sorted(je_ma.values(), key=lambda r: r["personal_nr"] or ""),
-            "einstellungen": lv.einstellungen(db), "versandweg": lv.status_versand()}
+            "einstellungen": lv.einstellungen(db), "versandweg": lv.status_versand(), "nachtraege": nachtraege(db, y, m)}
 
 
 def sperren(db, y, m, user_id):
@@ -781,21 +781,86 @@ def sperren(db, y, m, user_id):
     db.execute(text("UPDATE monatsabschluss SET status = 'abgeschlossen', gesperrt_am = now(), gesperrt_von = :u WHERE monat = :k"),
                {"u": user_id, "k": monat_key(y, m)})
     log_audit(db, user_id, None, "abschluss_gesperrt", entity_type="monat", entity_id=y * 100 + m,
-              details=f"Monatsabschluss {m:02d}/{y} gesperrt (ohne Versand)")
+              details=f"Monatsabschluss {m:02d}/{y} gesperrt (ohne Versand)")   # offene Oeffnung schliesst der DB-Trigger
     db.commit()
     return protokoll(db, y, m)
 
 
-def wieder_oeffnen(db, y, m, user_id, grund):
+def wieder_oeffnen(db, y, m, user, grund, pin):
+    """Abgeschlossenen Monat oeffnen - nur mit Super-PIN (services/superpin.py) und Grund. Die Oeffnung, jede Aenderung
+    an Lohndaten in dem Monat und das erneute Sperren schreibt die Datenbank selbst unveraenderbar ins Protokoll
+    (monatsabschluss_oeffnung/-_aenderung, migrations/monatssperre.sql) - auch bei Aenderungen ausserhalb der App."""
+    from app.db.database import APP_BENUTZER
+    from app.services import superpin
     from app.services.booking_service import log_audit
-    if not (grund or "").strip():
-        raise ValueError("Bitte einen Grund angeben")
+    grund = (grund or "").strip()
+    if len(grund) < 10:
+        raise ValueError("Bitte einen Grund angeben (mindestens 10 Zeichen) – er steht dauerhaft im Protokoll")
+    if zustand(db, y, m)["status"] != "abgeschlossen":
+        raise ValueError("Der Monat ist nicht gesperrt")
+    superpin.pruefen(db, user, pin)
+    db.execute(text("""INSERT INTO monatsabschluss_oeffnung (monat, grund, geoeffnet_von, app_benutzer)
+                       VALUES (:k, :g, :u, :a)"""), {"k": monat_key(y, m), "g": grund[:1000], "u": user.id, "a": APP_BENUTZER.get()})
     db.execute(text("UPDATE monatsabschluss SET status = 'erzeugt', gesperrt_am = NULL, gesperrt_von = NULL WHERE monat = :k"),
                {"k": monat_key(y, m)})
-    log_audit(db, user_id, None, "abschluss_wieder_offen", entity_type="monat", entity_id=y * 100 + m,
-              details=f"Monatsabschluss {m:02d}/{y} wieder geöffnet: {grund.strip()[:200]}")
+    log_audit(db, user.id, None, "abschluss_wieder_offen", entity_type="monat", entity_id=y * 100 + m,
+              details=f"Monatsabschluss {m:02d}/{y} mit Super-PIN wieder geöffnet: {grund[:200]}")
     db.commit()
     return protokoll(db, y, m)
+
+
+TABELLEN_TEXT = {"time_entries": "Zeitbuchung", "break_entries": "Pause", "km_daily_entries": "KM-Tag",
+                 "km_monthly_reports": "KM-Monat", "sick_notes": "Krankmeldung", "zeitkonto": "Zeitkonto",
+                 "monthly_carryovers": "Übertrag", "vacation_requests": "Urlaubsantrag",
+                 "correction_requests": "Korrekturantrag", "pending_bookings": "Nachbuchung"}
+AKTION_TEXT = {"INSERT": "neu", "UPDATE": "geändert", "DELETE": "gelöscht", "GEOEFFNET": "geöffnet", "GESPERRT": "wieder gesperrt"}
+UNWICHTIG = {"updated_at", "created_at"}
+FELD_TEXT = {"check_in": "Kommen", "check_out": "Gehen", "notes": "Notiz", "billed_hours": "Std. abgerechnet",
+             "object_id": "Objekt", "employee_id": "Mitarbeiter", "status": "Status", "date": "Datum", "start_date": "von",
+             "end_date": "bis", "start_time": "Beginn", "end_time": "Ende", "distance_km": "KM", "amount": "Betrag",
+             "hourly_rate": "Stundensatz", "is_billable": "abrechenbar", "is_longest_trip": "längste Fahrt", "type": "Art",
+             "duration_minutes": "Minuten", "reason": "Grund"}
+
+
+def _wer_text(db, app_benutzer, user_id, db_benutzer):
+    r = None
+    if user_id or app_benutzer:
+        r = db.execute(text("""SELECT coalesce(e.first_name || ' ' || e.last_name, u.email) FROM users u
+                               LEFT JOIN employees e ON e.user_id = u.id WHERE u.id = :i OR u.email = :a LIMIT 1"""),
+                       {"i": user_id or -1, "a": app_benutzer or ""}).scalar()
+    return r or app_benutzer or f"System/Skript ({db_benutzer})"
+
+
+def nachtraege(db, y, m):
+    """'Nachtraegliche Aenderungen' fuer den Monatsabschluss: je Oeffnung Grund, wer/wann, alle Aenderungen alt -> neu,
+    erneutes Sperren. Dazu die Pruefung der Hash-Kette des Protokolls."""
+    k = monat_key(y, m)
+    if not db.execute(text("SELECT to_regclass('monatsabschluss_oeffnung') IS NOT NULL")).scalar():
+        return {"oeffnungen": [], "kette_ok": None, "zeilen": 0}
+    oeff = _q(db, "SELECT * FROM monatsabschluss_oeffnung WHERE monat = :k ORDER BY id", k=k)
+    zeilen = _q(db, "SELECT * FROM monatsabschluss_aenderung WHERE monat = :k ORDER BY id", k=k)
+    kette = db.execute(text("SELECT * FROM monatsabschluss_kette_pruefen()")).mappings().first()
+    erg = []
+    for o in oeff:
+        aend = []
+        for z in (z for z in zeilen if z["oeffnung_id"] == o["id"] and z["aktion"] in ("INSERT", "UPDATE", "DELETE")):
+            alt, neu = z["alt"] or {}, z["neu"] or {}
+            felder = [{"feld": FELD_TEXT.get(f, f), "alt": alt.get(f), "neu": neu.get(f)} for f in sorted(set(alt) | set(neu))
+                      if f not in UNWICHTIG and alt.get(f) != neu.get(f)]
+            if z["aktion"] != "UPDATE":    # neu/geloescht: nur die aussagekraeftigen Felder
+                felder = [f for f in felder if f["alt"] is not None or f["neu"] is not None]
+            ma_id = (neu or alt).get("employee_id")
+            aend.append({"id": z["id"], "am": z["am"].isoformat(timespec="seconds"), "tabelle": TABELLEN_TEXT.get(z["tabelle"], z["tabelle"]),
+                         "aktion": AKTION_TEXT.get(z["aktion"], z["aktion"]), "datensatz_id": z["datensatz_id"],
+                         "mitarbeiter": ma_id and db.execute(text("SELECT first_name || ' ' || last_name FROM employees WHERE id = :i"),
+                                                              {"i": ma_id}).scalar(),
+                         "wer": _wer_text(db, z["app_benutzer"], None, z["db_benutzer"]), "felder": felder})
+        erg.append({"id": o["id"], "grund": o["grund"], "geoeffnet_am": o["geoeffnet_am"].isoformat(timespec="seconds"),
+                    "geoeffnet_von": _wer_text(db, o["app_benutzer"], o["geoeffnet_von"], o["db_benutzer"]),
+                    "gesperrt_am": o["gesperrt_am"] and o["gesperrt_am"].isoformat(timespec="seconds"),
+                    "gesperrt_von": o["gesperrt_am"] and _wer_text(db, None, o["gesperrt_von"], "?"),
+                    "offen": o["gesperrt_am"] is None, "aenderungen": aend})
+    return {"oeffnungen": erg, "kette_ok": kette["erste_fehlerhafte"] is None, "zeilen": kette["zeilen"]}
 
 
 def testversand_zip(y, m) -> bytes:
