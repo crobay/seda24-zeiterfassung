@@ -6,6 +6,7 @@ import { de } from 'date-fns/locale';
 import { Calendar, Clock, Building, Euro, Droplets, Sparkles, SprayCan, Hourglass, WifiOff } from 'lucide-react';
 import { API_URL } from '../config.js';
 import { vonUnseremServer, currentOwner, ausstehendeStempel, stempelText } from '../services/stempelStatus';
+import MehrzeitFrage from './MehrzeitFrage';
 
 // Zuletzt geladene Historie je Benutzer und Filter (fuer schwaches/kein Netz)
 const cacheKey = (filter) => `historie_cache_${currentOwner()}_${filter}`;
@@ -26,6 +27,7 @@ const HistoryTab = () => {
   const [dateFilter, setDateFilter] = useState('thisMonth'); // 30days, 7days, thisMonth, lastMonth, all
   const [standVon, setStandVon] = useState(null); // gesetzt = Anzeige aus dem Speicher (ohne Verbindung)
   const ausstehend = ausstehendeStempel();
+  const [mzEintrag, setMzEintrag] = useState(null); // Eintrag, fuer den gerade Mehrzeit beantragt wird
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -105,6 +107,37 @@ const HistoryTab = () => {
     fetchHistory();
   }, [dateFilter]);
 
+  // Mehrzeit nach Schichtende: 3 Tage lang beantragbar (Server liefert entry.mehrzeit)
+  const mzAbsenden = async (grund) => {
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/time-entries/${mzEintrag.id}/mehrzeit-antrag`, { grund },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 8000 });
+      if (!vonUnseremServer(res)) throw new Error('keine Antwort unseres Servers');
+      return { art: 'ok' };
+    } catch (err) {
+      const d = err.response && vonUnseremServer(err.response) && err.response.data && err.response.data.detail;
+      return { art: 'fehler', text: d || 'Gerade keine Verbindung – bitte mit Internet nochmal senden.' };
+    }
+  };
+
+  const MehrzeitZeile = ({ entry }) => {
+    const mz = entry.mehrzeit;
+    if (!mz) return null;
+    if (mz.antrag_status) {
+      const text = { offen: 'Mehrzeit beantragt – wartet auf Entscheidung', genehmigt: 'Mehrzeit genehmigt',
+                     abgelehnt: 'Mehrzeit abgelehnt', erledigt: 'Mehrzeit-Antrag erledigt' }[mz.antrag_status] || 'Mehrzeit beantragt';
+      return <div data-mz-historie-status className="mt-2 text-xs font-semibold text-gray-600">{text}</div>;
+    }
+    return (
+      <button type="button" data-mz-historie onClick={() => setMzEintrag(entry)}
+        className="mt-3 w-full rounded-lg border-2 font-bold"
+        style={{ borderColor: '#1E537C', color: '#1E537C', background: 'white', minHeight: '48px', fontSize: '16px' }}>
+        Mehrzeit beantragen ({mz.minuten} Min nach Schichtende)
+      </button>
+    );
+  };
+
   const formatTime = (datetime) => {
     if (!datetime) return '-';
     return format(new Date(datetime), 'HH:mm', { locale: de });
@@ -174,6 +207,7 @@ const HistoryTab = () => {
           <div className="font-bold text-green-600">{formatCurrency(entry.amount || (entry.total_hours * entry.hourly_rate))}</div>
         </div>
       </div>
+      <MehrzeitZeile entry={entry} />
     </div>
   );
 
@@ -213,6 +247,11 @@ const HistoryTab = () => {
 
   return (
     <div className="space-y-6">
+      {mzEintrag && mzEintrag.mehrzeit && (
+        <MehrzeitFrage nurGrund minuten={mzEintrag.mehrzeit.minuten} schichtEnde={mzEintrag.mehrzeit.schicht_ende}
+          gehen={mzEintrag.mehrzeit.gehen} datum={formatDate(mzEintrag.date || mzEintrag.check_in)}
+          onNein={() => setMzEintrag(null)} onSchliessen={() => { setMzEintrag(null); fetchHistory(); }} onAbsenden={mzAbsenden} />
+      )}
       {standVon && (
         <div data-historie-stand style={{ border: '2px solid #92400e', background: '#fffbeb', color: '#78350f',
                                           borderRadius: '10px', padding: '10px 14px', fontWeight: 600,
@@ -389,6 +428,7 @@ const HistoryTab = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     {formatHoursReadable(entry.hours || entry.total_hours || 0)}
+                    <MehrzeitZeile entry={entry} />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full ${
