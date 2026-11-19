@@ -185,7 +185,7 @@ def microsoft_test(db: Session = Depends(get_db), user=Depends(nur_admin)):
 @router.put("/einstellungen/lohnversand")
 def lohnversand(data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
     from app.services import lohnversand as lv
-    return _fehler(lambda: {"einstellungen": lv.einstellungen_speichern(db, data, user.id), "versandweg": lv.status_versand()})
+    return _fehler(lambda: {"einstellungen": lv.einstellungen_speichern(db, data, user.id), "versandweg": lv.status_versand(db)})
 
 
 @router.post("/{monat}/sperren")

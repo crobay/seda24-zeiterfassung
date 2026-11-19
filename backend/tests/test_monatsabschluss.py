@@ -159,7 +159,7 @@ def test_upload_vorschau_versand_sperre(client, db, monkeypatch):
     assert client.put(f"{API}/einstellungen/lohnversand", json={"testmodus": False}, headers=h).status_code == 409
     monkeypatch.setenv("LOHNMAIL_ECHT", "1")
     r = client.put(f"{API}/einstellungen/lohnversand", json={"testmodus": False}, headers=h).json()
-    assert r["einstellungen"] == {"testmodus": False, "test_an": "dsertic@seda.de"} and "secret" not in str(r).lower()
+    assert {k: r["einstellungen"][k] for k in ("testmodus", "test_an", "absender")} == {"testmodus": False, "test_an": "dsertic@seda.de", "absender": "lohn@seda.de"} and "secret" not in str(r).lower()
     p = client.post(f"{API}/2026-10/versenden", headers=h).json()
     assert p["status"] == "abgeschlossen" and p["gesperrt_am"] and p["je_ma"][0]["status"] == "gesendet"
     assert gesendet[-1]["toRecipients"][0]["emailAddress"]["address"] == "lara@example.org"
@@ -188,7 +188,7 @@ def attrappe(monkeypatch, fehler=False):
     gesendet = []
 
     class Fake:
-        absender = "buchhaltung@seda.de"
+        absender = "lohn@seda.de"
 
         def senden(self, msg):
             if fehler:

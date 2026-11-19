@@ -1,16 +1,17 @@
 """Lohnversand per Mail (Monatsabschluss Schritt 5) - ersetzt den Versand aus dem PC-Skript seda_lohn_email.py.
 
-Versand ueber Microsoft Graph sendMail aus dem Postfach buchhaltung@seda.de mit saveToSentItems=true: jede Lohn-Mail
-liegt danach in "Gesendete Elemente" von buchhaltung@seda.de (Drazen 18.11.2026: KEIN BCC). Reines SMTP ueber
+Versand ueber Microsoft Graph sendMail aus dem freigegebenen Postfach lohn@seda.de ("SEDA24 Lohnbuchhaltung", Drazen
+19.11.2026; buchhaltung@ bleibt fuer Kundenrechnungen) mit saveToSentItems=true: jede Lohn-Mail liegt danach in
+"Gesendete Elemente" des Absender-Postfachs (Drazen 18.11.2026: KEIN BCC). Antworten der MA gehen an dasselbe Postfach. Reines SMTP ueber
 Office 365 legt keine Kopie ab und braucht Basic Auth, die Microsoft abschaltet - deshalb Graph.
 
 Zugangsdaten NUR aus dem Server-Secret (backend/.env, nicht im Git), App-Registrierung in Entra ID mit
-Anwendungsberechtigung Mail.Send, per Application Access Policy auf buchhaltung@seda.de beschraenkt:
+Anwendungsberechtigung Mail.Send, per Application Access Policy auf lohn@seda.de beschraenkt:
     LOHNMAIL_GRAPH_TENANT_ID, LOHNMAIL_GRAPH_CLIENT_ID, LOHNMAIL_GRAPH_CLIENT_SECRET
-    LOHNMAIL_FROM   (Standard buchhaltung@seda.de)
     LOHNMAIL_ECHT=1 -> nur auf LIVE setzen: erst dann darf an die Mitarbeiter selbst verschickt werden.
                        Ohne diesen Schalter geht hoechstens der Testmodus ("alles an Drazen").
-Einstellungen (app_settings "lohnversand", im Cockpit aenderbar): testmodus, test_an.
+Einstellungen (app_settings "lohnversand", im Cockpit aenderbar): testmodus, test_an, absender (nur @seda.de),
+absender_name, antwort_an (leer = Absender).
 Geheimnis und Token werden nie ausgegeben, geloggt oder an das Frontend geliefert.
 """
 import base64
@@ -22,7 +23,9 @@ import time
 from sqlalchemy import text
 
 KEY = "lohnversand"
-DEFAULT = {"testmodus": True, "test_an": "dsertic@seda.de"}
+DEFAULT = {"testmodus": True, "test_an": "dsertic@seda.de", "absender": "lohn@seda.de",
+           "absender_name": "SEDA24 Lohnbuchhaltung", "antwort_an": ""}
+ABSENDER_DOMAIN = "@seda.de"
 MAIL_RE = re.compile(r"[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}", re.I)
 PAUSE_S = 1.0          # schonend fuer das Postfach (Exchange Online: max. 30 Mails/Minute)
 GRAPH = "https://graph.microsoft.com/v1.0"
@@ -45,8 +48,13 @@ def config():
     d = _datei()
     return {"tenant": (os.getenv("LOHNMAIL_GRAPH_TENANT_ID", "") or d.get("tenant", "")).strip(),
             "client_id": (os.getenv("LOHNMAIL_GRAPH_CLIENT_ID", "") or d.get("client_id", "")).strip(),
-            "secret": os.getenv("LOHNMAIL_GRAPH_CLIENT_SECRET", "") or d.get("secret", ""),
-            "from": os.getenv("LOHNMAIL_FROM", "buchhaltung@seda.de").strip() or "buchhaltung@seda.de"}
+            "secret": os.getenv("LOHNMAIL_GRAPH_CLIENT_SECRET", "") or d.get("secret", "")}
+
+
+def absender_von(einst=None):
+    """{adresse, name, antwort_an} aus den Einstellungen (Standard lohn@seda.de, "SEDA24 Lohnbuchhaltung")."""
+    e = {**DEFAULT, **(einst or {})}
+    return {"adresse": e["absender"], "name": e["absender_name"], "antwort_an": e["antwort_an"] or e["absender"]}
 
 
 GUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
@@ -69,7 +77,7 @@ def zugang_speichern(db, werte: dict, user_id):
     log_audit(db, user_id, None, "lohnversand_zugang", entity_type="einstellung",
               details=f"Microsoft-Zugang für den Lohnversand eingetragen (Anwendungs-ID …{c[-4:]})")
     db.commit()
-    return status_versand()
+    return status_versand(db)
 
 
 def verbindung_testen():
@@ -109,12 +117,13 @@ WEG_TEXT = {"graph": "Microsoft Graph (Kopie in „Gesendete Elemente“)",
             "keiner": "nicht eingerichtet"}
 
 
-def status_versand():
+def status_versand(db=None):
     """Fuer das Cockpit: nur ob eingerichtet, nie Geheimnisse."""
     c = config()
     w = weg(True)
     d = _datei()
-    return {"konfiguriert": w == "graph", "absender": c["from"], "weg": WEG_TEXT[w], "weg_test": w,
+    a = absender_von(einstellungen(db) if db is not None else None)
+    return {"konfiguriert": w == "graph", "absender": a["adresse"], "absender_name": a["name"], "antwort_an": a["antwort_an"], "weg": WEG_TEXT[w], "weg_test": w,
             "echt_erlaubt": echt_erlaubt(), "zugang_am": d.get("am"),
             "client_ende": c["client_id"][-4:] if len(c["client_id"]) > 12 else None}
 
@@ -139,37 +148,54 @@ def einstellungen_speichern(db, werte: dict, user_id):
         if not MAIL_RE.fullmatch(v):
             raise ValueError("Test-Adresse: keine gültige Mail-Adresse")
         neu["test_an"] = v
+    if "absender" in werte:
+        v = (werte["absender"] or "").strip().lower()
+        if not MAIL_RE.fullmatch(v) or not v.endswith(ABSENDER_DOMAIN):
+            raise ValueError(f"Absender: eine Adresse {ABSENDER_DOMAIN} (z. B. lohn@seda.de)")
+        neu["absender"] = v
+    if "absender_name" in werte:
+        v = re.sub(r"\s+", " ", str(werte["absender_name"] or "")).strip()
+        if not 2 <= len(v) <= 80 or re.search(r'[<>"@]', v):
+            raise ValueError("Anzeigename: 2 bis 80 Zeichen, ohne < > \" @")
+        neu["absender_name"] = v
+    if "antwort_an" in werte:
+        v = (werte["antwort_an"] or "").strip().lower()
+        if v and not MAIL_RE.fullmatch(v):
+            raise ValueError("Antworten an: keine gültige Mail-Adresse (leer = Absender)")
+        neu["antwort_an"] = v
     if not neu["testmodus"] and not echt_erlaubt():
         raise ValueError("Echter Versand an die Mitarbeiter ist auf diesem Server nicht freigeschaltet (nur Testmodus)")
     db.execute(text("""INSERT INTO app_settings (key, value, updated_at, updated_by) VALUES (:k, :v, now(), :u)
                        ON CONFLICT (key) DO UPDATE SET value = :v, updated_at = now(), updated_by = :u"""),
                {"k": KEY, "v": json.dumps(neu), "u": user_id})
     log_audit(db, user_id, None, "lohnversand_einstellung", entity_type="einstellung", old_value=alt, new_value=neu,
-              details="Lohnversand: " + ("Testmodus (alles an " + neu["test_an"] + ")" if neu["testmodus"] else "ECHTER Versand an die Mitarbeiter"))
+              details=f"Lohnversand (Absender {neu['absender_name']} <{neu['absender']}>): " + ("Testmodus (alles an " + neu["test_an"] + ")" if neu["testmodus"] else "ECHTER Versand an die Mitarbeiter"))
     db.commit()
     return neu
 
 
-def nachricht(an, betreff, textkoerper, anhaenge):
-    """Graph-Message (JSON). anhaenge: [(dateiname, pfad)]"""
+def nachricht(an, betreff, textkoerper, anhaenge, absender=None):
+    """Graph-Message (JSON). anhaenge: [(dateiname, pfad)]; absender = absender_von(...) -> From + Antworten-an."""
     files = []
     from app.services.lohnablage import lesen
     for name, pfad in anhaenge:
         files.append({"@odata.type": "#microsoft.graph.fileAttachment", "name": name, "contentType": "application/pdf",
                       "contentBytes": base64.b64encode(lesen(pfad)).decode()})
     return {"subject": betreff, "body": {"contentType": "Text", "content": textkoerper},
-            "toRecipients": [{"emailAddress": {"address": an}}], "attachments": files}
+            "toRecipients": [{"emailAddress": {"address": an}}], "attachments": files,
+            **({"from": {"emailAddress": {"address": absender["adresse"], "name": absender["name"]}},
+                "replyTo": [{"emailAddress": {"address": absender["antwort_an"]}}]} if absender else {})}
 
 
 class Versand:
     """Ein Token fuer den ganzen Lauf. In Tests ueber verbinden() durch eine Attrappe ersetzbar."""
 
-    def __init__(self):
+    def __init__(self, absender=None):
         import requests
         c = config()
         if not (c["tenant"] and c["client_id"] and c["secret"]):
             raise RuntimeError("Mail-Zugang (LOHNMAIL_GRAPH_*) ist auf diesem Server nicht eingerichtet")
-        self.absender = c["from"]
+        self.absender = (absender or absender_von())["adresse"]
         self._http = requests.Session()
         r = self._http.post(f"https://login.microsoftonline.com/{c['tenant']}/oauth2/v2.0/token", timeout=20,
                             data={"grant_type": "client_credentials", "client_id": c["client_id"],
@@ -197,7 +223,8 @@ def _fehlertext(r):
 
 
 class SmtpTestVersand:
-    """Nur Testmodus: an die Test-Adresse ueber den vorhandenen SMTP-Zugang (STARTTLS). Absender = SMTP_FROM."""
+    """Nur Testmodus: an die Test-Adresse ueber den vorhandenen SMTP-Zugang (STARTTLS). Absender-Adresse = SMTP_FROM
+    (Office 365 laesst ueber SMTP nur das eigene Konto zu), Anzeigename + Antworten-an wie beim echten Versand."""
 
     def __init__(self, test_an):
         import smtplib
@@ -212,7 +239,12 @@ class SmtpTestVersand:
         an = msg["toRecipients"][0]["emailAddress"]["address"]
         if an.lower() != self.test_an:       # Sicherung: dieser Weg schickt nie an Mitarbeiter
             raise RuntimeError("SMTP-Testweg: nur an die Test-Adresse")
-        self._s.send_message(eml(msg, self.absender))
+        e = eml(msg, self.absender)
+        from email.utils import formataddr
+        name = (msg.get("from") or {}).get("emailAddress", {}).get("name")
+        del e["From"]
+        e["From"] = formataddr((f"{name} (Test über SMTP)" if name else "", self.absender))
+        self._s.send_message(e)
 
     def schliessen(self):
         try:
@@ -224,9 +256,9 @@ class SmtpTestVersand:
 class DateiVersand:
     """Nur Testmodus: jede Mail als .eml (verschluesselt) im Monatsordner - zum Herunterladen und in Outlook oeffnen."""
 
-    def __init__(self, ordner):
+    def __init__(self, ordner, absender=None):
         import shutil
-        self.absender = config()["from"]
+        self.absender = (absender or absender_von())["adresse"]
         self.ordner = os.path.join(ordner, "testversand")
         shutil.rmtree(self.ordner, ignore_errors=True)      # nur der letzte Testlauf
         os.makedirs(self.ordner)
@@ -246,9 +278,12 @@ class DateiVersand:
 def eml(msg, absender):
     """Graph-Message -> E-Mail (fuer SMTP-Test und .eml-Datei)."""
     from email.message import EmailMessage
-    from email.utils import formatdate
+    from email.utils import formataddr, formatdate
     e = EmailMessage()
-    e["From"] = absender
+    von = (msg.get("from") or {}).get("emailAddress") or {"address": absender}
+    e["From"] = formataddr((von.get("name") or "", von["address"]))
+    if msg.get("replyTo"):
+        e["Reply-To"] = msg["replyTo"][0]["emailAddress"]["address"]
     e["To"] = msg["toRecipients"][0]["emailAddress"]["address"]
     e["Subject"] = msg["subject"]
     e["Date"] = formatdate(localtime=True)
@@ -258,11 +293,11 @@ def eml(msg, absender):
     return e
 
 
-def verbinden(test=False, ordner=None, test_an=None):
+def verbinden(test=False, ordner=None, test_an=None, absender=None):
     """Graph, wenn eingerichtet. Ohne Graph nur im Testmodus: SMTP-Zugang des Servers, sonst .eml-Dateien."""
     w = weg(test)
     if w == "smtp_test":
         return SmtpTestVersand(test_an)
     if w == "datei_test" and ordner:
-        return DateiVersand(ordner)
-    return Versand()
+        return DateiVersand(ordner, absender)
+    return Versand(absender)

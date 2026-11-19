@@ -9,7 +9,7 @@ Schritt 2  "Fuer Lexware erzeugen": EINE Importdatei fuer alle MA (Import-Assist
            (admin.get_lohn_uebersicht) bzw. festgehalt.lexware_lohnarten - an der Gehaltslogik aendert sich nichts.
 Schritt 3  Lohnabrechnungen aus Lexware hochladen (ZIP oder PDFs), Zuordnung nach PersNr/Name im Dateinamen.
 Schritt 4  Vorschau je MA: Mail-Adresse, Anrede, Anhaenge.
-Schritt 5  "Alle versenden" (Graph aus buchhaltung@seda.de, Kopie in "Gesendete Elemente", kein BCC; siehe
+Schritt 5  "Alle versenden" (Graph aus lohn@seda.de "SEDA24 Lohnbuchhaltung", Absender einstellbar, Kopie in "Gesendete Elemente", kein BCC; siehe
            lohnversand.py) + Status je MA +
            einzelnen MA erneut senden + Monat sperren. Testmodus (Schalter): alles geht an Drazen statt an die MA,
            der Monat wird dabei nicht gesperrt.
@@ -683,7 +683,8 @@ def _senden(db, y, m, user_id, mas):
     einst = lv.einstellungen(db)
     test = einst["testmodus"] or not lv.echt_erlaubt()
     try:
-        conn = lv.verbinden(test, ordner(y, m), einst["test_an"])
+        absender = lv.absender_von(einst)
+        conn = lv.verbinden(test, ordner(y, m), einst["test_an"], absender)
     except Exception as e:
         raise ValueError(f"Mail-Server nicht erreichbar: {type(e).__name__} {str(e)[:150]}")
     ergebnis = {"gesendet": 0, "fehler": 0, "testmodus": test, "weg": lv.weg(test)}
@@ -697,7 +698,7 @@ def _senden(db, y, m, user_id, mas):
             try:
                 anh = _anhaenge(db, y, m, x["employee_id"], x["personal_nr"])
                 namen = [n for n, _ in anh]
-                conn.senden(lv.nachricht(an, betreff, koerper, anh))
+                conn.senden(lv.nachricht(an, betreff, koerper, anh, absender))
                 ergebnis["gesendet"] += 1
             except Exception as e:      # ein MA bricht den Lauf nicht ab
                 status, fehler = "fehler", f"{type(e).__name__}: {str(e)[:200]}"
@@ -770,7 +771,7 @@ def protokoll(db, y, m):
     return {"monat": monat_key(y, m), "status": z["status"],
             "gesperrt_am": z["gesperrt_am"] and z["gesperrt_am"].isoformat(timespec="minutes"),
             "versand": versand, "je_ma": sorted(je_ma.values(), key=lambda r: r["personal_nr"] or ""),
-            "einstellungen": lv.einstellungen(db), "versandweg": lv.status_versand(), "nachtraege": nachtraege(db, y, m)}
+            "einstellungen": lv.einstellungen(db), "versandweg": lv.status_versand(db), "nachtraege": nachtraege(db, y, m)}
 
 
 def sperren(db, y, m, user_id):

@@ -42,7 +42,7 @@ export default function Abschluss() {
         </div>
       </div>
 
-      <div className="ck-callout ab-proto" role="note"><AlertTriangle size={18} style={{ flex: 'none' }} /><span>{t('ab.proto')}</span></div>
+      <div className="ck-callout ab-proto" role="note"><AlertTriangle size={18} style={{ flex: 'none' }} /><span>{t('ab.proto', { von: data?.protokoll?.versandweg?.absender || 'lohn@seda.de' })}</span></div>
       {offen && <div className="ck-callout" role="alert" data-geoeffnet><LockOpen size={18} style={{ flex: 'none' }} />
         <span style={{ flex: 1 }}>{t('ab.offen_hinweis', { am: offen.geoeffnet_am.replace('T', ' ').slice(0, 16), wer: offen.geoeffnet_von, grund: offen.grund })}</span>
         <button className="ck-btn ck-btn-sm" onClick={async () => { try { await api.post(`/abschluss/${monat}/sperren`); reload(); toast(t('ab.locked')); } catch (e) { toast(apiError(e), { tone: 'warn' }); } }}
@@ -269,7 +269,7 @@ function Vorschau({ monat, onDone }) {
 }
 
 // ---------- Schritt 5: Alle versenden + Monat sperren ----------
-// Versand über Microsoft Graph aus buchhaltung@seda.de (Kopie in „Gesendete Elemente“, kein BCC). Testmodus = alles an Drazen.
+// Versand über Microsoft Graph aus lohn@seda.de, einstellbar (Kopie in „Gesendete Elemente“, kein BCC). Testmodus = alles an Drazen.
 function Versand({ monat, data, toast, reload }) {
   const v = useApi(`/abschluss/${monat}/vorschau`);
   const [frage, setFrage] = useState(false);
@@ -330,7 +330,8 @@ function Versand({ monat, data, toast, reload }) {
       <div className={`ck-callout${test ? '' : ' c-info'}`} data-versandweg>
         <Mail size={18} style={{ flex: 'none' }} />
         <div style={{ flex: 1 }}>
-          <div>{t('ab.weg', { von: weg.absender || 'buchhaltung@seda.de' })}{!weg.konfiguriert && <b> {t('ab.weg_fehlt')}</b>}</div>
+          <div data-absender>{t('ab.weg', { von: weg.absender || 'lohn@seda.de', name: weg.absender_name || '', antwort: weg.antwort_an || weg.absender || '' })}{!weg.konfiguriert && <b> {t('ab.weg_fehlt')}</b>}</div>
+          <Absender ein={ein} einstellen={einstellen} />
           {!weg.konfiguriert && test && <div data-testweg>{t('ab.testweg', { weg: weg.weg || '' })}
             {weg.weg_test === 'datei_test' && prot?.versand?.some((r) => r.status === 'test') && <> · <a href="#" onClick={(e) => { e.preventDefault(); laden(`/abschluss/${monat}/testversand.zip`, `Testversand_${monat}.zip`); }} data-eml>{t('ab.eml_laden')}</a></>}</div>}
           <label className="ab-la-check" style={{ marginTop: 6 }}>
@@ -475,4 +476,21 @@ function Nachtraege({ n }) {
             : <><Lock size={15} /> {t('ab.nach_gesperrt', { am: wert(o.gesperrt_am), wer: o.gesperrt_von })}</>}</div>
         </div>))}
     </section>);
+}
+
+// Absender der Lohn-Mails (Drazen 19.11.: lohn@seda.de „SEDA24 Lohnbuchhaltung“; buchhaltung@ bleibt für Kundenrechnungen)
+function Absender({ ein, einstellen }) {
+  const [auf, setAuf] = useState(false);
+  const [f, setF] = useState({ absender: '', absender_name: '', antwort_an: '' });
+  useEffect(() => { setF({ absender: ein.absender || '', absender_name: ein.absender_name || '', antwort_an: ein.antwort_an || '' }); }, [ein.absender, ein.absender_name, ein.antwort_an, auf]);
+  if (!auf) return <button className="ck-btn ck-btn-sm ck-btn-ghost" style={{ marginTop: 4 }} onClick={() => setAuf(true)} data-abs-aendern>{t('ab.abs_aendern')}</button>;
+  return (
+    <div className="ab-la" style={{ marginTop: 8 }} data-abs-form>
+      {[['absender', 'ab.abs_adresse'], ['absender_name', 'ab.abs_name'], ['antwort_an', 'ab.abs_antwort']].map(([k, l]) => (
+        <label key={k}><span>{t(l)}</span><input className="ck-input" value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} data-abs={k} /></label>))}
+      <button className="ck-btn" disabled={!f.absender.endsWith('@seda.de') || f.absender_name.trim().length < 2}
+        onClick={async () => { await einstellen(f); setAuf(false); }} data-abs-speichern>{t('app.save')}</button>
+      <button className="ck-btn ck-btn-ghost" onClick={() => setAuf(false)}>{t('app.cancel')}</button>
+      <span className="ck-subtle">{t('ab.abs_hint')}</span>
+    </div>);
 }

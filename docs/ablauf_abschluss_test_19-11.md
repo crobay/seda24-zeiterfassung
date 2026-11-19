@@ -82,8 +82,8 @@ Die Mails gehen nur an die Test-Adresse, in keinem Fall an Mitarbeiter.
 
 | Weg | Wann | Was passiert |
 |---|---|---|
-| **Microsoft Graph** | Entra-App eingerichtet und im Cockpit eingetragen (Anleitung `anleitung_entra_lohnversand.md`) | Echte Mail an die Test-Adresse aus buchhaltung@seda.de, Kopie in „Gesendete Elemente“. Das ist der Weg für den Betrieb. |
-| **.eml-Dateien** (Standard ohne Microsoft-Freigabe) | sofort, nichts nötig | Jede Mail als Datei; Knopf „Testmails herunterladen (.eml)“. In Outlook öffnen: Betreff, Text und Anhänge genau wie beim echten Versand. **Nichts verlässt den Server.** |
+| **Microsoft Graph** | Entra-App eingerichtet und im Cockpit eingetragen (Anleitung `anleitung_entra_lohnversand.md`) | Echte Mail an die Test-Adresse aus lohn@seda.de („SEDA24 Lohnbuchhaltung“), Kopie in „Gesendete Elemente“ von lohn@, Antworten dorthin. Das ist der Weg für den Betrieb. |
+| **.eml-Dateien** (Standard ohne Microsoft-Freigabe) | sofort, nichts nötig | Jede Mail als Datei; Knopf „Testmails herunterladen (.eml)“. In Outlook öffnen: Absender „SEDA24 Lohnbuchhaltung“ <lohn@seda.de>, Antworten-an, Betreff, Text und Anhänge genau wie beim echten Versand. **Nichts verlässt den Server.** |
 | SMTP-Zugang des Servers | nur auf deinen ausdrücklichen Wunsch | Der Server hat für Passwort-Mails einen Office-365-SMTP-Zugang (Absender dsertic@seda.de). Damit ginge eine echte Test-Mail an dich, gesperrt auf die Test-Adresse. Dafür würde ich den Zugang von LIVE nach DEV übernehmen (von Datei zu Datei, nie im Chat). |
 
 **Mein Vorschlag für heute Abend:** **.eml-Dateien**. Damit siehst du jede Mail vollständig, und kein Weg nach außen ist offen. Sobald die Entra-App eingerichtet ist, folgt der erste echte Testversand über Graph an dich, nach deinem OK.
