@@ -6,7 +6,7 @@ import {
   Activity, LogIn, LogOut, Bot, Pencil, ArrowRightLeft, Clock, CircleCheckBig, Moon as MoonIcon, CalendarClock, CircleDashed, BellRing,
 } from 'lucide-react';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Skeleton, Empty, ErrorBox, Dialog, ObjektMarke } from '../core';
-import { MinijobKarte, MargeKarte } from './GfKarten';
+import { MinijobKarte, MargeKarte, MehrzeitKarte } from './GfKarten';
 
 const greet = () => { const h = new Date().getHours(); return t(h < 11 ? 'greet.morning' : h < 18 ? 'greet.day' : 'greet.evening'); };
 const ATTENTION = ['fehlt', 'offen'];
@@ -134,6 +134,7 @@ export default function Heute() {
         <div className="ck-stack span-5 m5">
           <MargeKarte rows={ls.data?.marge} />
           <MinijobKarte rows={ls.data?.minijob} />
+          <MehrzeitKarte d={ls.data?.mehrzeit} onReload={ls.reload} />
           <PlanNaechsteWoche p={ls.data?.plan_naechste_woche} onReload={ls.reload} />
           <Abwesend heute={data?.abwesend} woche={ls.data?.woche} />
           <Kilometer km={ls.data?.km} />

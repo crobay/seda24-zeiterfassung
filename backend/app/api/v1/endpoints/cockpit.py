@@ -1414,7 +1414,27 @@ def leitstelle(db: Session = Depends(get_db), user=Depends(verify_admin_or_objek
     from app.services import plan_vorlage as pv
     plan_nw = pv.wochen_status(db, pv.montag(today) + timedelta(days=7))
     return {"woche": woche, "abschluss": abschluss, "stunden": stunden, "km": km, "feed": feed[:25], "plan_naechste_woche": plan_nw,
-            "minijob": _minijob_warnungen(db, user, now), "marge": _marge_warnungen(db, user, now)}
+            "minijob": _minijob_warnungen(db, user, now), "marge": _marge_warnungen(db, user, now),
+            "mehrzeit": _mehrzeit_woche(db, today)}
+
+
+def _mehrzeit_woche(db, today):
+    """Mehrzeit-Antraege je MA in dieser Woche (Mo-So, nach Arbeitstag) + Einstellung "Frage ab ... Min"."""
+    from app.services import mehrzeit as mz
+    montag = today - timedelta(days=today.weekday())
+    return {"montag": montag.isoformat(), "frage_ab_min": mz.frage_ab(db), "fenster_tage": mz.FENSTER_TAGE,
+            "personen": [{**r, "name": f"{r['first_name']} {r['last_name']}"} for r in mz.woche(db, montag)]}
+
+
+@router.put("/einstellungen/mehrzeit")
+def mehrzeit_einstellung(data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Ab wie vielen Minuten nach Schichtende die App "Hast du laenger gearbeitet?" fragt. Nur Admin."""
+    _nur_admin(user)
+    from app.services import mehrzeit as mz
+    try:
+        return mz.frage_ab_speichern(db, (data or {}).get("frage_ab_min"), user.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 def _minijob_warnungen(db, user, now):

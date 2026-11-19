@@ -2,7 +2,7 @@
 // Werte (Grenze/Mindestlohn je Stichtag, Ziel-Marge) stehen in der Datenbank und sind unter Einstellungen > Lohn-Grenzen aenderbar.
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BadgeEuro, TrendingDown, Plus, Trash2, Scale } from 'lucide-react';
+import { BadgeEuro, TrendingDown, Plus, Trash2, Scale, Hourglass } from 'lucide-react';
 import { api, apiError, t, fmtNum, useApi, useApp, Status, SkeletonRows, Empty, ObjektMarke } from '../core';
 
 const eur = (n) => `${fmtNum(n, 0)} €`;
@@ -29,6 +29,48 @@ export function MinijobKarte({ rows }) {
             <div className="ck-progress" aria-hidden="true" style={{ marginTop: 6 }}><i style={{ width: `${Math.min(100, r.quote)}%`, background: r.stufe === 'ueber' ? 'var(--ck-danger, #b91c1c)' : 'var(--ck-warn)' }} /></div>
           </div>
         </li>))}</ul>
+    </section>
+  );
+}
+
+// Leitstelle: Mehrzeit-Antraege diese Woche je MA (Regel 19.11.2026: nur noch auf Nachfrage "Hast du laenger
+// gearbeitet?" ab Schichtende + X Min). X stellt nur der Admin hier ein.
+export function MehrzeitKarte({ d, onReload }) {
+  const { me, toast } = useApp();
+  const [ab, setAb] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (d) setAb(String(d.frage_ab_min)); }, [d]);
+  if (!d) return null;
+  const summe = d.personen.reduce((n, r) => n + r.anzahl, 0);
+  const speichern = async () => {
+    setBusy(true);
+    try { await api.put('/einstellungen/mehrzeit', { frage_ab_min: Number(ab) }); toast(t('gf.mz_saved', { n: ab })); onReload && onReload(); }
+    catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setBusy(false);
+  };
+  return (
+    <section className="ck-card" aria-labelledby="mz-h" data-gf="mehrzeit">
+      <div className="ck-card-head"><h2 id="mz-h"><Hourglass size={20} />{t('gf.mz_title')}</h2><span className="ck-tag">{summe}</span></div>
+      {d.personen.length === 0 ? <div className="ck-subtle" style={{ padding: '0 16px 12px' }}>{t('gf.mz_none')}</div> : (
+        <ul className="ck-list">{d.personen.map((r) => (
+          <li key={r.employee_id} className="ck-row">
+            <div className="ck-row-main">
+              <div className="ck-row-title"><Link to={`/cockpit/mitarbeiter/${r.employee_id}`}>{r.name}</Link>
+                {r.offen > 0 && <Status s="offen" label={t('gf.mz_open', { n: r.offen })} />}</div>
+              <div className="ck-row-meta">{t('gf.mz_line', { n: r.anzahl, h: fmtNum(r.stunden, 2), g: r.genehmigt, a: r.abgelehnt })}</div>
+            </div>
+            <span className="ck-num" style={{ fontSize: 22, fontWeight: 700 }} data-mz-anzahl>{r.anzahl}</span>
+          </li>))}</ul>)}
+      <div className="ck-subtle" style={{ padding: '0 16px 12px', fontSize: 13 }}>
+        {istAdmin(me) ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {t('gf.mz_rule_pre')}
+            <input className="ck-input" style={{ width: 70 }} inputMode="numeric" value={ab} onChange={(e) => setAb(e.target.value.replace(/\D/g, ''))} aria-label={t('gf.mz_rule_label')} />
+            {t('gf.mz_rule_post')}
+            <button className="ck-btn ck-btn-sm" disabled={busy || !ab || ab === String(d.frage_ab_min)} onClick={speichern}>{t('gf.mz_save')}</button>
+          </span>
+        ) : t('gf.mz_rule', { n: d.frage_ab_min })}
+      </div>
     </section>
   );
 }
