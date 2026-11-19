@@ -322,14 +322,17 @@ def dry_api_tests():
         check("Server-Bestaetigung GEHEN (auch doppelt): client_id zurueck + Kennung X-Seda24",
               r.status_code == 200 and r.json().get("client_id") == cid_out and r.headers.get("x-seda24") == "1")
 
-        # (f) Toleranz 10 Min (Schicht 13:00-16:00): Kommen 12:55 zaehlt ab 13:00, Gehen 16:10 bis 16:00,
-        #     Gehen 16:25 bis 16:00 + 25 Min Mehrzeit-Antrag
+        # (f) Zaehlung nur Schichtbeginn bis Schichtende (Schicht 13:00-16:00, Regel Drazen 19.11.2026): Kommen 12:55
+        #     zaehlt ab 13:00, Gehen 16:10 und 16:25 bis 16:00. Minuten nach Ende nur fuer die Frage "Hast du laenger
+        #     gearbeitet?" ab 15 Min (10 -> keine Frage, 25 -> Frage) - kein automatischer Antrag
         from app.api.v1.endpoints.time_entries import gezaehltes_fenster
+        from app.services.mehrzeit import FRAGE_AB_STANDARD
         tb, te_ = datetime.combine(yday, time(13, 0)), datetime.combine(yday, time(16, 0))
         f1 = gezaehltes_fenster(datetime.combine(yday, time(12, 55)), datetime.combine(yday, time(16, 10)), tb, te_)
         f2 = gezaehltes_fenster(datetime.combine(yday, time(12, 55)), datetime.combine(yday, time(16, 25)), tb, te_)
-        check("Toleranz: Kommen 12:55/Gehen 16:10 -> 13:00-16:00, Gehen 16:25 -> Mehrzeit 25 Min",
-              f1 == (tb, te_, 0) and f2 == (tb, te_, 25), "" if f1 == (tb, te_, 0) and f2 == (tb, te_, 25) else f"{f1} {f2}")
+        gut = f1 == (tb, te_, 10) and f2 == (tb, te_, 25) and f1[2] < FRAGE_AB_STANDARD <= f2[2]
+        check("Zaehlung bis Schichtende: Gehen 16:10 -> 13:00-16:00 ohne Frage, Gehen 16:25 -> 13:00-16:00 + Frage (25 Min)",
+              gut, "" if gut else f"{f1} {f2}")
 
         # (e) Token verlaengern
         r = client.post("/api/v1/auth/refresh", headers=h)
