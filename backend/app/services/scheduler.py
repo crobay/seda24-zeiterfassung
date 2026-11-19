@@ -154,23 +154,26 @@ def init_scheduler():
         max_instances=1,
     )
 
-    # Job 14: Dienstplan naechste Woche noch offen? Telegram-Erinnerung an die Objektleitung (Freitag 09:00)
-    scheduler.add_job(
-        remind_plan_next_week,
-        CronTrigger(day_of_week='fri', hour=9, minute=0),
-        id='remind_plan_next_week',
-        replace_existing=True,
-        max_instances=1,
-    )
+    # Jobs 14/15 (Fixum, Telegram an OL/Drazen) nur mit Schalter COCKPIT_FIXUM_JOBS=1 (services/features.py)
+    from app.services import features
+    if features.an("FIXUM_JOBS"):
+        # Job 14: Dienstplan naechste Woche noch offen? Telegram-Erinnerung an die Objektleitung (Freitag 09:00)
+        scheduler.add_job(
+            remind_plan_next_week,
+            CronTrigger(day_of_week='fri', hour=9, minute=0),
+            id='remind_plan_next_week',
+            replace_existing=True,
+            max_instances=1,
+        )
 
-    # Job 15: Fixum - Donnerstag 18:00 Folgewoche als Entwurf aus der Vorlage (nur Luecken der Vorlage, nichts doppelt)
-    scheduler.add_job(
-        plan_fixum_entwurf,
-        CronTrigger(day_of_week='thu', hour=18, minute=0),
-        id='plan_fixum_entwurf',
-        replace_existing=True,
-        max_instances=1,
-    )
+        # Job 15: Fixum - Donnerstag 18:00 Folgewoche als Entwurf aus der Vorlage (nur Luecken der Vorlage, nichts doppelt)
+        scheduler.add_job(
+            plan_fixum_entwurf,
+            CronTrigger(day_of_week='thu', hour=18, minute=0),
+            id='plan_fixum_entwurf',
+            replace_existing=True,
+            max_instances=1,
+        )
 
     scheduler.start()
     logger.info(f"APScheduler gestartet mit {len(scheduler.get_jobs())} Jobs (Monatsbestaetigung abgeschaltet)")

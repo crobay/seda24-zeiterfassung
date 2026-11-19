@@ -86,8 +86,8 @@ def test_ol_akte_jedes_ma_mit_lohn(client, db):
 
 
 def test_ol_rechte_in_me(client, db):
-    assert client.get("/api/v1/cockpit/me", headers=ol_headers(db)).json()["rechte"] == {"verwalten": True, "kunden_umsaetze": False, "abschluss": False}
-    assert client.get("/api/v1/cockpit/me", headers=token(db, "ADMIN")).json()["rechte"] == {"verwalten": True, "kunden_umsaetze": True, "abschluss": True}
+    assert client.get("/api/v1/cockpit/me", headers=ol_headers(db)).json()["rechte"] == {"verwalten": True, "kunden_umsaetze": False, "abschluss": False, "objekt_logo": True}
+    assert client.get("/api/v1/cockpit/me", headers=token(db, "ADMIN")).json()["rechte"] == {"verwalten": True, "kunden_umsaetze": True, "abschluss": True, "objekt_logo": True}
 
 
 def test_ol_frueher_admin_only_endpunkte_erlaubt(client, db):
@@ -189,3 +189,16 @@ def test_zuteilen_km_ungueltig_400(client, db):
     emp, obj = _emp_obj_ohne_km(db)
     r = client.post(f"/api/v1/cockpit/mitarbeiter/{emp}/objekte", json={"object_id": obj, "distance_km": "abc"}, headers=token(db, "ADMIN"))
     assert r.status_code == 400
+
+
+def test_schalter_aus_wie_live_etappe1(client, db, monkeypatch):
+    """LIVE Etappe 1 (Drazen 19.11.): ohne COCKPIT_*-Schalter kein Abschluss-Recht, kein Logo-Bearbeiten."""
+    for k in ("COCKPIT_ABSCHLUSS", "COCKPIT_OBJEKT_LOGO", "COCKPIT_FIXUM_JOBS"):
+        monkeypatch.delenv(k, raising=False)
+    adm = token(db, "ADMIN")
+    assert client.get("/api/v1/cockpit/me", headers=adm).json()["rechte"] == {
+        "verwalten": True, "kunden_umsaetze": True, "abschluss": False, "objekt_logo": False}
+    oid = db.execute(text("SELECT min(id) FROM objects")).scalar()
+    r = client.put(f"/api/v1/cockpit/objekte/{oid}/marke", json={"kuerzel": "XY"}, headers=adm)
+    assert r.status_code == 404
+    assert client.get("/api/v1/cockpit/objekt-marken", headers=adm).status_code == 200

@@ -183,7 +183,7 @@ export default function ObjektDetail() {
           </div>))}
       </div>
 
-      {s && <MarkeKarte id={Number(id)} name={s.name} />}
+      {s && me?.rechte?.objekt_logo && <MarkeKarte id={Number(id)} name={s.name} />}
 
       <div className="ck-two">
         <div className="ck-grid" style={{ gap: 24 }}>

@@ -38,7 +38,9 @@ def can_see_revenue(user) -> bool:
 
 
 def rights(user) -> dict:
-    return {"verwalten": is_manager(user), "kunden_umsaetze": can_see_revenue(user), "abschluss": _ist_admin(user)}
+    from app.services import features
+    return {"verwalten": is_manager(user), "kunden_umsaetze": can_see_revenue(user),
+            "abschluss": _ist_admin(user) and features.an("ABSCHLUSS"), "objekt_logo": features.an("OBJEKT_LOGO")}
 
 
 def require_revenue(user):

@@ -1002,6 +1002,13 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   };
   const kopf = (objId, name, zeit) => {
     const mk = markeGross(objId);
+    // ohne Marke (Schalter COCKPIT_OBJEKT_LOGO aus): genau der bisherige Kopf
+    if (!mk) return (
+      <div style={EK.kopf}>
+        <div style={EK.objekt}>{name}</div>
+        {zeit && <div style={EK.schichtzeit}>{zeit}</div>}
+      </div>
+    );
     return (
       <div style={{ ...EK.kopf, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: mk ? 'left' : 'center' }}>
         {mk}

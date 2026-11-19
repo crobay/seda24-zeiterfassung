@@ -1105,6 +1105,9 @@ def _objekt_sichtbar(db, user, object_id):
 
 def _marke_speichern(db, user, object_id, felder: dict, was: str):
     from app.services import objekt_marke as om
+    from app.services import features
+    if not features.an("OBJEKT_LOGO"):
+        raise HTTPException(404, "Objekt-Logo ist auf diesem Server noch nicht freigeschaltet")
     o = _objekt_sichtbar(db, user, object_id)
     om.tabelle(db)
     alt = om.marken(db, [object_id]).get(object_id)
