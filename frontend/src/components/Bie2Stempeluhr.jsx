@@ -5,6 +5,7 @@ import { API_URL } from '../config.js';
 import './stempeluhr-marke.css';
 import { saveCObjects, loadCachedCObjects } from '../services/cObjectsCache';
 import { QUEUE_KEY, vonUnseremServer, currentOwner, isOwnItem, AKTION_NAME, uhrzeit, stempelText } from '../services/stempelStatus';
+import MehrzeitFrage from './MehrzeitFrage';
 
 // ==================== Offline-Queue Utilities ====================
 
@@ -75,8 +76,35 @@ const LETZTER_KEY = 'bie2_letzter_stempel'; // zuletzt vom Server bestaetigter S
 
 function bestaetigt(item, res) {
   if (!vonUnseremServer(res) || res.status < 200 || res.status >= 300) return false;
-  if (item.action === 'check_in' || item.action === 'check_out') return !!res.data && res.data.client_id === item.id;
+  if (item.action === 'check_in' || item.action === 'check_out' || item.action === 'mehrzeit') return !!res.data && res.data.client_id === item.id;
   return true;
+}
+
+// ==================== Mehrzeit nach Schichtende (Regel Drazen 19.11.2026) ====================
+// Ab Schichtende + 15 Min (Einstellung, vom Server, offline gespeichert) fragt die App direkt nach dem Gehen.
+// Der Antrag ist ein eigener Eintrag in der Warteschlange hinter dem Gehen; er braucht die Eintrags-Nr.,
+// die der Server beim Gehen zurueckgibt (Zuordnung client_id des Gehens -> Eintrag).
+const MZ_REGEL_KEY = 'mehrzeit_regel';
+const GEHEN_EINTRAG_KEY = 'bie2_gehen_eintrag';
+
+function getFrageAb() {
+  try { return JSON.parse(localStorage.getItem(MZ_REGEL_KEY) || 'null')?.frage_ab_min || 15; }
+  catch { return 15; }
+}
+
+function merkeGehenEintrag(clientId, entryId) {
+  if (!clientId || !entryId) return;
+  let m = {};
+  try { m = JSON.parse(localStorage.getItem(GEHEN_EINTRAG_KEY) || '{}'); } catch { m = {}; }
+  m[clientId] = entryId;
+  const keys = Object.keys(m);
+  if (keys.length > 20) keys.slice(0, keys.length - 20).forEach(k => delete m[k]);
+  localStorage.setItem(GEHEN_EINTRAG_KEY, JSON.stringify(m));
+}
+
+function gehenEintrag(clientId) {
+  try { return JSON.parse(localStorage.getItem(GEHEN_EINTRAG_KEY) || '{}')[clientId] || null; }
+  catch { return null; }
 }
 
 function serverFehler(e) {
@@ -89,13 +117,24 @@ const STEMPEL_URL = { check_in: '/time-entries/check-in', check_out: '/time-entr
 // Ergebnis: 'ok' (bestaetigt) | 'fehler' (echte Ablehnung unseres Servers) | 'abgemeldet' (401 unseres Servers)
 //           | 'offen' (keine Bestaetigung -> bleibt/kommt in die Warteschlange)
 async function stempelSenden(item, headers, timeout) {
-  const payload = { client_id: item.id, client_timestamp: item.timestamp };
+  let payload = { client_id: item.id, client_timestamp: item.timestamp };
+  let url = STEMPEL_URL[item.action];
   if (item.action === 'check_in') {
     payload.object_id = parseInt(item.object_id);
     payload.notes = 'Bie2 Kommen';
   }
+  if (item.action === 'mehrzeit') {
+    const eid = item.entry_id || gehenEintrag(item.gehen_client_id);
+    if (!eid) {
+      const gehenWartet = getQueue().some(i => i.id === item.gehen_client_id && i.status !== 'synced');
+      if (gehenWartet) return { art: 'offen', grund: 'Gehen noch nicht übertragen' };
+      return { art: 'fehler', e: { response: { data: { detail: 'das Gehen wurde nicht übernommen' } } } };
+    }
+    url = `/time-entries/${eid}/mehrzeit-antrag`;
+    payload = { client_id: item.id, grund: item.grund };
+  }
   try {
-    const res = await axios.post(`${API_URL}${STEMPEL_URL[item.action]}`, payload, { headers, timeout });
+    const res = await axios.post(`${API_URL}${url}`, payload, { headers, timeout });
     return bestaetigt(item, res) ? { art: 'ok', res } : { art: 'offen', grund: `keine Server-Bestaetigung (HTTP ${res.status})` };
   } catch (e) {
     if (e.response && e.response.status === 401 && vonUnseremServer(e.response)) return { art: 'abgemeldet', e };
@@ -208,6 +247,7 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
   // Echte Erreichbarkeit unseres Servers (nicht nur "WLAN verbunden"): null = unbekannt
   const [erreichbar, setErreichbar] = useState(null);
   const [toast, setToast] = useState(null);
+  const [mzFrage, setMzFrage] = useState(null); // { minuten, schichtEnde, gehen, gehenClientId, entryId }
   // Kurze Bestaetigung nach Kommen ({art: 'ok'|'wartet', text}); solange kein zweiter Knopf (kein Vertippen)
   const [quittung, setQuittung] = useState(null);
   const [heuteVersion, setHeuteVersion] = useState(0); // neu rendern, wenn sich "heute erledigt" aendert
@@ -307,11 +347,12 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       const r = await stempelSenden(item, headers, SYNC_TIMEOUT_MS);
       if (r.art === 'ok') {
         stempelSeqRef.current++;
+        if (item.action === 'check_out') merkeGehenEintrag(item.id, r.res.data && r.res.data.id);
         markSynced(item.id);
         merkeBestaetigt(item);
         setLetzterStempel(getLetzterBestaetigt());
         setErreichbar(true);
-        if (item.action === 'check_in' || item.action === 'check_out') uebertragen.push(item);
+        if (item.action === 'check_in' || item.action === 'check_out' || item.action === 'mehrzeit') uebertragen.push(item);
         if (item.action === 'check_out') { heuteUebertragen(item.timestamp); setHeuteVersion(v => v + 1); }
       } else if (r.art === 'abgemeldet') {
         // Token abgelaufen → Queue NICHT löschen, User zum Re-Login auffordern
@@ -426,6 +467,54 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     }
   };
 
+  // ==================== Mehrzeit-Frage nach dem Gehen ====================
+
+  // Ohne Netz: Minuten nach Schichtende aus der Schicht auf dem Handy (gleiche Auswahl wie der Server:
+  // die Schicht am Objekt, in der bzw. am naechsten zu der eingestempelt wurde)
+  const lokaleMehrzeitFrage = (kommen, gehenIso, objectId) => {
+    if (!kommen) return null;
+    const gehen = new Date(gehenIso);
+    const amTag = (t) => { const [h, m] = String(t).split(':').map(Number); const d = new Date(kommen); d.setHours(h, m, 0, 0); return d; };
+    const abstand = (k) => (kommen >= k.von && kommen <= k.bis ? 0 : Math.min(Math.abs(kommen - k.von), Math.abs(kommen - k.bis)));
+    const k = (shiftsToday || [])
+      .filter(x => x.start_time && x.end_time && (!x.object_id || !objectId || x.object_id === objectId)
+        && ['normal', 'vertretung'].includes(x.schedule_status || 'normal'))
+      .map(x => { const von = amTag(x.start_time); let bis = amTag(x.end_time); if (bis <= von) bis = new Date(bis.getTime() + 864e5); return { von, bis }; })
+      .sort((a, b) => abstand(a) - abstand(b))[0];
+    if (!k) return null;
+    const minuten = Math.floor((gehen - Math.max(k.bis, kommen)) / 60000);
+    if (minuten < getFrageAb()) return null;
+    const hmText = (d) => d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    return { minuten, schichtEnde: hmText(k.bis), gehen: hmText(gehen) };
+  };
+
+  // "Ja, laenger gearbeitet" + Grund: direkt senden, sonst hinter dem Gehen in die Warteschlange (⏳)
+  const mzAbsenden = async (grund) => {
+    const f = mzFrage;
+    const item = {
+      id: generateId(), owner: currentOwner(), action: 'mehrzeit', gehen_client_id: f.gehenClientId,
+      entry_id: f.entryId || gehenEintrag(f.gehenClientId), grund, timestamp: new Date().toISOString(), status: 'pending', retries: 0,
+    };
+    const ablegen = () => {
+      addToQueue(item);
+      setPendingSync(getPendingCount());
+      if (navigator.onLine) triggerSync();
+      return { art: 'wartet' };
+    };
+    if (!navigator.onLine || erreichbar === false || getPendingCount() > 0 || !item.entry_id) return ablegen();
+    const r = await stempelSenden(item, headers, BESTAETIGUNG_MS);
+    if (r.art === 'ok') return { art: 'ok' };
+    if (r.art === 'fehler') return { art: 'fehler', text: r.e.response.data.detail };
+    return ablegen();
+  };
+
+  // Schwelle (Minuten nach Schichtende) vom Server holen und fuer offline merken
+  useEffect(() => {
+    axios.get(`${API_URL}/time-entries/mehrzeit-regel`, { headers, timeout: 8000 })
+      .then(res => { if (vonUnseremServer(res) && res.data && res.data.frage_ab_min) localStorage.setItem(MZ_REGEL_KEY, JSON.stringify(res.data)); })
+      .catch(() => { /* ohne Netz: zuletzt gemerkter Wert */ });
+  }, [token]);
+
   // ==================== API-Aufrufe (Online-First, Offline-Fallback) ====================
 
   const performAction = async (action, objectId) => {
@@ -455,6 +544,9 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
         const entry = buildLocalEntry();
         if (entry) setPendingEntries(prev => [...prev, entry]);
         if (savedCheckIn) { merkeHeute(savedCheckIn.toISOString(), item.timestamp, savedObjectId, true); setHeuteVersion(v => v + 1); }
+        // Mehrzeit-Frage ohne Netz: aus der Schicht auf dem Handy (der Server prueft beim Antrag nochmal)
+        const f = lokaleMehrzeitFrage(savedCheckIn, item.timestamp, savedObjectId);
+        if (f) setMzFrage({ ...f, gehenClientId: item.id, entryId: null });
       }
       applyOptimisticState(action, objectId);
       addToQueue(item);
@@ -486,10 +578,14 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
       if (action === 'check_in') saveOfflineState({ action: 'checked_in', objectId, checkInTime: item.timestamp });
       merkeBestaetigt(item);
       setLetzterStempel(getLetzterBestaetigt());
-      // Mehr als 10 Min nach Schichtende: gezaehlt bis Schichtende, Mehrzeit als Antrag gemeldet
-      if (wasCheckout && r.res.data && r.res.data.mehrzeit_antrag && r.res.data.cap_message) {
-        setSyncMessage(r.res.data.cap_message);
-        setTimeout(() => setSyncMessage(null), 8000);
+      // Ab Schichtende + 15 Min: Frage "Hast du laenger gearbeitet?" (kein automatischer Antrag)
+      if (wasCheckout && r.res.data) {
+        merkeGehenEintrag(item.id, r.res.data.id);
+        const f = r.res.data.mehrzeit_frage;
+        if (f) {
+          localStorage.setItem(MZ_REGEL_KEY, JSON.stringify({ frage_ab_min: f.frage_ab }));
+          setMzFrage({ minuten: f.minuten, schichtEnde: f.schicht_ende, gehen: f.gehen, gehenClientId: item.id, entryId: f.entry_id });
+        }
       }
       // Erfolg: State zuruecksetzen, Server-Status holen (liefert bestaetigte today_entries)
       if (wasCheckout) {
@@ -1048,6 +1144,10 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
             <span>Kein Lidl-WLAN, Verbindung über Mobilfunk. Im Putzraum ins WLAN welcome@lidl wechseln und die Lidl-Seite im Browser bestätigen.</span>
           </div>
         )
+      )}
+      {mzFrage && (
+        <MehrzeitFrage minuten={mzFrage.minuten} schichtEnde={mzFrage.schichtEnde} gehen={mzFrage.gehen}
+          onNein={() => setMzFrage(null)} onSchliessen={() => setMzFrage(null)} onAbsenden={mzAbsenden} />
       )}
       {toast && (
         <div data-toast role="status" style={{

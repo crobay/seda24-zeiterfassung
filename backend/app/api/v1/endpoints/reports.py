@@ -26,7 +26,10 @@ class HistoryEntry(BaseModel):
     amount: float
     brutto_hours: Optional[float] = None
     pause_minutes: Optional[int] = 0
-    
+    # Mehrzeit nach Schichtende (services/mehrzeit.py): {"moeglich": True, "minuten", "schicht_ende", "gehen", "bis"}
+    # oder {"antrag_status": "offen"|...} - nur fuer Eintraege der letzten Tage
+    mehrzeit: Optional[dict] = None
+
     class Config:
         from_attributes = True
 
@@ -224,6 +227,20 @@ def get_my_history(
     for b in all_breaks:
         breaks_by_entry.setdefault(b.time_entry_id, []).append(b)
 
+    # Mehrzeit beantragen: nur Eintraege, deren Gehen hoechstens FENSTER_TAGE zurueckliegt
+    from app.services import mehrzeit as mz
+    mz_ab = datetime.now() - timedelta(days=mz.FENSTER_TAGE)
+
+    def _mehrzeit(entry):
+        if not entry.check_out or entry.check_out < mz_ab or entry.object_id in (999, 19):
+            return None
+        p = mz.pruefen(db, entry)
+        if "minuten" in p:
+            return {"moeglich": True, **{k: p[k] for k in ("minuten", "schicht_ende", "gehen", "bis")}}
+        if p.get("antrag_id"):
+            return {"antrag_status": p["antrag_status"]}
+        return None
+
     # Daten aufbereiten
     history_entries = []
     total_hours = 0
@@ -276,7 +293,8 @@ def get_my_history(
             hourly_rate=hourly_rate,
             amount=round(amount, 2),
             brutto_hours=brutto_hours,
-            pause_minutes=pause_minutes
+            pause_minutes=pause_minutes,
+            mehrzeit=_mehrzeit(entry),
         ))
     
     return HistoryResponse(

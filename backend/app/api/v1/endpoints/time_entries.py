@@ -92,8 +92,9 @@ def get_scheduled_end(employee_id: int, check_in: datetime, db) -> datetime:
 
 # ========== Stempel-Toleranz (Dienstplan) ==========
 # Kommen ab 10 Min vor Schichtbeginn moeglich, gezaehlt wird ab Schichtbeginn.
-# Gehen bis 10 Min nach Schichtende: gezaehlt bis Schichtende. Spaeter: gezaehlt bis
-# Schichtende + automatischer Mehrzeit-Antrag. Gespeichert wird immer die echte Uhrzeit
+# Gehen: gezaehlt wird immer nur bis Schichtende. Ab Schichtende + 15 Min (Einstellung) fragt die App
+# "Hast du laenger gearbeitet?" - nur dann entsteht ein Mehrzeit-Antrag (services/mehrzeit.py, Regel
+# Drazen 19.11.2026; kein automatischer Antrag mehr). Gespeichert wird immer die echte Uhrzeit
 # (check_in/check_out), gezaehlt wird ueber billed_hours. Ohne Dienstplan: wie bisher.
 TOLERANZ_MIN = 10
 
@@ -124,16 +125,15 @@ def schicht_fuer_stempel(employee_id: int, object_id: int, stamp_time: datetime,
 
 
 def gezaehltes_fenster(check_in: datetime, check_out: datetime, beginn: datetime, ende: datetime):
-    """Welche Zeit zaehlt? Gibt (zaehl_von, zaehl_bis, mehrzeit_minuten) zurueck.
-    mehrzeit_minuten > 0 nur, wenn mehr als TOLERANZ_MIN nach Schichtende gegangen wurde."""
+    """Welche Zeit zaehlt? Gibt (zaehl_von, zaehl_bis, minuten_nach_ende) zurueck. Gezaehlt wird nur
+    Schichtbeginn bis Schichtende; minuten_nach_ende (ganze Minuten, abgerundet) nur fuers Protokoll und die
+    Mehrzeit-Frage - daraus entsteht kein Antrag."""
+    from app.services.mehrzeit import minuten_nach_ende
     von = max(check_in, beginn)
     bis = min(check_out, ende)
     if bis < von:
         bis = von
-    mehr = 0
-    if check_out > ende + timedelta(minutes=TOLERANZ_MIN):
-        mehr = round((check_out - max(ende, check_in)).total_seconds() / 60)
-    return von, bis, mehr
+    return von, bis, minuten_nach_ende(check_in, check_out, ende)
 
 
 def netto_stunden(von: datetime, bis: datetime, breaks_list) -> float:
@@ -143,7 +143,8 @@ def netto_stunden(von: datetime, bis: datetime, breaks_list) -> float:
     return round(max(0, (bis - von).total_seconds() - pausen) / 3600, 4)
 
 
-def mehrzeit_antrag_anlegen(db, employee, entry, excess_minutes: int, hours: float, sched_str: str, grund: str):
+def mehrzeit_antrag_anlegen(db, employee, entry, excess_minutes: int, hours: float, sched_str: str, grund: str,
+                            gehen: str = None):
     """Legt den Mehrzeit-Antrag an (pending_bookings, reason mehrzeit_dienstplan) und meldet ihn per
     Telegram mit Genehmigen/Ablehnen. Genehmigt -> billed_hours wird um die Stunden erhoeht
     (pending_booking_service). Gibt die Antrags-ID zurueck; pro Zeiteintrag nur ein offener Antrag."""
@@ -190,7 +191,7 @@ def mehrzeit_antrag_anlegen(db, employee, entry, excess_minutes: int, hours: flo
         notify_admin(
             f"<b>Mehrzeit-Anfrage</b>\n"
             f"{emp_name} ({employee.personal_nr})\n"
-            f"Datum: {datum}, Schicht: {sched_str}\n"
+            f"Datum: {datum}, Schicht: {sched_str}" + (f", Gehen {gehen}" if gehen else "") + "\n"
             f"Mehrzeit: {excess_minutes} Min\n"
             f"Grund: {grund.strip()}", reply_markup=pending_booking_keyboard(pb_id) if pb_id else None,
             category="genehmigungen", ref_type="pending_booking", ref_id=pb_id
@@ -866,19 +867,14 @@ def check_out(
         if (zaehl_von, zaehl_bis) != (active_entry.check_in, active_entry.check_out):
             active_entry.notes = ((active_entry.notes or "") +
                                   f" [Gezaehlt {zaehl_von.strftime('%H:%M')}-{zaehl_bis.strftime('%H:%M')} lt. Dienstplan]").strip()
-    mehr_stunden = 0.0
     ist_c = is_c_assignment(employee.id, active_entry.object_id, db)
     if schicht and not ist_c:
         active_entry.billed_hours = netto_stunden(zaehl_von, zaehl_bis, breaks_list)
-        if mehr_min:
-            mehr_stunden = netto_stunden(zaehl_von, active_entry.check_out, breaks_list) - active_entry.billed_hours
 
     # ========== Bie2-Berechnung bei C-Zuweisung ==========
     if ist_c:
         calc = calculate_billed_hours_bie2(zaehl_von, zaehl_bis, breaks_list)
         active_entry.billed_hours = calc["billed_hours"]
-        if mehr_min:
-            mehr_stunden = calculate_billed_hours_bie2(zaehl_von, active_entry.check_out, breaks_list)["billed_hours"] - calc["billed_hours"]
         # Objekt-Name fuer Log
         obj = db.query(Object).filter(Object.id == active_entry.object_id).first()
         obj_name = obj.name if obj else str(active_entry.object_id)
@@ -893,7 +889,7 @@ def check_out(
             f"Netto={calc['netto_minutes']}min Pflichtpause={calc['pflichtpause_abzug']}min "
             f"Gerundet={calc['rounded_minutes']}min Abrechnung={calc['billed_hours']}h{offline_tag}"
             + (f" Gezaehlt={zaehl_von.strftime('%H:%M')}-{zaehl_bis.strftime('%H:%M')} Plan={sched_str}" if schicht else "")
-            + (f" Mehrzeit={mehr_min}min" if mehr_min else ""))
+            + (f" nach Ende={mehr_min}min" if mehr_min else ""))
 
     # ========== Obergrenze: billed_hours auf Dienstplan begrenzen ==========
     cap_message = None
@@ -917,22 +913,11 @@ def check_out(
     update_total_hours(employee.id, db)
     db.refresh(active_entry)
 
-    # Mehr als TOLERANZ_MIN nach Schichtende gegangen: automatischer Mehrzeit-Antrag
-    mehrzeit_antrag_id = None
-    if mehr_min and mehr_stunden > 0:
-        try:
-            mehrzeit_antrag_id = mehrzeit_antrag_anlegen(
-                db, employee, active_entry, mehr_min, mehr_stunden, sched_str,
-                f"automatisch - Gehen {active_entry.check_out.strftime('%H:%M')}, "
-                f"mehr als {TOLERANZ_MIN} Min nach Schichtende")
-            cap_message = (f"Gezählt bis Schichtende {s_ende.strftime('%H:%M')}. "
-                           f"Mehrzeit {mehr_min} Min wurde zur Genehmigung gemeldet.")
-            log_bie2("MEHRZEIT", f"{employee.first_name} {employee.last_name}", str(active_entry.object_id),
-                     f"Antrag #{mehrzeit_antrag_id} {mehr_min}min Plan={sched_str}")
-        except Exception as mz_err:
-            db.rollback()
-            logger.error(f"Mehrzeit-Antrag fuer Eintrag {active_entry.id} fehlgeschlagen: {mz_err}")
-        db.refresh(active_entry)
+    # Ab Schichtende + 15 Min (Einstellung): die App fragt "Hast du laenger gearbeitet?" - kein automatischer Antrag
+    mehrzeit_frage = None
+    if schicht and mehr_min:
+        from app.services import mehrzeit as mz
+        mehrzeit_frage = mz.frage(db, active_entry)
 
     # Response mit optionaler Meldung
     response = {
@@ -953,8 +938,8 @@ def check_out(
     }
     if cap_message:
         response["cap_message"] = cap_message
-    if mehrzeit_antrag_id:
-        response["mehrzeit_antrag"] = {"id": mehrzeit_antrag_id, "minuten": mehr_min}
+    if mehrzeit_frage:
+        response["mehrzeit_frage"] = mehrzeit_frage
     if cap and cap.get("cap_decision_needed"):
         response["cap_decision_needed"] = True
         response["cap_excess_minutes"] = cap["excess_minutes"]
@@ -1029,10 +1014,55 @@ def cap_decision(
     if choice == "request_overtime":
         if not reason or len(reason.strip()) < 10:
             raise HTTPException(status_code=400, detail="Bitte Grund angeben (mind. 10 Zeichen)")
-        mehrzeit_antrag_anlegen(db, employee, entry, excess_minutes, excess_minutes / 60.0, sched_str, reason)
+        from app.services.mehrzeit import stunden
+        mehrzeit_antrag_anlegen(db, employee, entry, excess_minutes, stunden(excess_minutes), sched_str, reason)
 
     db.commit()
     return {"status": "ok", "choice": choice}
+
+
+@router.get("/mehrzeit-regel")
+def mehrzeit_regel(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fuer die Stempeluhr (wird offline gespeichert): ab wie vielen Minuten nach Schichtende gefragt wird."""
+    from app.services import mehrzeit as mz
+    return {"frage_ab_min": mz.frage_ab(db), "fenster_tage": mz.FENSTER_TAGE}
+
+
+@router.post("/{entry_id}/mehrzeit-antrag")
+def mehrzeit_beantragen(
+    entry_id: int,
+    data: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """MA hat auf "Hast du laenger gearbeitet?" mit Ja geantwortet (direkt nach dem Gehen, auch aus der
+    Offline-Warteschlange, oder spaeter in der Historie). Antrag ab Schichtende bis zum gestempelten Gehen,
+    minutengenau. Pro Zeiteintrag nur ein Antrag; doppelt gesendet (Warteschlange) -> derselbe Antrag."""
+    from app.services import mehrzeit as mz
+    client_id = (data or {}).get("client_id")
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
+    entry = db.query(TimeEntry).filter(TimeEntry.id == entry_id, TimeEntry.employee_id == employee.id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+    grund = " ".join(str((data or {}).get("grund") or "").split())
+    vorhanden = mz.vorhandener_antrag(db, entry.id)
+    if vorhanden:
+        if client_id and vorhanden.status == "offen":
+            # Wiederholung aus der Warteschlange: bestaetigen, nichts doppelt anlegen
+            return {"id": vorhanden.id, "status": vorhanden.status, "schon_vorhanden": True, "client_id": client_id}
+        raise HTTPException(status_code=409, detail="Für diesen Eintrag ist Mehrzeit schon beantragt")
+    if len(grund) < mz.GRUND_MIN:
+        raise HTTPException(status_code=400, detail=f"Bitte kurz begründen (mind. {mz.GRUND_MIN} Zeichen)")
+    p = mz.pruefen(db, entry)
+    if "minuten" not in p:
+        raise HTTPException(status_code=409, detail=p["grund"])
+    pb_id = mehrzeit_antrag_anlegen(db, employee, entry, p["minuten"], mz.stunden(p["minuten"]), p["schicht"],
+                                    grund[:mz.GRUND_MAX], gehen=p["gehen"])
+    log_bie2("MEHRZEIT", f"{employee.first_name} {employee.last_name}", str(entry.object_id),
+             f"Antrag #{pb_id} {p['minuten']}min Plan={p['schicht']} Gehen={p['gehen']} (vom MA beantragt)")
+    return {"id": pb_id, "status": "offen", "minuten": p["minuten"], "client_id": client_id}
 
 
 @router.post("/switch-object", response_model=TimeEntryResponse)

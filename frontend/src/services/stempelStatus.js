@@ -22,7 +22,7 @@ export function ausstehendeStempel() {
   } catch { return []; }
 }
 
-export const AKTION_NAME = { check_in: 'Kommen', check_out: 'Gehen', pause_start: 'Pause', pause_end: 'Pause Ende' };
+export const AKTION_NAME = { check_in: 'Kommen', check_out: 'Gehen', pause_start: 'Pause', pause_end: 'Pause Ende', mehrzeit: 'Mehrzeit-Antrag' };
 export const uhrzeit = (iso) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
 export const stempelText = (items) => items.map(i => `${AKTION_NAME[i.action]} ${uhrzeit(i.timestamp)}`).join(' · ');
 
