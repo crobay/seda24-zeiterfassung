@@ -15,19 +15,23 @@ Einrichten (einmalig, als der Benutzer mit Laufwerk X: - keine Admin-Rechte noet
   powershell -ExecutionPolicy Bypass -File "<Pfad>\seda24_lohn_upload.ps1" -Install
   Test gegen DEV:  ... -Install -Server https://dev.seda.de
   Anderer Ordner:  ... -Install -Ordner "X:\...\Seda_Consulting_GmbH_{Jahr}_{Monat}\Lohnabrechnung"
+  Testlauf:        ... -Install -Server https://dev.seda.de -Ordner "X:\...\TEST_Lohnabrechnung" -Monat 2026-10
+                   (fester Ordner ohne {Jahr}/{Monat}, alles zaehlt fuer den angegebenen Monat)
+  Andere Dateinamen: ... -Filter "*.pdf"
 Sofort pruefen und hochladen:
   powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\SEDA24-Export\seda24_lohn_upload.ps1" -Jetzt
 Entfernen (Export-Schluessel bleibt fuer den Zeiterfassungs-Export):
   powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\SEDA24-Export\seda24_lohn_upload.ps1" -Uninstall
 Protokoll: %LOCALAPPDATA%\SEDA24-Export\lohn_upload.log
 #>
-param([switch]$Install, [switch]$Uninstall, [switch]$Jetzt, [string]$Server = '', [string]$Ordner = '')
+param([switch]$Install, [switch]$Uninstall, [switch]$Jetzt, [string]$Server = '', [string]$Ordner = '', [string]$Monat = '', [string]$Filter = '')
 
+$MonatGesetzt = $PSBoundParameters.ContainsKey('Monat')   # -Monat '' = festen Monat wieder entfernen
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $AppDir    = Join-Path $env:LOCALAPPDATA 'SEDA24-Export'
 $KeyFile   = Join-Path $AppDir 'schluessel.dat'           # gemeinsam mit seda24_export_abruf.ps1
-$CfgFile   = Join-Path $AppDir 'lohn_upload.cfg'          # Server <TAB> Ordner-Muster
+$CfgFile   = Join-Path $AppDir 'lohn_upload.cfg'          # Server <TAB> Ordner-Muster <TAB> fester Monat <TAB> Dateifilter
 $LogFile   = Join-Path $AppDir 'lohn_upload.log'
 $StandFile = Join-Path $AppDir 'lohn_upload_stand.txt'    # je Datei: Pfad <TAB> SHA-256 der hochgeladenen Version
 $TaskName  = 'SEDA24 Lohnabrechnungen Upload'
@@ -50,10 +54,11 @@ function Get-ExportKey {
 }
 
 function Get-Cfg {
-    $c = @{ Server = 'https://app.seda.de'; Ordner = $StandardOrdner }
+    $c = @{ Server = 'https://app.seda.de'; Ordner = $StandardOrdner; Monat = ''; Filter = 'Lohnabrechnung_*.pdf' }
     if (Test-Path -LiteralPath $CfgFile) {
         $t = (Get-Content -LiteralPath $CfgFile -Encoding UTF8 | Select-Object -First 1) -split "`t"
-        if ($t.Count -eq 2) { $c.Server = $t[0]; $c.Ordner = $t[1] }
+        if ($t.Count -ge 2) { $c.Server = $t[0]; $c.Ordner = $t[1] }
+        if ($t.Count -ge 4) { $c.Monat = $t[2]; if ($t[3]) { $c.Filter = $t[3] } }
     }
     $c
 }
@@ -100,11 +105,12 @@ function Invoke-Upload {
     $stand = Get-Stand
     $erster = (Get-Date -Day 1).Date
     $neu = 0
-    foreach ($tag in @($erster.AddMonths(-1), $erster)) {
+    $tage = if ($cfg.Monat) { @([datetime]::ParseExact($cfg.Monat + '-01', 'yyyy-MM-dd', $null)) } else { @($erster.AddMonths(-1), $erster) }
+    foreach ($tag in $tage) {
         $monat = $tag.ToString('yyyy-MM')
         $ordner = Get-MonatsOrdner $cfg.Ordner $tag
         if (-not $ordner) { continue }
-        $dateien = @(Get-ChildItem -LiteralPath $ordner -Filter 'Lohnabrechnung_*.pdf' -File)
+        $dateien = @(Get-ChildItem -LiteralPath $ordner -Filter $cfg.Filter -File)
         if (-not $dateien.Count) { continue }
         $url = "$($cfg.Server)/api/v1/export/lohnabrechnungen/$monat"
         $srv = Invoke-RestMethod -Uri $url -Headers @{ 'X-Export-Key' = $key } -TimeoutSec 60
@@ -135,15 +141,19 @@ function Install-Aufgabe {
     $cfg = Get-Cfg
     if ($Server) { $cfg.Server = $Server.TrimEnd('/') }
     if ($Ordner) { $cfg.Ordner = $Ordner.TrimEnd('\') }
-    "$($cfg.Server)`t$($cfg.Ordner)" | Set-Content -LiteralPath $CfgFile -Encoding UTF8
+    if ($MonatGesetzt) { $cfg.Monat = $Monat }
+    if ($Filter) { $cfg.Filter = $Filter }
+    if ($cfg.Monat -and $cfg.Monat -notmatch '^\d{4}-(0[1-9]|1[0-2])$') { throw "-Monat als JJJJ-MM angeben" }
+    if (-not $cfg.Monat -and $cfg.Ordner -notmatch '\{Monat\}') { throw "Ordner ohne {Jahr}/{Monat}: bitte -Monat JJJJ-MM angeben" }
+    "$($cfg.Server)`t$($cfg.Ordner)`t$($cfg.Monat)`t$($cfg.Filter)" | Set-Content -LiteralPath $CfgFile -Encoding UTF8
     if (-not (Test-Path -LiteralPath $KeyFile)) {
         $sec = Read-Host 'Export-Schluessel einfuegen (wird nicht angezeigt), dann Enter' -AsSecureString
         $sec | ConvertFrom-SecureString | Set-Content -Path $KeyFile
     }
-    $monat = (Get-Date).ToString('yyyy-MM')
+    $monat = if ($cfg.Monat) { $cfg.Monat } else { (Get-Date).ToString('yyyy-MM') }
     $st = Invoke-RestMethod -Uri "$($cfg.Server)/api/v1/export/lohnabrechnungen/$monat" -Headers @{ 'X-Export-Key' = (Get-ExportKey) } -TimeoutSec 60
     Write-Log "Server $($cfg.Server) erreichbar, Schluessel ok ($monat`: $($st.da) von $($st.erwartet) da)"
-    Write-Log "Ordner-Muster: $($cfg.Ordner)"
+    Write-Log "Ordner: $($cfg.Ordner)$(if ($cfg.Monat) { "  (fester Monat $($cfg.Monat))" })  Dateien: $($cfg.Filter)"
     $user = [Security.SecurityElement]::Escape([Security.Principal.WindowsIdentity]::GetCurrent().Name)
     $arg = [Security.SecurityElement]::Escape("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"")
     $xml = @"
