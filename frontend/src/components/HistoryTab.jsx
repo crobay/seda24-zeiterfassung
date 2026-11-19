@@ -125,8 +125,10 @@ const HistoryTab = () => {
     const mz = entry.mehrzeit;
     if (!mz) return null;
     if (mz.antrag_status) {
+      // still erledigt (z. B. alte automatische Antraege): nichts anzeigen, auch keinen Knopf
+      if (mz.antrag_status === 'erledigt') return null;
       const text = { offen: 'Mehrzeit beantragt – wartet auf Entscheidung', genehmigt: 'Mehrzeit genehmigt',
-                     abgelehnt: 'Mehrzeit abgelehnt', erledigt: 'Mehrzeit-Antrag erledigt' }[mz.antrag_status] || 'Mehrzeit beantragt';
+                     abgelehnt: 'Mehrzeit abgelehnt' }[mz.antrag_status] || 'Mehrzeit beantragt';
       return <div data-mz-historie-status className="mt-2 text-xs font-semibold text-gray-600">{text}</div>;
     }
     return (
