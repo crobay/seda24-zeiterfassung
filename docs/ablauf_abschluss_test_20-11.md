@@ -1,6 +1,6 @@
-# Monatsabschluss-Test auf DEV – Do 19.11.2026, ab ca. 21:15 – Checkliste
+# Monatsabschluss-Test auf DEV – Fr 20.11.2026, nachmittags – Checkliste
 
-*Für Drazen. Alles läuft auf **dev.seda.de** mit einer frischen Kopie der LIVE-Daten (automatisch um 20:45). An LIVE und an deinen echten Lexware-Abrechnungen ändert sich nichts. Es geht keine Mail und keine Telegram-Nachricht an Mitarbeiter.*
+*Für Drazen. Alles läuft auf **dev.seda.de** mit einer frischen Kopie der LIVE-Daten (automatisch um 12:00). An LIVE und an deinen echten Lexware-Abrechnungen ändert sich nichts. Es geht keine Mail und keine Telegram-Nachricht an Mitarbeiter.*
 
 **Testmonat: Oktober 2026.** Er ist vollständig, und die echten Oktober-Lohnabrechnungen liegen vor. So können wir jede Zahl der Importdatei mit dem vergleichen, was tatsächlich abgerechnet wurde.
 
@@ -8,10 +8,10 @@
 
 | Wann | Wer | Was |
 |---|---|---|
-| bis 20:45 | Drazen | Teil A: Lexware sichern, Testfirma, 3 Lohnart-Nummern heraussuchen, Upload-Skript installieren |
-| 20:45 | automatisch | DEV holt eine frische LIVE-Kopie, Teil B |
-| ca. 21:00 | Claude | Refresh-Protokoll prüfen, Ergebnis in den Chat |
-| ab 21:15 | gemeinsam | Teil C: Durchlauf Oktober |
+| Fr 12:00 | automatisch | DEV holt eine frische LIVE-Kopie, Teil B |
+| Fr 13:00 | Claude | Kurzer Stand: Refresh-Ergebnis und Kontrolle in den Chat |
+| vor dem Termin | Drazen | Teil A: Lexware sichern, Testfirma, 3 Lohnart-Nummern heraussuchen, Upload-Skript installieren |
+| Fr nachmittags | gemeinsam | Teil C: Durchlauf Oktober |
 
 ---
 
@@ -21,10 +21,10 @@
 
 - [ ] Lexware lohn+gehalt öffnen, Firma **Seda Consulting GmbH**.
 - [ ] **Datei › Datensicherung › Daten sichern**. Der Menüname kann je nach Version leicht abweichen, im Zweifel F1 und „Datensicherung“ suchen.
-- [ ] Ziel: ein Ordner **außerhalb** von OneDrive, z. B. `C:\Lexware-Sicherung\2026-11-19_vor_Test`.
+- [ ] Ziel: ein Ordner **außerhalb** von OneDrive, z. B. `C:\Lexware-Sicherung\2026-11-20_vor_Test`.
 - [ ] Prüfen, dass die Sicherungsdatei mit heutigem Datum dort liegt und nicht 0 KB groß ist.
 
-### A2. Testfirma – nur dort wird heute importiert
+### A2. Testfirma – nur dort wird beim Test importiert
 
 - [ ] Testfirma als **Kopie** der echten Firma anlegen:
   - entweder über **Datei › Firma kopieren** (falls vorhanden),
@@ -54,7 +54,7 @@ Das Cockpit braucht für die Importdatei die Lexware-Nummer je Lohnart. Bekannt 
 
 - [ ] Die drei Nummern oben eintragen; bei 13/11/16/14 kurz prüfen, ob sie stimmen.
 - [ ] Ebenfalls nachsehen: In welchem **Format** steht die Personalnummer in Lexware, „D0040“ oder „40“?
-- [ ] Prüfen, ob KM-Geld bei dir eine eigene Lohnart ist oder über die Reisekosten läuft. Ist es nicht als Lohnart drin, sag es heute Abend, dann lassen wir KM-Geld aus der Importdatei.
+- [ ] Prüfen, ob KM-Geld bei dir eine eigene Lohnart ist oder über die Reisekosten läuft. Ist es nicht als Lohnart drin, sag es beim Termin, dann lassen wir KM-Geld aus der Importdatei.
 
 ### A4. Upload-Skript auf SEDA2026 installieren
 
@@ -73,14 +73,14 @@ Die ausführliche Anleitung steht in `anleitung_lohn_upload.md`. Kurz:
   `powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\SEDA24-Export\seda24_lohn_upload.ps1" -Jetzt`
 - Protokoll: `%LOCALAPPDATA%\SEDA24-Export\lohn_upload.log`.
 
-> Am Server ist der Upload heute um 14:15 über https://dev.seda.de geprüft:
+> Am Server wurde der Upload am 19.11. um 14:15 über https://dev.seda.de geprüft:
 > - Eine Testdatei wurde gespeichert und über die Personalnummer Lara zugeordnet („1 von 12“).
 > - Eine falsche Prüfsumme wird abgelehnt.
-> - Der Refresh um 20:45 räumt die Testdatei wieder weg.
+> - Der Refresh hat die Testdatei wieder entfernt.
 
 ---
 
-## B) 20:45 – DEV-Refresh (automatisch)
+## B) Fr 12:00 – DEV-Refresh (automatisch)
 
 Ablauf des Refreshs:
 1. DEV wird gesichert.
@@ -90,14 +90,14 @@ Ablauf des Refreshs:
 5. Alle Telegram-Chat-IDs und Push-Abos werden auf der Kopie abgeschaltet.
 6. Die Vorlage bekommt den Startbestand KW 48 (23 Einträge).
 
-**Generalprobe heute 14:09:** fehlerfrei in 9 Sekunden. Kontrollzeile: 1476 Zeiten, **0 Chat-IDs**, 10 Sperr-Trigger, Super-PIN-Inhaber = dein Admin-Login, Vorlage 23 Einträge.
+**Bisherige Läufe am 19.11. (14:09 und 20:45):** beide fehlerfrei in wenigen Sekunden. Kontrollzeile: **0 Chat-IDs**, 10 Sperr-Trigger, Super-PIN-Inhaber = dein Admin-Login, Vorlage 23 Einträge. Eine schon gesetzte Super-PIN bleibt beim Refresh erhalten (geprüft).
 
-- [ ] ca. 21:00 – Claude: Protokoll `backups/refresh_20261119_2045.log` prüfen, „REFRESH OK“ und die Kontrollzeile melden.
-- **Falls der Refresh scheitert:** DEV bleibt auf der Kopie von 14:09. Für Oktober ist sie gleichwertig, denn seitdem kommen nur November-Buchungen dazu. Der Test kann trotzdem laufen.
+- [ ] Fr 13:00 – Claude: Protokoll `backups/refresh_20261120_1200.log` prüfen, „REFRESH OK“ und die Kontrollzeile melden.
+- **Falls der Refresh scheitert:** DEV bleibt auf der LIVE-Kopie vom 19.11. 20:45. Für Oktober ist sie gleichwertig, denn seitdem kommen nur November-Buchungen dazu. Der Test kann trotzdem laufen.
 
 ---
 
-## C) Durchlauf ab 21:15 – gemeinsam
+## C) Durchlauf Fr nachmittags – gemeinsam
 
 - [ ] **1 – Drazen:** dev.seda.de/cockpit › **Monatsabschluss › Oktober 2026**. Ergebnis: Prüfliste.
 - [ ] **2 – Drazen:** Prüfliste abhaken.
@@ -161,6 +161,6 @@ Die Mails gehen nur an die Test-Adresse, in keinem Fall an Mitarbeiter.
 
 | Weg | Wann | Was passiert |
 |---|---|---|
-| **.eml-Dateien** (heute Abend) | sofort, nichts nötig | Jede Mail als Datei; Knopf „Testmails herunterladen (.eml)“. In Outlook öffnen: Absender „SEDA24 Lohnbuchhaltung“ <lohn@seda.de>, Antworten-an, Betreff, Text und Anhänge genau wie beim echten Versand. **Nichts verlässt den Server.** |
+| **.eml-Dateien** (beim Test) | sofort, nichts nötig | Jede Mail als Datei; Knopf „Testmails herunterladen (.eml)“. In Outlook öffnen: Absender „SEDA24 Lohnbuchhaltung“ <lohn@seda.de>, Antworten-an, Betreff, Text und Anhänge genau wie beim echten Versand. **Nichts verlässt den Server.** |
 | **Microsoft Graph** (Betrieb) | nach Einrichtung der Entra-App (Anleitung `anleitung_entra_lohnversand.md`; das Postfach lohn@ ist schon angelegt) | Echte Mail an die Test-Adresse aus lohn@seda.de, Kopie in „Gesendete Elemente“ von lohn@, Antworten dorthin. Der erste echte Testversand geht nur an dich und nur nach deinem OK. |
 | SMTP-Zugang des Servers | nur auf deinen ausdrücklichen Wunsch | Absender wäre das Server-Konto (Microsoft erlaubt dort kein lohn@), Antworten-an lohn@. Nur an die Test-Adresse. |

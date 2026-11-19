@@ -1,6 +1,6 @@
 # Lohnabrechnungen automatisch ins Cockpit – Upload-Skript installieren
 
-*Für Drazen, Stand 19.11.2026. Dauer etwa 5 Minuten. Rechner: **SEDA2026**, derselbe Windows-Benutzer wie beim Zeiterfassungs-Export.*
+*Für Drazen, Stand 20.11.2026. Dauer etwa 5 Minuten. Rechner: **SEDA2026**, derselbe Windows-Benutzer wie beim Zeiterfassungs-Export.*
 
 **So funktioniert es:**
 - Das Skript **`seda24_lohn_upload.ps1`** überwacht den Lexware-Ausgabeordner. Jede neue oder geänderte `Lohnabrechnung_*.pdf` lädt es per HTTPS in den Monatsabschluss des Cockpits.
@@ -27,7 +27,7 @@ Speichern zum Beispiel unter `Downloads`.
 
 PowerShell **als normaler Benutzer** öffnen (Start › „PowerShell“, nicht „Als Administrator“).
 
-**Test heute Abend** – DEV-Server, fester Testordner, alles zählt für Oktober:
+**Test (Durchlauf Fr 20.11.)** – DEV-Server, fester Testordner, alles zählt für Oktober:
 ```powershell
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\seda24_lohn_upload.ps1" -Install `
   -Server https://dev.seda.de `
