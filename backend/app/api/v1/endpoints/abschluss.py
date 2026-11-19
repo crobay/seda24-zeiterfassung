@@ -136,6 +136,22 @@ def erneut_senden(monat: str, employee_id: int, db: Session = Depends(get_db), u
     return _fehler(lambda: ma.erneut_senden(db, y, m, employee_id, user.id))
 
 
+@router.get("/{monat}/lexware-datei")
+def lexware_datei(monat: str, als: str = Query(None), db: Session = Depends(get_db), user=Depends(nur_admin)):
+    """Nur die Lexware-Importdatei. als=JJJJ-MM: Werte dieses Monats, aber Jahr/Monat-Spalten fuer einen anderen
+    Abrechnungsmonat (Testimport in einer Testfirma, deren offener Monat schon weiter ist)."""
+    y, m = _ym(monat)
+    b = _fehler(lambda: ma.lexware_datei(db, y, m))
+    name = f"Lexware_Lohndaten_{monat}.txt"
+    if als:
+        y2, m2 = _ym(als)
+        alt, neu = f"{y};{m};".encode(), f"{y2};{m2};".encode()
+        b = b"\r\n".join(neu + z[len(alt):] if z.startswith(alt) else z for z in b.split(b"\r\n"))
+        name = f"Lexware_Lohndaten_{monat}_als_{als}_TEST.txt"
+    return Response(b, media_type="text/plain; charset=windows-1252",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @router.get("/{monat}/testversand.zip")
 def testversand_zip(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
     y, m = _ym(monat)
@@ -147,6 +163,18 @@ def testversand_zip(monat: str, db: Session = Depends(get_db), user=Depends(nur_
 def lohnablage(data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
     from app.services import lohnablage as la
     return _fehler(lambda: la.einstellungen_speichern(db, data, user.id))
+
+
+@router.put("/einstellungen/microsoft")
+def microsoft_zugang(data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    from app.services import lohnversand as lv
+    return _fehler(lambda: lv.zugang_speichern(db, data, user.id))
+
+
+@router.post("/einstellungen/microsoft/test")
+def microsoft_test(db: Session = Depends(get_db), user=Depends(nur_admin)):
+    from app.services import lohnversand as lv
+    return lv.verbindung_testen()
 
 
 @router.put("/einstellungen/lohnversand")

@@ -1,6 +1,8 @@
 """Lohnversand ueber Microsoft Graph (ohne Netz): Anmeldung, sendMail mit saveToSentItems (Kopie in "Gesendete
 Elemente" von buchhaltung@seda.de), kein BCC, Fehlertexte ohne Geheimnisse, kein Versand ohne Zugangsdaten."""
 import base64
+import json
+import os
 
 import pytest
 
@@ -80,3 +82,23 @@ def test_ohne_zugangsdaten_kein_versand(monkeypatch):
 
 def test_status_zeigt_keine_geheimnisse(env):
     assert "geheim-123" not in str(lv.status_versand()) and "c-id" not in str(lv.status_versand())
+
+
+def test_zugang_im_cockpit_nur_schreiben(monkeypatch, tmp_path):
+    for k in ("LOHNMAIL_GRAPH_TENANT_ID", "LOHNMAIL_GRAPH_CLIENT_ID", "LOHNMAIL_GRAPH_CLIENT_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(lv, "SECRET_FILE", str(tmp_path / "s" / "lohnmail_graph.json"))
+
+    class DB:
+        def execute(self, *a, **k): pass
+        def commit(self): pass
+        def add(self, *a): pass
+    import app.services.booking_service as bs
+    monkeypatch.setattr(bs, "log_audit", lambda *a, **k: None)
+    g = "11111111-2222-3333-4444-555555555555"
+    with pytest.raises(ValueError, match="WERT"):
+        lv.zugang_speichern(DB(), {"tenant": g, "client_id": g, "secret": g}, 1)       # Geheimnis-ID statt Wert
+    st = lv.zugang_speichern(DB(), {"tenant": g, "client_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeee1234", "secret": "x" * 40}, 1)
+    assert st["konfiguriert"] is True and st["client_ende"] == "1234" and "secret" not in json.dumps(st) and "x" * 10 not in json.dumps(st)
+    assert oct(os.stat(lv.SECRET_FILE).st_mode & 0o777) == "0o600"
+    assert lv.config()["secret"] == "x" * 40

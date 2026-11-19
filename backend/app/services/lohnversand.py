@@ -28,11 +28,57 @@ PAUSE_S = 1.0          # schonend fuer das Postfach (Exchange Online: max. 30 Ma
 GRAPH = "https://graph.microsoft.com/v1.0"
 
 
+SECRET_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                           "secrets", "lohnmail_graph.json")
+
+
+def _datei():
+    try:
+        with open(SECRET_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def config():
-    return {"tenant": os.getenv("LOHNMAIL_GRAPH_TENANT_ID", "").strip(),
-            "client_id": os.getenv("LOHNMAIL_GRAPH_CLIENT_ID", "").strip(),
-            "secret": os.getenv("LOHNMAIL_GRAPH_CLIENT_SECRET", ""),
+    """Zugang aus backend/.env (LOHNMAIL_GRAPH_*) oder - im Cockpit eingetragen - aus backend/secrets/lohnmail_graph.json."""
+    d = _datei()
+    return {"tenant": (os.getenv("LOHNMAIL_GRAPH_TENANT_ID", "") or d.get("tenant", "")).strip(),
+            "client_id": (os.getenv("LOHNMAIL_GRAPH_CLIENT_ID", "") or d.get("client_id", "")).strip(),
+            "secret": os.getenv("LOHNMAIL_GRAPH_CLIENT_SECRET", "") or d.get("secret", ""),
             "from": os.getenv("LOHNMAIL_FROM", "buchhaltung@seda.de").strip() or "buchhaltung@seda.de"}
+
+
+GUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+
+
+def zugang_speichern(db, werte: dict, user_id):
+    """Nur schreiben, nie zuruecklesen: Tenant-ID, Client-ID, Geheimnis (Wert). Datei 0600, Audit ohne Werte."""
+    from app.services.booking_service import log_audit
+    t, c, g = (str(werte.get(k) or "").strip() for k in ("tenant", "client_id", "secret"))
+    if not GUID_RE.fullmatch(t) or not GUID_RE.fullmatch(c):
+        raise ValueError("Verzeichnis-ID (Tenant) und Anwendungs-ID (Client) sind je eine GUID (xxxxxxxx-xxxx-…)")
+    if len(g) < 20 or GUID_RE.fullmatch(g):
+        raise ValueError("Geheimnis: den WERT des geheimen Clientschlüssels eintragen, nicht die Geheimnis-ID")
+    os.makedirs(os.path.dirname(SECRET_FILE), mode=0o700, exist_ok=True)
+    tmp = SECRET_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"tenant": t, "client_id": c, "secret": g, "am": time.strftime("%Y-%m-%d %H:%M")}, f)
+    os.replace(tmp, SECRET_FILE)
+    log_audit(db, user_id, None, "lohnversand_zugang", entity_type="einstellung",
+              details=f"Microsoft-Zugang für den Lohnversand eingetragen (Anwendungs-ID …{c[-4:]})")
+    db.commit()
+    return status_versand()
+
+
+def verbindung_testen():
+    """Nur Anmeldung bei Microsoft (Token holen) - es wird KEINE Mail geschickt."""
+    try:
+        Versand().schliessen()
+        return {"ok": True, "text": "Anmeldung bei Microsoft erfolgreich – Versand ist eingerichtet (es wurde keine Mail geschickt)."}
+    except Exception as e:
+        return {"ok": False, "text": str(e)[:300]}
 
 
 def echt_erlaubt() -> bool:
@@ -67,8 +113,10 @@ def status_versand():
     """Fuer das Cockpit: nur ob eingerichtet, nie Geheimnisse."""
     c = config()
     w = weg(True)
+    d = _datei()
     return {"konfiguriert": w == "graph", "absender": c["from"], "weg": WEG_TEXT[w], "weg_test": w,
-            "echt_erlaubt": echt_erlaubt()}
+            "echt_erlaubt": echt_erlaubt(), "zugang_am": d.get("am"),
+            "client_ende": c["client_id"][-4:] if len(c["client_id"]) > 12 else None}
 
 
 def einstellungen(db):

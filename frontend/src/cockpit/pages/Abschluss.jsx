@@ -150,6 +150,8 @@ function Lexware({ monat, data, zu, onDone, toast, reload }) {
         <div className="ck-card-head"><h2>{t('ab.lex_title', { n: zeilen.length })}</h2>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {data?.status !== 'offen' && <button className="ck-btn" onClick={() => laden(`/abschluss/${monat}/paket`, `Monatsabschluss_${monat}_fuer_Lexware.zip`)}><Download size={16} />{t('ab.zip')}</button>}
+            {data?.status !== 'offen' && <button className="ck-btn" data-lex-test onClick={() => laden(`/abschluss/${monat}/lexware-datei?als=${schiebe(monat, 1)}`, `Lexware_Lohndaten_${monat}_als_${schiebe(monat, 1)}_TEST.txt`).catch(() => toast(t('ab.la_fehlt', { was: '…' }), { tone: 'warn' }))}>
+              <Download size={16} />{t('ab.lex_als', { m: monatLabel(schiebe(monat, 1)) })}</button>}
             <button className="ck-btn ck-btn-primary" disabled={busy || zu} onClick={erzeugen} data-erzeugen><FileSpreadsheet size={16} />{busy ? t('ab.making') : t('ab.make')}</button>
           </div></div>
         <p className="ck-subtle" style={{ marginTop: 0 }}>{t('ab.lex_hint')}</p>
@@ -328,6 +330,7 @@ function Versand({ monat, data, toast, reload }) {
             <span style={{ display: 'flex', gap: 6 }}><input className="ck-input" value={testAn} onChange={(e) => setTestAn(e.target.value)} />
               <button className="ck-btn" disabled={testAn === ein.test_an} onClick={() => einstellen({ test_an: testAn })}>{t('app.save')}</button></span></label>}
           {!weg.echt_erlaubt && <div className="ck-subtle">{t('ab.nur_test')}</div>}
+          <MicrosoftZugang weg={weg} toast={toast} reload={reload} />
         </div>
       </div>
 
@@ -371,4 +374,29 @@ function Versand({ monat, data, toast, reload }) {
           <button className="ck-btn ck-btn-primary" disabled={!grund.trim()} onClick={auf}>{t('ab.reopen')}</button></>}>
         <label className="ck-field"><span>{t('ab.reopen_why')}</span><input className="ck-input" value={grund} onChange={(e) => setGrund(e.target.value)} autoFocus /></label></Dialog>}
     </section>);
+}
+
+// Microsoft-Zugang (Entra-App) im Cockpit eintragen: nur schreiben, nie anzeigen. Test = nur Anmeldung, keine Mail.
+function MicrosoftZugang({ weg, toast, reload }) {
+  const [auf, setAuf] = useState(false);
+  const [z, setZ] = useState({ tenant: '', client_id: '', secret: '' });
+  const [test, setTest] = useState(null);
+  const speichern = async () => {
+    try { await api.put('/abschluss/einstellungen/microsoft', z); setZ({ tenant: '', client_id: '', secret: '' }); setAuf(false); toast(t('ab.ms_saved')); reload(); }
+    catch (e) { toast(apiError(e), { tone: 'warn' }); }
+  };
+  const pruefen = async () => { setTest({ text: t('app.loading') }); try { setTest((await api.post('/abschluss/einstellungen/microsoft/test')).data); } catch (e) { setTest({ ok: false, text: apiError(e) }); } };
+  return (
+    <div style={{ marginTop: 8 }} data-ms-zugang>
+      {weg.konfiguriert && <span className="ck-subtle">{t('ab.ms_da', { am: weg.zugang_am || '.env', id: weg.client_ende || '' })} </span>}
+      {weg.konfiguriert && <button className="ck-btn ck-btn-sm" onClick={pruefen} data-ms-test>{t('ab.ms_test')}</button>}
+      <button className="ck-btn ck-btn-sm ck-btn-ghost" onClick={() => setAuf((x) => !x)}>{t(weg.konfiguriert ? 'ab.ms_neu' : 'ab.ms_eintragen')}</button>
+      {test && <div className={test.ok ? '' : 'ck-subtle'} style={{ marginTop: 6 }} data-ms-ergebnis>{test.ok ? '✓ ' : ''}{test.text}</div>}
+      {auf && <div className="ab-la" style={{ marginTop: 8 }}>
+        {[['tenant', 'ab.ms_tenant'], ['client_id', 'ab.ms_client'], ['secret', 'ab.ms_secret']].map(([k, l]) => (
+          <label key={k}><span>{t(l)}</span><input className="ck-input" type="password" autoComplete="off" value={z[k]} onChange={(e) => setZ({ ...z, [k]: e.target.value })} /></label>))}
+        <button className="ck-btn" disabled={!z.tenant || !z.client_id || !z.secret} onClick={speichern}>{t('app.save')}</button>
+        <span className="ck-subtle">{t('ab.ms_hint')}</span>
+      </div>}
+    </div>);
 }
