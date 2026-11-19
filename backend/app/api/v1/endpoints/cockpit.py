@@ -308,13 +308,14 @@ def dienstplan(start: str = Query(None), db: Session = Depends(get_db), user=Dep
          ORDER BY s.date, s.start_time, name""", **_params(obj, emp, a=d0, b=d0 + timedelta(days=6)))
     tage = [{"datum": (d0 + timedelta(days=i)).isoformat(), "tag": WOCHENTAG[i],
              "schichten": []} for i in range(7)]
+    from app.services import plan_vorlage as pv
+    vl = [dict(m) for m in pv.vorlage(db)]
     for r in rows:
         tage[(r["date"] - d0).days]["schichten"].append({
             "id": r["id"], "name": r["name"], "personal_nr": r["personal_nr"], "employee_id": r["employee_id"],
             "objekt": "Urlaub" if r["object_id"] == OBJ_URLAUB else ("Krank" if r["object_id"] == OBJ_KRANK else r["objekt"]),
             "beginn": _hm(r["start_time"]), "ende": _hm(r["end_time"]), "status": r["status"],
-            "fahrer": bool(r["is_driver"]), "object_id": r["object_id"]})
-    from app.services import plan_vorlage as pv
+            "fahrer": bool(r["is_driver"]), "object_id": r["object_id"], **_fix_info(r, vl)})
     for lu in pv.luecken(db, d0, d0 + timedelta(days=6), obj):
         tage[(date.fromisoformat(lu["datum"]) - d0).days].setdefault("luecken", []).append(lu)
     return {"start": d0.isoformat(), "tage": tage, "plan": pv.wochen_status(db, d0, obj)}
@@ -641,6 +642,26 @@ def zeit_loeschen(entry_id: int, db: Session = Depends(get_db), user=Depends(ver
     return {"status": "geloescht", "alt": alt}
 
 
+def _fix_info(r, vl):
+    """Haekchen "fix": Schicht ist durch einen Vorlage-Eintrag abgedeckt (plan_vorlage.fix_eintrag)."""
+    from app.services import plan_vorlage as pv
+    m = pv.fix_eintrag({"date": r["date"], "employee_id": r["employee_id"], "object_id": r["object_id"],
+                        "start_time": r["start_time"], "end_time": r["end_time"]}, vl)
+    return {"fix": bool(m), "fix_14": bool(m) and m["rhythm"] != "weekly"}
+
+
+@router.put("/dienstplan/{schedule_id}/fix")
+def schicht_fix(schedule_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Haken "fix" = Schicht gehoert zur Vorlage (Fixum). {"fix": bool, "alle_2_wochen": bool}"""
+    from app.services import plan_vorlage as pv
+    try:
+        return pv.fix_setzen(db, schedule_id, bool(data.get("fix")), bool(data.get("alle_2_wochen")), user.id)
+    except KeyError as e:
+        raise HTTPException(404, str(e).strip("'"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/schicht/{schedule_id}")
 def schicht(schedule_id: int, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
     r = _q(db, """SELECT s.id, s.date, s.start_time, s.end_time, s.employee_id, s.object_id, s.status, s.is_driver, s.notes,
@@ -650,9 +671,11 @@ def schicht(schedule_id: int, db: Session = Depends(get_db), user=Depends(verify
     if not r:
         raise HTTPException(404, "Schicht nicht gefunden")
     r = r[0]
+    from app.services import plan_vorlage as pv
     return {"id": r["id"], "datum": r["date"].isoformat(), "beginn": _hm(r["start_time"]), "ende": _hm(r["end_time"]),
             "employee_id": r["employee_id"], "object_id": r["object_id"], "status": r["status"], "fahrer": bool(r["is_driver"]),
-            "notes": r["notes"], "objekt": r["objekt"], "name": r["name"]}
+            "notes": r["notes"], "objekt": r["objekt"], "name": r["name"],
+            **_fix_info(r, [dict(m) for m in pv.vorlage(db)])}
 
 
 def _pruefe_schicht(data):

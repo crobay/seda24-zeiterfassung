@@ -47,6 +47,8 @@ export default {
   },
   cmd: { placeholder: 'Mitarbeiter, Objekt oder Funktion suchen …', employees: 'Mitarbeiter', objects: 'Objekte', pages: 'Seiten',
     actions: 'Aktionen', none: 'Nichts gefunden für „{q}“', toggle_theme: 'Hell/Dunkel umschalten' },
+  fix: { label: 'fix (gehört zur Vorlage)', weekly: 'jede Woche', biweekly: 'alle 2 Wochen (wie diese Woche)', chip: 'fix – steht in der Vorlage', chip_14: 'fix alle 2 Wochen – steht in der Vorlage',
+    hint: 'Kommt jede Woche automatisch in den Plan (Vorlage/Fixum) – ohne die Vorlage-Seite zu pflegen.', hint_14: 'Kommt alle 2 Wochen automatisch in den Plan – im selben Rhythmus wie diese Woche.' },
   dienstplan: { title: 'Dienstplan', subtitle: 'Woche ab {date}', prev: 'Vorherige Woche', next: 'Nächste Woche', today: 'Diese Woche',
     new: 'Schicht anlegen', new_title: 'Schicht anlegen', edit_title: 'Schicht bearbeiten', from: 'Beginn', to: 'Ende',
     saved: 'Schicht von {name} am {date} gespeichert', created: 'Schicht für {name} am {date} angelegt', deleted: 'Schicht von {name} am {date} gelöscht',

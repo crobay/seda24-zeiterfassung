@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, useDraggable, useDroppable, pointerWithin, rectIntersection } from '@dnd-kit/core';
-import { ChevronLeft, ChevronRight, Car, Pencil, Plus, Trash2, AlertTriangle, Palmtree, Thermometer, Copy, CopyPlus, MoveRight, Undo2, X, CalendarRange, Users, Rows3, Hand, CalendarPlus, CircleDashed, UserPlus, Search, CheckCircle2, RotateCcw, Scale } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Car, Pencil, Plus, Trash2, AlertTriangle, Palmtree, Thermometer, Copy, CopyPlus, MoveRight, Undo2, X, CalendarRange, Users, Rows3, Hand, CalendarPlus, CircleDashed, UserPlus, Search, CheckCircle2, RotateCcw, Scale, Pin } from 'lucide-react';
 import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Skeleton, Dialog, Status, ObjektMarke } from '../core';
 
 const ScheduleTab = lazy(() => import('../../components/ScheduleTab'));
@@ -247,6 +247,7 @@ function SchichtChip({ s, onOpen, onZiel, kompakt }) {
       {!kompakt && <b>{s.name}</b>}
       <span className="ck-num">{s.beginn}–{s.ende}</span> · <ObjektMarke id={s.object_id} name={s.objekt} size="xs" />
       {s.fahrer && <span title={t('dienstplan.driver')} style={{ marginLeft: 6, verticalAlign: '-2px' }}><Car size={14} aria-label={t('dienstplan.driver')} /></span>}
+      {s.fix && <span title={t(s.fix_14 ? 'fix.chip_14' : 'fix.chip')} style={{ marginLeft: 6, verticalAlign: '-2px' }} data-fix><Pin size={13} aria-label={t('fix.chip')} /></span>}
       <button className="ck-shift-more" aria-label={t('dnd.menu')} title={t('dnd.menu')}
         onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onZiel(s); }}><MoveRight size={15} /></button>
     </div>
@@ -436,11 +437,15 @@ export function SchichtDialog({ id, neu, onClose, onDone, onDuplizieren, onZiel 
   const save = async () => {
     setBusy(true); setErr('');
     try {
+      const fixNeu = (sid) => (!!f.fix !== !!orig?.fix || (!!f.fix && !!f.fix_14 !== !!orig?.fix_14))
+        && api.put(`/dienstplan/${sid}/fix`, { fix: !!f.fix, alle_2_wochen: !!f.fix_14 });
       if (id) {
         await api.put(`/dienstplan/${id}`, body(f));
+        await fixNeu(id);
         toast(t('dienstplan.saved', { name: name(f.employee_id), date: fmtDate(f.datum) }), { undo: async () => { await api.put(`/dienstplan/${id}`, body(orig)); onDone(); } });
       } else {
         const r = await api.post('/dienstplan', body(f));
+        await fixNeu(r.data.id);
         toast(t('dienstplan.created', { name: r.data.name, date: fmtDate(r.data.datum) }), { undo: async () => { await api.delete(`/dienstplan/${r.data.id}`); onDone(); } });
       }
       onDone();
@@ -478,6 +483,13 @@ export function SchichtDialog({ id, neu, onClose, onDone, onDuplizieren, onZiel 
         </div>
         <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontWeight: 500 }}>
           <input type="checkbox" checked={!!f.fahrer} onChange={set('fahrer')} style={{ width: 20, height: 20 }} />{t('ma.assign_driver')}</label>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }} data-fix-feld>
+          <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontWeight: 500 }}>
+            <input type="checkbox" checked={!!f.fix} onChange={set('fix')} style={{ width: 20, height: 20 }} data-fix-haken /><Pin size={15} />{t('fix.label')}</label>
+          {f.fix && <select className="ck-input" style={{ width: 'auto' }} value={f.fix_14 ? '14' : '7'} onChange={(e) => setF({ ...f, fix_14: e.target.value === '14' })} data-fix-rhythmus>
+            <option value="7">{t('fix.weekly')}</option><option value="14">{t('fix.biweekly')}</option></select>}
+        </div>
+        {f.fix && <div className="ck-subtle" style={{ marginTop: -4 }}>{t(f.fix_14 ? 'fix.hint_14' : 'fix.hint')}</div>}
         {id && f.employee_id && <Link className="ck-link ck-subtle" to={`/cockpit/mitarbeiter/${f.employee_id}`}>{t('dienstplan.to_profile')}</Link>}
       </>)}
       {err && <div className="ck-callout"><AlertTriangle size={18} />{err}</div>}

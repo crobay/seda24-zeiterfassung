@@ -309,3 +309,69 @@ def erinnerung_freitag(db, now=None):
     db.commit()
     return {"status": "erinnert", "woche": st["woche"], "empfaenger": len(empf), "gesendet": gesendet, "luecken": n,
             "text": txt, "url": url}
+
+
+# ------------------------------------------------------------------ Haekchen "fix" im Dienstplan (Drazen 18./19.11.2026)
+# Eine Schicht ist "fix", wenn ein aktiver Vorlage-Eintrag (MA, Objekt, Wochentag, Beginn, Ende) mit passendem Rhythmus
+# zu ihrem Datum existiert. Haken setzen legt den Vorlage-Eintrag an (oder aktiviert/aendert ihn), Haken weg
+# deaktiviert ihn - ohne eigene Vorlage-Seite. 14-taeglich = gerade/ungerade ISO-Woche wie das Datum der Schicht.
+
+def fix_eintrag(s, eintraege):
+    """Vorlage-Eintrag, der die Schicht s (date, employee_id, object_id, start_time, end_time) abdeckt, sonst None."""
+    for m in eintraege:
+        if (m["employee_id"] == s["employee_id"] and m["object_id"] == s["object_id"]
+                and m["start_time"] == s["start_time"] and m["end_time"] == s["end_time"]
+                and rhythmus_passt(m["rhythm"], m["month_week"], m["weekday"], s["date"])):
+            return m
+    return None
+
+
+def rhythmus_fuer(d: date, alle_2_wochen: bool) -> str:
+    if not alle_2_wochen:
+        return "weekly"
+    return "biweekly_even" if d.isocalendar()[1] % 2 == 0 else "biweekly_odd"
+
+
+def fix_setzen(db, schedule_id: int, fix: bool, alle_2_wochen: bool, user_id):
+    from app.services.booking_service import log_audit
+    s = _q(db, """SELECT s.id, s.date, s.employee_id, s.object_id, s.start_time, s.end_time, s.is_driver,
+                         e.first_name || ' ' || e.last_name AS name, o.name AS objekt
+                    FROM schedules s JOIN employees e ON e.id = s.employee_id JOIN objects o ON o.id = s.object_id
+                   WHERE s.id = :i""", i=schedule_id)
+    if not s:
+        raise KeyError("Schicht nicht gefunden")
+    s = s[0]
+    if s["object_id"] in (OBJ_URLAUB, OBJ_KRANK):
+        raise ValueError("Urlaub/Krank kann nicht fix sein")
+    wt = s["date"].weekday()
+    was = f"{s['name']}, {WT[wt]} {s['start_time']:%H:%M}-{s['end_time']:%H:%M}, {s['objekt']}"
+    if fix:
+        rh = rhythmus_fuer(s["date"], alle_2_wochen)
+        std = round((datetime.combine(s["date"], s["end_time"]) - datetime.combine(s["date"], s["start_time"])).seconds / 3600, 2)
+        # andere Rhythmen fuer MA/Objekt/Tag ablösen (sonst doppelt in der Vorlage)
+        db.execute(text("""UPDATE master_schedule_entries SET is_active = false WHERE employee_id = :e AND object_id = :o
+                           AND weekday = :w AND rhythm <> :r AND coalesce(is_active, true)"""),
+                   {"e": s["employee_id"], "o": s["object_id"], "w": wt, "r": rh})
+        vid = db.execute(text("""INSERT INTO master_schedule_entries (employee_id, object_id, weekday, start_time, end_time,
+                                     planned_hours, is_driver, is_active, rhythm)
+                                 VALUES (:e, :o, :w, :b, :en, :h, :f, true, :r)
+                                 ON CONFLICT (employee_id, object_id, weekday, rhythm) DO UPDATE
+                                    SET start_time = :b, end_time = :en, planned_hours = :h, is_driver = :f, is_active = true
+                                 RETURNING id"""),
+                         {"e": s["employee_id"], "o": s["object_id"], "w": wt, "b": s["start_time"], "en": s["end_time"],
+                          "h": std, "f": bool(s["is_driver"]), "r": rh}).scalar()
+        log_audit(db, user_id, s["employee_id"], "vorlage_fix", entity_type="master_schedule", entity_id=vid,
+                  new_value={"schicht": schedule_id, "rhythmus": rh},
+                  details=f"Fix (Vorlage) {'alle 2 Wochen' if rh != 'weekly' else 'jede Woche'}: {was}")
+    else:
+        m = fix_eintrag(s, [dict(x) for x in _q(db, """SELECT id, employee_id, object_id, weekday, start_time, end_time,
+                                                         coalesce(rhythm, 'weekly') AS rhythm, month_week
+                                                    FROM master_schedule_entries WHERE coalesce(is_active, true)""")])
+        vid = m["id"] if m else None
+        if m:
+            db.execute(text("UPDATE master_schedule_entries SET is_active = false WHERE id = :i"), {"i": vid})
+            log_audit(db, user_id, s["employee_id"], "vorlage_nicht_fix", entity_type="master_schedule", entity_id=vid,
+                      old_value={"schicht": schedule_id, "rhythmus": m["rhythm"]}, details=f"Nicht mehr fix (aus Vorlage): {was}")
+    db.commit()
+    return {"schicht_id": schedule_id, "fix": fix, "vorlage_id": vid,
+            "rhythmus": rhythmus_fuer(s["date"], alle_2_wochen) if fix else None}

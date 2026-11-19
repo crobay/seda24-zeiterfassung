@@ -39,6 +39,9 @@ $PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -f "$TMP/dev_settings.sql" >/de
 $PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -c "UPDATE employees SET telegram_chat_id = NULL WHERE telegram_chat_id IS NOT NULL;
     UPDATE push_subscriptions SET is_active = false WHERE is_active"
 
+echo "5b) Vorlage (Fixum) Startbestand KW 48 auf DEV"
+(cd "$DEV/backend" && ./venv/bin/python ../tools/dev_fixum_startbestand.py | tail -1)
+
 echo "6) Alte DEV-Abschlussdateien beiseite (nicht geloescht)"
 if [ -d "$DEV/backend/data/abschluss" ]; then mv "$DEV/backend/data/abschluss" "$DEV/backend/data/abschluss_vor_refresh_$STAMP"; fi
 
