@@ -39,11 +39,36 @@ def echt_erlaubt() -> bool:
     return os.getenv("LOHNMAIL_ECHT", "") == "1"
 
 
+def smtp_config():
+    """Vorhandener Office-365-SMTP-Zugang des Servers (Passwort-Reset-Mails). Fuer die Lohnmails NUR im Testmodus."""
+    return {"host": os.getenv("SMTP_HOST", "").strip(), "port": int(os.getenv("SMTP_PORT", "587") or 587),
+            "user": os.getenv("SMTP_USER", "").strip(), "password": os.getenv("SMTP_PASSWORD", ""),
+            "from": os.getenv("SMTP_FROM", "").strip()}
+
+
+def weg(test: bool) -> str:
+    """graph | smtp_test | datei_test | keiner - Reihenfolge: Graph, sonst (nur Test) SMTP, sonst (nur Test) .eml-Datei."""
+    c = config()
+    if c["tenant"] and c["client_id"] and c["secret"]:
+        return "graph"
+    if not test:
+        return "keiner"
+    s = smtp_config()
+    return "smtp_test" if (s["host"] and s["user"] and s["password"]) else "datei_test"
+
+
+WEG_TEXT = {"graph": "Microsoft Graph (Kopie in „Gesendete Elemente“)",
+            "smtp_test": "Test über den SMTP-Zugang des Servers (nur an die Test-Adresse)",
+            "datei_test": "Test als .eml-Dateien zum Herunterladen – nichts verlässt den Server",
+            "keiner": "nicht eingerichtet"}
+
+
 def status_versand():
     """Fuer das Cockpit: nur ob eingerichtet, nie Geheimnisse."""
     c = config()
-    return {"konfiguriert": bool(c["tenant"] and c["client_id"] and c["secret"]), "absender": c["from"],
-            "weg": "Microsoft Graph (Kopie in „Gesendete Elemente“)", "echt_erlaubt": echt_erlaubt()}
+    w = weg(True)
+    return {"konfiguriert": w == "graph", "absender": c["from"], "weg": WEG_TEXT[w], "weg_test": w,
+            "echt_erlaubt": echt_erlaubt()}
 
 
 def einstellungen(db):
@@ -80,10 +105,10 @@ def einstellungen_speichern(db, werte: dict, user_id):
 def nachricht(an, betreff, textkoerper, anhaenge):
     """Graph-Message (JSON). anhaenge: [(dateiname, pfad)]"""
     files = []
+    from app.services.lohnablage import lesen
     for name, pfad in anhaenge:
-        with open(pfad, "rb") as f:
-            files.append({"@odata.type": "#microsoft.graph.fileAttachment", "name": name, "contentType": "application/pdf",
-                          "contentBytes": base64.b64encode(f.read()).decode()})
+        files.append({"@odata.type": "#microsoft.graph.fileAttachment", "name": name, "contentType": "application/pdf",
+                      "contentBytes": base64.b64encode(lesen(pfad)).decode()})
     return {"subject": betreff, "body": {"contentType": "Text", "content": textkoerper},
             "toRecipients": [{"emailAddress": {"address": an}}], "attachments": files}
 
@@ -123,5 +148,73 @@ def _fehlertext(r):
         return r.text[:200]
 
 
-def verbinden():
+class SmtpTestVersand:
+    """Nur Testmodus: an die Test-Adresse ueber den vorhandenen SMTP-Zugang (STARTTLS). Absender = SMTP_FROM."""
+
+    def __init__(self, test_an):
+        import smtplib
+        c = smtp_config()
+        self.test_an = test_an.lower()
+        self.absender = c["from"] or c["user"]
+        self._s = smtplib.SMTP(c["host"], c["port"], timeout=30)
+        self._s.starttls()
+        self._s.login(c["user"], c["password"])
+
+    def senden(self, msg):
+        an = msg["toRecipients"][0]["emailAddress"]["address"]
+        if an.lower() != self.test_an:       # Sicherung: dieser Weg schickt nie an Mitarbeiter
+            raise RuntimeError("SMTP-Testweg: nur an die Test-Adresse")
+        self._s.send_message(eml(msg, self.absender))
+
+    def schliessen(self):
+        try:
+            self._s.quit()
+        except Exception:
+            pass
+
+
+class DateiVersand:
+    """Nur Testmodus: jede Mail als .eml (verschluesselt) im Monatsordner - zum Herunterladen und in Outlook oeffnen."""
+
+    def __init__(self, ordner):
+        import shutil
+        self.absender = config()["from"]
+        self.ordner = os.path.join(ordner, "testversand")
+        shutil.rmtree(self.ordner, ignore_errors=True)      # nur der letzte Testlauf
+        os.makedirs(self.ordner)
+        self.n = 0
+
+    def senden(self, msg):
+        from app.services.lohnablage import schreiben
+        self.n += 1
+        an = re.sub(r"[^A-Za-z0-9.@_-]", "_", msg["toRecipients"][0]["emailAddress"]["address"])
+        name = re.sub(r"[^A-Za-z0-9_-]", "_", msg["subject"].split("] ")[0].replace("[TEST – an ", ""))[:60]
+        schreiben(os.path.join(self.ordner, f"{self.n:02d}_{name}_{an}.eml"), eml(msg, self.absender).as_bytes())
+
+    def schliessen(self):
+        pass
+
+
+def eml(msg, absender):
+    """Graph-Message -> E-Mail (fuer SMTP-Test und .eml-Datei)."""
+    from email.message import EmailMessage
+    from email.utils import formatdate
+    e = EmailMessage()
+    e["From"] = absender
+    e["To"] = msg["toRecipients"][0]["emailAddress"]["address"]
+    e["Subject"] = msg["subject"]
+    e["Date"] = formatdate(localtime=True)
+    e.set_content(msg["body"]["content"])
+    for a in msg.get("attachments", []):
+        e.add_attachment(base64.b64decode(a["contentBytes"]), maintype="application", subtype="pdf", filename=a["name"])
+    return e
+
+
+def verbinden(test=False, ordner=None, test_an=None):
+    """Graph, wenn eingerichtet. Ohne Graph nur im Testmodus: SMTP-Zugang des Servers, sonst .eml-Dateien."""
+    w = weg(test)
+    if w == "smtp_test":
+        return SmtpTestVersand(test_an)
+    if w == "datei_test" and ordner:
+        return DateiVersand(ordner)
     return Versand()

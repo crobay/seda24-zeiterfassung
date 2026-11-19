@@ -71,11 +71,13 @@ def test_api_liefert_423_mit_klartext(client, db):
     for methode, pfad, body in (("put", f"/api/v1/admin/bookings/{tid}", {"notes": "geaendert"}),
                                 ("put", f"/api/v1/cockpit/zeiten/{tid}", zeiten),
                                 ("delete", f"/api/v1/admin/bookings/{tid}", None)):
+        sperren(db)          # nach jedem rollback neu (DEV-Kopie hat keinen echt gesperrten Monat)
         r = getattr(client, methode)(pfad, headers=h, **({"json": body} if body else {}))
         assert r.status_code == 423, (pfad, r.status_code, r.text)
         assert "Monat 10/2026 ist abgeschlossen" in r.json()["detail"]
         db.rollback()
     # MA-App: Korrekturantrag fuer einen Eintrag im gesperrten Monat
+    sperren(db)
     r = client.post("/api/v1/corrections/", headers=ma_header(email), json={
         "time_entry_id": tid, "correction_type": "delete", "old_value": "-", "new_value": "-", "reason": "Test Monatssperre"})
     assert r.status_code == 423, r.text

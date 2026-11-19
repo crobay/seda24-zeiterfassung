@@ -53,7 +53,13 @@ def uebersicht(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin
     p = ma.pruefliste(db, y, m)
     return {"monat": monat, "status": z["status"], "pruefliste": p, "lohnarten": ma.lohnarten(db),
             "erzeugt_am": z["erzeugt_am"] and z["erzeugt_am"].isoformat(timespec="minutes"), **ma.dokumente(db, y, m),
-            "protokoll": ma.protokoll(db, y, m)}
+            "protokoll": ma.protokoll(db, y, m), "lohnablage": _ablage(db, monat)}
+
+
+def _ablage(db, monat):
+    from app.services import lohnablage as la
+    e = la.einstellungen(db)
+    return {**e, "loeschen_ab": la.loeschdatum(monat, e["aufbewahrung_monate"]).isoformat()}
 
 
 @router.post("/{monat}/haken")
@@ -128,6 +134,19 @@ def versenden(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)
 def erneut_senden(monat: str, employee_id: int, db: Session = Depends(get_db), user=Depends(nur_admin)):
     y, m = _ym(monat)
     return _fehler(lambda: ma.erneut_senden(db, y, m, employee_id, user.id))
+
+
+@router.get("/{monat}/testversand.zip")
+def testversand_zip(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return Response(ma.testversand_zip(y, m), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="Testversand_{monat}.zip"'})
+
+
+@router.put("/einstellungen/lohnablage")
+def lohnablage(data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    from app.services import lohnablage as la
+    return _fehler(lambda: la.einstellungen_speichern(db, data, user.id))
 
 
 @router.put("/einstellungen/lohnversand")

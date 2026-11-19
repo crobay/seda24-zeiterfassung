@@ -174,35 +174,36 @@ function Lexware({ monat, data, zu, onDone, toast, reload }) {
 
 // ---------- Schritt 3: Lohnabrechnungen hochladen ----------
 function Hochladen({ monat, data, zu, onDone, toast, reload }) {
+  // Kein manuelles Hochladen (Drazen 19.11.): das PC-Skript seda24_lohn_upload.ps1 auf SEDA2026 laedt neue
+  // Lohnabrechnung_*.pdf aus dem Lexware-Ausgabeordner hoch. Hier: Stand "x von y da", Zuordnung, Aufbewahrung.
   const v = useApi(`/abschluss/${monat}/vorschau`);
-  const [busy, setBusy] = useState(false);
-  const [ueber, setUeber] = useState(false);
-  const inp = useRef(null);
   const docs = (data?.dokumente || []).filter((d) => d.art === 'lohnabrechnung');
+  const st = data?.lohnabrechnungen;
   const ma = v.data?.mitarbeiter || [];
-  const senden = async (files) => {
-    if (!files?.length) return;
-    const fd = new FormData(); [...files].forEach((f) => fd.append('dateien', f));
-    setBusy(true);
-    try { const r = await api.post(`/abschluss/${monat}/lohnabrechnungen`, fd); toast(t('ab.up_done', { n: r.data.neu, d: r.data.doppelt })); reload(); v.reload(); }
-    catch (e) { toast(apiError(e), { tone: 'warn' }); }
-    setBusy(false);
-  };
+  const abl = data?.lohnablage;
+  const [monate, setMonate] = useState('');
+  useEffect(() => { if (abl) setMonate(String(abl.aufbewahrung_monate)); }, [abl?.aufbewahrung_monate]);
+  useEffect(() => {        // neue Dateien vom PC sofort sehen
+    if (zu || st?.komplett) return undefined;
+    const i = setInterval(() => { reload(); v.reload(); }, 20000);
+    return () => clearInterval(i);
+  }, [zu, st?.komplett]);
   const zuordnen = async (id, eid) => { try { await api.put(`/abschluss/${monat}/dokument/${id}`, { employee_id: Number(eid) }); reload(); v.reload(); } catch (e) { toast(apiError(e), { tone: 'warn' }); } };
   const weg = async (id) => { try { await api.delete(`/abschluss/${monat}/dokument/${id}`); reload(); v.reload(); } catch (e) { toast(apiError(e), { tone: 'warn' }); } };
-  const ohne = ma.filter((m) => !docs.some((d) => d.employee_id === m.employee_id));
+  const ablageSpeichern = async () => {
+    try { await api.put('/abschluss/einstellungen/lohnablage', { aufbewahrung_monate: Number(monate) }); toast(t('ab.set_saved')); reload(); }
+    catch (e) { toast(apiError(e), { tone: 'warn' }); }
+  };
+  const wie = (z) => (z === 'von Hand' ? 'hand' : z === 'PDF-Text' ? 'text' : z);
   return (
     <section className="ck-card">
-      <div className="ck-card-head"><h2><Upload size={20} />{t('ab.up_title')}</h2>
-        <span className={`ck-tag${ohne.length ? '' : ' tone-ok'}`} data-up-stand>{t('ab.up_stand', { n: ma.length - ohne.length, m: ma.length })}</span></div>
-      <p className="ck-subtle" style={{ marginTop: 0 }}>{t('ab.up_hint')}</p>
-      {!zu && <div className={`ab-drop${ueber ? ' is-over' : ''}`} onClick={() => inp.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setUeber(true); }} onDragLeave={() => setUeber(false)}
-        onDrop={(e) => { e.preventDefault(); setUeber(false); senden(e.dataTransfer.files); }} role="button" tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inp.current?.click(); }}>
-        <Upload size={26} /><b>{busy ? t('app.loading') : t('ab.drop')}</b><span className="ck-subtle">{t('ab.drop_sub')}</span>
-        <input ref={inp} type="file" multiple accept=".pdf,.zip,application/pdf,application/zip" hidden onChange={(e) => { senden(e.target.files); e.target.value = ''; }} data-upload />
-      </div>}
+      <div className="ck-card-head"><h2><Receipt size={20} />{t('ab.up_title')}</h2>
+        {st && <span className={`ck-tag${st.komplett ? ' tone-ok' : ''}`} data-up-stand>
+          {st.komplett && <CheckCircle2 size={14} />} {t('ab.up_stand', { n: st.da, m: st.erwartet })}</span>}</div>
+      <p className="ck-subtle" style={{ marginTop: 0 }}>{t('ab.up_hint')}{' '}
+        <a href="/downloads/seda24_lohn_upload.ps1" download>{t('ab.up_skript')}</a></p>
+      {st && st.fehlen.length > 0 && <div className="ck-callout" data-up-fehlen><AlertTriangle size={18} style={{ flex: 'none' }} />
+        <span>{t('ab.up_missing')}: {st.fehlen.map((m) => m.name).join(', ')}</span></div>}
       {docs.length > 0 && <div className="ck-table-wrap"><table className="ck-table">
         <thead><tr><th>{t('ab.c_datei')}</th><th>{t('ab.c_ma')}</th><th>{t('ab.c_wie')}</th><th /></tr></thead>
         <tbody>{docs.map((d) => (
@@ -211,10 +212,17 @@ function Hochladen({ monat, data, zu, onDone, toast, reload }) {
             <td>{d.employee_id ? <span><b>{d.name}</b> <span className="ck-subtle">{d.personal_nr}</span></span>
               : <select className="ck-input" defaultValue="" onChange={(e) => zuordnen(d.id, e.target.value)} disabled={zu} data-zuordnen>
                   <option value="" disabled>{t('ab.pick')}</option>{ma.map((m) => <option key={m.employee_id} value={m.employee_id}>{m.personal_nr} · {m.name}</option>)}</select>}</td>
-            <td>{d.employee_id ? <Status s={d.zuordnung === 'von Hand' ? 'pending' : 'approved'} label={t(`ab.wie_${d.zuordnung === 'von Hand' ? 'hand' : d.zuordnung}`)} /> : <Status s="fehlt" label={t('ab.wie_offen')} />}</td>
+            <td>{d.employee_id ? <Status s={d.zuordnung === 'von Hand' ? 'pending' : 'approved'} label={t(`ab.wie_${wie(d.zuordnung)}`)} />
+              : <Status s="fehlt" label={t(d.zuordnung === 'Widerspruch' ? 'ab.wie_widerspruch' : 'ab.wie_offen')} />}</td>
             <td style={{ textAlign: 'right' }}>{!zu && <button className="ck-btn ck-btn-icon ck-btn-ghost" onClick={() => weg(d.id)} aria-label={t('ab.del')}><Trash2 size={16} /></button>}</td>
           </tr>))}</tbody></table></div>}
-      {ohne.length > 0 && docs.length > 0 && <p className="ck-subtle">{t('ab.up_missing')}: {ohne.map((m) => m.name).join(', ')}</p>}
+      {!docs.length && <p className="ck-subtle" data-up-leer>{t('ab.up_leer')}</p>}
+      {abl && <div className="ab-la" style={{ marginTop: 16 }} data-aufbewahrung>
+        <label><span>{t('ab.abl_monate')}</span>
+          <input className="ck-input ck-num" inputMode="numeric" value={monate} onChange={(e) => setMonate(e.target.value.replace(/\D/g, ''))} /></label>
+        <button className="ck-btn" disabled={!monate || monate === String(abl.aufbewahrung_monate)} onClick={ablageSpeichern}>{t('app.save')}</button>
+        <span className="ck-subtle">{t('ab.abl_hint', { am: new Date(`${abl.loeschen_ab}T12:00:00`).toLocaleDateString('de-DE') })}</span>
+      </div>}
       <div className="ab-foot"><button className="ck-btn ck-btn-primary" disabled={!docs.length} onClick={onDone}>{t('ab.next')}<ArrowRight size={16} /></button></div>
     </section>);
 }
@@ -267,6 +275,7 @@ function Versand({ monat, data, toast, reload }) {
   useEffect(() => { setTestAn(ein.test_an || ''); }, [ein.test_an]);
   const zu = data?.status === 'abgeschlossen';
   const test = ein.testmodus !== false;
+  const kannSenden = weg.konfiguriert || (test && weg.weg_test && weg.weg_test !== 'keiner');
   const bereit = v.data && v.data.bereit === v.data.gesamt && !v.data.nicht_zugeordnet.length;
   const los = async () => {
     setBusy('alle');
@@ -310,6 +319,8 @@ function Versand({ monat, data, toast, reload }) {
         <Mail size={18} style={{ flex: 'none' }} />
         <div style={{ flex: 1 }}>
           <div>{t('ab.weg', { von: weg.absender || 'buchhaltung@seda.de' })}{!weg.konfiguriert && <b> {t('ab.weg_fehlt')}</b>}</div>
+          {!weg.konfiguriert && test && <div data-testweg>{t('ab.testweg', { weg: weg.weg || '' })}
+            {weg.weg_test === 'datei_test' && prot?.versand?.some((r) => r.status === 'test') && <> · <a href="#" onClick={(e) => { e.preventDefault(); laden(`/abschluss/${monat}/testversand.zip`, `Testversand_${monat}.zip`); }} data-eml>{t('ab.eml_laden')}</a></>}</div>}
           <label className="ab-la-check" style={{ marginTop: 6 }}>
             <input type="checkbox" checked={test} data-testmodus onChange={(e) => einstellen({ testmodus: e.target.checked })} disabled={!weg.echt_erlaubt && test} />
             {t('ab.testmodus')}</label>
@@ -323,7 +334,7 @@ function Versand({ monat, data, toast, reload }) {
       {(!zu || test) && <>
         <p>{t(test ? 'ab.send_text_test' : 'ab.send_text', { n: v.data?.gesamt ?? '…', an: ein.test_an })}</p>
         {!bereit && v.data && <div className="ck-callout"><AlertTriangle size={18} />{t('ab.send_notready', { n: v.data.gesamt - v.data.bereit })}</div>}
-        <button className="ck-btn ck-btn-primary ab-big" disabled={!bereit || !!busy || !weg.konfiguriert} onClick={() => setFrage(true)} data-versenden>
+        <button className="ck-btn ck-btn-primary ab-big" disabled={!bereit || !!busy || !kannSenden} onClick={() => setFrage(true)} data-versenden>
           <Send size={18} />{busy === 'alle' ? t('ab.sending') : t(test ? 'ab.send_btn_test' : 'ab.send_btn', { n: v.data?.gesamt ?? '' })}</button>
       </>}
 
@@ -333,7 +344,7 @@ function Versand({ monat, data, toast, reload }) {
           <tr key={m.employee_id} data-ma={m.personal_nr}><td><b>{m.name}</b> <span className="ck-subtle">{m.personal_nr}</span></td>
             <td>{r?.an || m.email || '–'}</td><td>{r ? stat(r) : <span className="ck-subtle">{t('ab.st_offen')}</span>}</td>
             <td className="ck-num">{r ? r.am.replace('T', ' ') : ''}</td>
-            <td style={{ textAlign: 'right' }}>{r && <button className="ck-btn ck-btn-sm" disabled={!!busy || !m.bereit || !weg.konfiguriert} onClick={() => einzeln(m.employee_id)} data-erneut>
+            <td style={{ textAlign: 'right' }}>{r && <button className="ck-btn ck-btn-sm" disabled={!!busy || !m.bereit || !kannSenden} onClick={() => einzeln(m.employee_id)} data-erneut>
               <Send size={14} />{busy === m.employee_id ? t('ab.sending') : t('ab.resend')}</button>}</td></tr>); })}</tbody></table></div>}
 
       {prot?.versand?.length > 0 && <div style={{ marginTop: 12 }}>

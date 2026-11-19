@@ -32,6 +32,8 @@ from datetime import date, datetime
 
 from sqlalchemy import text
 
+from app.services import lohnablage as ablage
+
 BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATEN = os.path.join(BACKEND, "data", "abschluss")
 OBJ_URLAUB, OBJ_KRANK = 999, 19
@@ -347,8 +349,7 @@ def erzeugen(db, y, m, user_id):
         raise PermissionError("Der Monat ist abgeschlossen")
     d = ordner(y, m)
     lex = f"Lexware_Lohndaten_{monat_key(y, m)}.txt"
-    with open(os.path.join(d, lex), "wb") as f:
-        f.write(lexware_datei(db, y, m))
+    ablage.schreiben(os.path.join(d, lex), lexware_datei(db, y, m))
     gen = PDFGenerator(db)
     # Eigener Ausgabeordner: /tmp/seda24_pdfs teilen sich LIVE und DEV; dort koennen alte (fremde) Dateien liegen,
     # die wkhtmltopdf nicht ueberschreiben kann -> sonst landen veraltete PDFs im Paket.
@@ -356,6 +357,9 @@ def erzeugen(db, y, m, user_id):
     shutil.rmtree(gen.output_dir, ignore_errors=True)
     os.makedirs(gen.output_dir)
     start = datetime.now().timestamp() - 1
+    for r in _q(db, "SELECT pfad FROM monatsabschluss_dokument WHERE monat = :k AND art IN ('zeitnachweis', 'km')", k=monat_key(y, m)):
+        if r["pfad"] and os.path.exists(r["pfad"]):
+            os.remove(r["pfad"])
     db.execute(text("DELETE FROM monatsabschluss_dokument WHERE monat = :k AND art IN ('zeitnachweis', 'km')"), {"k": monat_key(y, m)})
     fehler = []
     for r in lohnzeilen(db, y, m):
@@ -368,9 +372,12 @@ def erzeugen(db, y, m, user_id):
                 quelle = fn(r["employee_id"], y, m)
                 if os.path.dirname(quelle) != gen.output_dir or os.path.getmtime(quelle) < start:
                     raise RuntimeError("PDF nicht frisch erzeugt")
-                ziel = os.path.join(d, anhang_name(art, y, m, r["personal_nr"], *_namen(db, r["employee_id"])))
-                os.replace(quelle, ziel)
-                _dok(db, y, m, r["employee_id"], art, os.path.basename(ziel), ziel, "automatisch", user_id)
+                name = anhang_name(art, y, m, r["personal_nr"], *_namen(db, r["employee_id"]))
+                with open(quelle, "rb") as f:
+                    daten = f.read()
+                os.remove(quelle)
+                _dok(db, y, m, r["employee_id"], art, name, ablage.schreiben(os.path.join(d, name), daten), "automatisch",
+                     user_id, daten)
             except Exception as e:  # einzelner MA bricht den Lauf nicht ab
                 fehler.append(f"{r['name']} {art}: {e}")
     shutil.rmtree(gen.output_dir, ignore_errors=True)
@@ -393,18 +400,18 @@ def paket_zip(db, y, m) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         lex = os.path.join(d, f"Lexware_Lohndaten_{monat_key(y, m)}.txt")
-        if os.path.exists(lex):
-            zf.write(lex, os.path.basename(lex))
+        for p in (lex + ".enc", lex):
+            if os.path.exists(p):
+                zf.writestr(os.path.basename(lex), ablage.lesen(p))
+                break
         for r in _q(db, "SELECT pfad, dateiname, art FROM monatsabschluss_dokument WHERE monat = :k AND art IN ('zeitnachweis', 'km')",
                     k=monat_key(y, m)):
-            if os.path.exists(r["pfad"]):
-                zf.write(r["pfad"], f"{r['art']}/{r['dateiname']}")
+            if r["pfad"] and os.path.exists(r["pfad"]):
+                zf.writestr(f"{r['art']}/{r['dateiname']}", ablage.lesen(r["pfad"]))
     return buf.getvalue()
 
 
-def _dok(db, y, m, eid, art, name, pfad, zuordnung, user_id):
-    with open(pfad, "rb") as f:
-        b = f.read()
+def _dok(db, y, m, eid, art, name, pfad, zuordnung, user_id, b: bytes):
     return db.execute(text("""INSERT INTO monatsabschluss_dokument (monat, employee_id, art, dateiname, pfad, groesse, sha256, zuordnung, von)
                               VALUES (:k, :e, :a, :n, :p, :g, :s, :z, :u) RETURNING id"""),
                       {"k": monat_key(y, m), "e": eid, "a": art, "n": name, "p": pfad, "g": len(b),
@@ -417,7 +424,20 @@ def dokumente(db, y, m):
                             e.first_name || ' ' || e.last_name AS name
                        FROM monatsabschluss_dokument d LEFT JOIN employees e ON e.id = d.employee_id
                       WHERE d.monat = :k ORDER BY d.art, e.personal_nr NULLS LAST, d.dateiname""", k=monat_key(y, m))
-    return {"dokumente": [dict(r) for r in rows]}
+    return {"dokumente": [dict(r) for r in rows], "lohnabrechnungen": lohnabrechnungen_stand(db, y, m, rows)}
+
+
+def lohnabrechnungen_stand(db, y, m, rows=None):
+    """'12 von 12 Lohnabrechnungen da': erwartet = alle MA mit Lohn im Monat (wie Versand-Vorschau)."""
+    if rows is None:
+        rows = _q(db, "SELECT employee_id, art FROM monatsabschluss_dokument WHERE monat = :k", k=monat_key(y, m))
+    da_ids = {r["employee_id"] for r in rows if r["art"] == "lohnabrechnung" and r["employee_id"]}
+    erwartet = [r for r in lohnzeilen(db, y, m) if _hat_lohn(r)]
+    fehlen = [{"employee_id": r["employee_id"], "personal_nr": r["personal_nr"], "name": r["name"]}
+              for r in erwartet if r["employee_id"] not in da_ids]
+    offen = sum(1 for r in rows if r["art"] == "lohnabrechnung" and not r["employee_id"])
+    return {"erwartet": len(erwartet), "da": len(erwartet) - len(fehlen), "fehlen": fehlen, "nicht_zugeordnet": offen,
+            "komplett": not fehlen and not offen}
 
 
 # ------------------------------------------------------------------ Schritt 3: Lohnabrechnungen hochladen
@@ -452,11 +472,110 @@ def zuordnen_name(db, dateiname, kandidaten=None):
     return None, None
 
 
-def hochladen(db, y, m, dateien, user_id):
-    """dateien: [(name, bytes)] - PDFs oder ZIPs mit PDFs. Gleicher Inhalt (sha256) wird nicht doppelt gespeichert."""
+def _pdf_seiten_text(b: bytes):
+    try:
+        from pypdf import PdfReader
+        return [(p.extract_text() or "") for p in PdfReader(io.BytesIO(b)).pages]
+    except Exception:
+        return None
+
+
+def _ma_im_text(textstueck, ma):
+    """MA, dessen Vor- UND Nachname (oder PersNr D0040) im Seitentext steht - nur wenn genau einer passt."""
+    n = " " + _norm(textstueck) + " "
+    treffer = {r["id"] for r in ma if r["personal_nr"] and f" {r['personal_nr'].lower()} " in n}
+    if len(treffer) != 1:
+        treffer = {r["id"] for r in ma if f" {_norm(r['last_name'])} " in n and f" {_norm(r['first_name']).split()[0]} " in n}
+    return treffer.pop() if len(treffer) == 1 else None
+
+
+def _aufteilen(b: bytes, ma):
+    """[(employee_id|None, pdf_bytes, seiten)] - eine Sammel-PDF aus Lexware wird je MA aufgeteilt.
+    Seiten ohne erkennbaren MA gehoeren zum vorherigen (Folgeseiten)."""
+    seiten = _pdf_seiten_text(b)
+    if not seiten:
+        return [(None, b, None)]
+    je = []
+    for i, t in enumerate(seiten):
+        eid = _ma_im_text(t, ma)
+        if je and (eid is None or eid == je[-1][0]):
+            je[-1][1].append(i)
+        else:
+            je.append([eid, [i]])
+    if len({e for e, _ in je if e}) <= 1:
+        return [(je[0][0] if len(je) == 1 or all(e in (None, je[0][0]) for e, _ in je) else None, b, None)]
+    from pypdf import PdfReader, PdfWriter
+    r = PdfReader(io.BytesIO(b))
+    out = []
+    for eid, idx in je:
+        w = PdfWriter()
+        for i in idx:
+            w.add_page(r.pages[i])
+        buf = io.BytesIO()
+        w.write(buf)
+        out.append((eid, buf.getvalue(), [i + 1 for i in idx]))
+    return out
+
+
+def lohnabrechnungen_aufnehmen(db, y, m, pdfs, user_id, quelle="Cockpit"):
+    """pdfs: [(dateiname, bytes)]. Speichert verschluesselt, ordnet zu (PersNr/Name im Dateinamen, sonst im PDF-Text;
+    Sammel-PDFs werden je MA aufgeteilt). Gleicher Inhalt (sha256) wird nicht doppelt gespeichert.
+    Rueckgabe je Datei: Quittung mit sha256, Zuordnung, ggf. 'doppelt'."""
     from app.services.booking_service import log_audit
     if zustand(db, y, m)["status"] == "abgeschlossen":
         raise PermissionError("Der Monat ist abgeschlossen")
+    ma = [dict(r) for r in _q(db, "SELECT id, personal_nr, first_name, last_name FROM employees WHERE NOT coalesce(is_test, false)")]
+    namen = {r["id"]: f"{r['first_name']} {r['last_name']}" for r in ma}
+    d = os.path.join(ordner(y, m), "lohnabrechnungen")
+    os.makedirs(d, exist_ok=True)
+    vorhanden = {r["sha256"]: r for r in _q(db, """SELECT sha256, employee_id FROM monatsabschluss_dokument
+                                                  WHERE monat = :k AND art = 'lohnabrechnung'""", k=monat_key(y, m))}
+    quittung = []
+    for name, b in pdfs:
+        sha = hashlib.sha256(b).hexdigest()
+        q = {"datei": name, "sha256": sha, "groesse": len(b), "teile": []}
+        quittung.append(q)
+        if not b.startswith(b"%PDF"):
+            q["status"] = "kein PDF"
+            continue
+        if sha in vorhanden:
+            q["status"] = "doppelt"
+            q["teile"].append({"employee_id": vorhanden[sha]["employee_id"], "name": namen.get(vorhanden[sha]["employee_id"])})
+            continue
+        teile = _aufteilen(b, ma)
+        q["status"] = "gespeichert"
+        for eid, daten, seiten in teile:
+            wie = "PDF-Text" if eid else None
+            if len(teile) == 1:
+                eid_name, wie_name = zuordnen_name(db, name, ma)
+                if eid_name and eid and eid_name != eid:
+                    eid, wie = None, "Widerspruch"   # Dateiname sagt X, Inhalt Y: lieber von Hand zuordnen
+                elif eid_name:
+                    eid, wie = eid_name, wie_name
+            if eid:
+                nach, vor = _namen(db, eid)
+                pnr = next((r["personal_nr"] for r in ma if r["id"] == eid), "")
+                ablage_name = anhang_name("lohnabrechnung", y, m, pnr, nach, vor)
+            else:
+                ablage_name = re.sub(r"[^A-Za-z0-9._ -]", "_", name)[:110]
+            if seiten:
+                ablage_name = ablage_name.replace(".pdf", "") + f"_S{seiten[0]}.pdf" if not eid else ablage_name
+            pfad = ablage.schreiben(os.path.join(d, f"{sha[:12]}_{len(q['teile'])}_{ablage_name}"), daten)
+            dok = _dok(db, y, m, eid, "lohnabrechnung", ablage_name, pfad, wie or "offen", user_id, daten)
+            vorhanden[sha] = {"employee_id": eid}
+            q["teile"].append({"dok_id": dok, "employee_id": eid, "name": namen.get(eid), "zuordnung": wie or "offen",
+                               "seiten": seiten})
+    neu = sum(len(q["teile"]) for q in quittung if q.get("status") == "gespeichert")
+    if neu or any(q.get("status") != "doppelt" for q in quittung):
+        log_audit(db, user_id, None, "abschluss_upload", entity_type="monat", entity_id=y * 100 + m,
+                  details=f"Monatsabschluss {m:02d}/{y}: {neu} Lohnabrechnung(en) aufgenommen ({quelle})"
+                          + "".join(f"; {q['datei']}: {q['status']}" for q in quittung if q.get("status") != "gespeichert"))
+    db.commit()
+    return quittung
+
+
+def hochladen(db, y, m, dateien, user_id):
+    """dateien: [(name, bytes)] - PDFs oder ZIPs mit PDFs (Notweg im Cockpit; regulaer kommt alles vom PC-Skript)."""
     pdfs = []
     for name, b in dateien:
         if name.lower().endswith(".zip"):
@@ -466,27 +585,9 @@ def hochladen(db, y, m, dateien, user_id):
                         pdfs.append((os.path.basename(i.filename), zf.read(i)))
         elif name.lower().endswith(".pdf"):
             pdfs.append((os.path.basename(name), b))
-    d = os.path.join(ordner(y, m), "lohnabrechnungen")
-    os.makedirs(d, exist_ok=True)
-    vorhanden = {r["sha256"] for r in _q(db, "SELECT sha256 FROM monatsabschluss_dokument WHERE monat = :k AND art = 'lohnabrechnung'",
-                                         k=monat_key(y, m))}
-    neu, doppelt = [], 0
-    for name, b in pdfs:
-        if not b.startswith(b"%PDF"):
-            continue
-        if hashlib.sha256(b).hexdigest() in vorhanden:
-            doppelt += 1
-            continue
-        sicher = re.sub(r"[^A-Za-z0-9._ -]", "_", name)[:120]
-        pfad = os.path.join(d, sicher)
-        with open(pfad, "wb") as f:
-            f.write(b)
-        eid, wie = zuordnen_name(db, name)
-        neu.append(_dok(db, y, m, eid, "lohnabrechnung", sicher, pfad, wie or "offen", user_id))
-    log_audit(db, user_id, None, "abschluss_upload", entity_type="monat", entity_id=y * 100 + m,
-              details=f"Monatsabschluss {m:02d}/{y}: {len(neu)} Lohnabrechnung(en) hochgeladen")
-    db.commit()
-    return {"neu": len(neu), "doppelt": doppelt, **dokumente(db, y, m)}
+    q = lohnabrechnungen_aufnehmen(db, y, m, pdfs, user_id)
+    return {"neu": sum(len(x["teile"]) for x in q if x.get("status") == "gespeichert"),
+            "doppelt": sum(1 for x in q if x.get("status") == "doppelt"), **dokumente(db, y, m)}
 
 
 def dokument_zuordnen(db, y, m, dok_id, employee_id, user_id):
@@ -582,10 +683,10 @@ def _senden(db, y, m, user_id, mas):
     einst = lv.einstellungen(db)
     test = einst["testmodus"] or not lv.echt_erlaubt()
     try:
-        conn = lv.verbinden()
+        conn = lv.verbinden(test, ordner(y, m), einst["test_an"])
     except Exception as e:
         raise ValueError(f"Mail-Server nicht erreichbar: {type(e).__name__} {str(e)[:150]}")
-    ergebnis = {"gesendet": 0, "fehler": 0, "testmodus": test}
+    ergebnis = {"gesendet": 0, "fehler": 0, "testmodus": test, "weg": lv.weg(test)}
     try:
         for i, x in enumerate(mas):
             an_ma = x["email"]
@@ -695,3 +796,14 @@ def wieder_oeffnen(db, y, m, user_id, grund):
               details=f"Monatsabschluss {m:02d}/{y} wieder geöffnet: {grund.strip()[:200]}")
     db.commit()
     return protokoll(db, y, m)
+
+
+def testversand_zip(y, m) -> bytes:
+    """Die .eml-Dateien des letzten Testlaufs (Versandweg 'Datei') als ZIP."""
+    d = os.path.join(ordner(y, m), "testversand")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if n.endswith(".eml.enc"):
+                zf.writestr(n[:-4], ablage.lesen(os.path.join(d, n)))
+    return buf.getvalue()

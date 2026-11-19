@@ -175,6 +175,16 @@ def init_scheduler():
             max_instances=1,
         )
 
+    # Job 16: Lohnablage - Dateien nach Ablauf der Aufbewahrung loeschen (taeglich 03:30), mit Monatsabschluss (Etappe 2)
+    if features.an("ABSCHLUSS"):
+        scheduler.add_job(
+            lohnablage_aufraeumen,
+            CronTrigger(hour=3, minute=30),
+            id='lohnablage_aufraeumen',
+            replace_existing=True,
+            max_instances=1,
+        )
+
     scheduler.start()
     logger.info(f"APScheduler gestartet mit {len(scheduler.get_jobs())} Jobs (Monatsbestaetigung abgeschaltet)")
 
@@ -1364,6 +1374,21 @@ def remind_plan_next_week():
         logger.info(f"Dienstplan-Erinnerung: {r}")
     except Exception as e:
         logger.error(f"Fehler in remind_plan_next_week: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def lohnablage_aufraeumen():
+    """Taeglich 03:30: Monatsabschluss-Dateien nach Ablauf der Aufbewahrung loeschen (Einstellung lohnablage)."""
+    from app.services.lohnablage import aufraeumen
+    db = SessionLocal()
+    try:
+        weg = aufraeumen(db)
+        if weg:
+            logger.info(f"Lohnablage: geloescht {weg}")
+    except Exception as e:
+        logger.error(f"Fehler in lohnablage_aufraeumen: {e}")
         db.rollback()
     finally:
         db.close()

@@ -128,8 +128,9 @@ def test_upload_vorschau_versand_sperre(client, db, monkeypatch):
         zf.writestr("liesmich.txt", "kein pdf")
     r = client.post(f"{API}/2026-10/lohnabrechnungen", files=[("dateien", ("lohn.zip", buf.getvalue(), "application/zip"))], headers=h).json()
     assert r["neu"] == 2
-    docs = {d["dateiname"]: d for d in r["dokumente"]}
-    assert docs["D0040_Lohnabrechnung.pdf"]["employee_id"] == lara and docs["unbekannt.pdf"]["employee_id"] is None
+    docs = {d["dateiname"]: d for d in r["dokumente"] if d["art"] == "lohnabrechnung"}
+    assert docs["Lohnabrechnung_2026_10_D0040_Hardt-Fabrizis_Lara.pdf"]["employee_id"] == lara      # v2.5-Name
+    assert docs["unbekannt.pdf"]["employee_id"] is None
     r = client.post(f"{API}/2026-10/lohnabrechnungen", files=[("dateien", ("D0040.pdf", PDF + b"lara", "application/pdf"))], headers=h).json()
     assert r["neu"] == 0 and r["doppelt"] == 1                                             # gleicher Inhalt nicht doppelt
     v = client.get(f"{API}/2026-10/vorschau", headers=h).json()
@@ -146,7 +147,7 @@ def test_upload_vorschau_versand_sperre(client, db, monkeypatch):
     monkeypatch.setattr(ma, "vorschau", lambda db, y, m: {"bereit": 1, "gesamt": 1, "nicht_zugeordnet": [], "mitarbeiter": [ma_eintrag]})
     # 1) Testmodus (Standard): alles an Drazen, Betreff mit echtem Empfaenger, Monat bleibt offen
     p = client.post(f"{API}/2026-10/versenden", headers=h).json()
-    assert p["ergebnis"] == {"gesendet": 1, "fehler": 0, "testmodus": True} and p["status"] != "abgeschlossen"
+    assert {k: v for k, v in p["ergebnis"].items() if k != "weg"} == {"gesendet": 1, "fehler": 0, "testmodus": True} and p["status"] != "abgeschlossen"
     msg = gesendet[-1]
     assert msg["toRecipients"] == [{"emailAddress": {"address": "dsertic@seda.de"}}] and "lara@example.org" in msg["subject"]
     assert [a["name"] for a in msg["attachments"]] == ["Lohnabrechnung_2026_10_D0040_Hardt-Fabrizis_Lara.pdf"]
@@ -193,7 +194,7 @@ def attrappe(monkeypatch, fehler=False):
 
         def schliessen(self):
             pass
-    monkeypatch.setattr(lv, "verbinden", Fake)
+    monkeypatch.setattr(lv, "verbinden", lambda *a, **k: Fake())
     monkeypatch.setattr(lv, "PAUSE_S", 0)
     return gesendet
 

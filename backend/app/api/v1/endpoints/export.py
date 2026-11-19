@@ -20,6 +20,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -130,3 +131,73 @@ def report_error(request: Request, payload: dict = Body(...), db: Session = Depe
     from app.services.telegram_bot import notify_admin
     notify_admin(f"⚠️ Zeiterfassungs-Export nach Q: fehlgeschlagen ({pc}): {msg}", category='sonstiges')
     return {'ok': True}
+
+
+# ------------------------------------------------------------------ Lohnabrechnungen vom PC (Drazen 19.11.2026)
+# Das PC-Skript seda24_lohn_upload.ps1 (gleicher Export-Schluessel, gleiche Aufgabenplanung auf SEDA2026) laedt neue
+# Lohnabrechnung_*.pdf aus dem Lexware-Ausgabeordner hoch. Rohdaten als Body (application/pdf), Dateiname und
+# SHA-256 im Header. Der Server prueft die Pruefsumme, speichert verschluesselt (services/lohnablage.py), ordnet nach
+# PersNr/Name zu und gibt eine Quittung zurueck. Nur mit Schalter COCKPIT_ABSCHLUSS (Monatsabschluss im Cockpit).
+MONAT_RE = re.compile(r'^(\d{4})-(0[1-9]|1[0-2])$')
+MAX_PDF = 10_000_000
+
+
+def _monat_ok(monat: str):
+    from app.services import features
+    if not features.an('ABSCHLUSS'):
+        raise HTTPException(status_code=404, detail='Monatsabschluss auf diesem Server nicht freigeschaltet')
+    mm = MONAT_RE.match(monat or '')
+    if not mm:
+        raise HTTPException(status_code=400, detail='Monat als JJJJ-MM')
+    y, m = int(mm.group(1)), int(mm.group(2))
+    heute = datetime.now()
+    alter = (heute.year - y) * 12 + heute.month - m
+    if not 0 <= alter <= 2:
+        raise HTTPException(status_code=400, detail='Nur aktueller Monat und die zwei Vormonate')
+    return y, m
+
+
+@router.get('/lohnabrechnungen/{monat}')
+def lohn_stand(monat: str, request: Request, db: Session = Depends(get_db)):
+    """Fuer das PC-Skript: welche Pruefsummen hat der Server schon, wie viele Lohnabrechnungen fehlen noch."""
+    _check(request, db, f'Lohnabrechnungen {monat[:7]}')
+    y, m = _monat_ok(monat)
+    from app.services import monatsabschluss as ma
+    ma.tabellen(db)
+    shas = [r[0] for r in db.execute(text("""SELECT DISTINCT sha256 FROM monatsabschluss_dokument WHERE monat = :k
+                                              AND art = 'lohnabrechnung'"""), {'k': monat}).fetchall()]
+    st = ma.lohnabrechnungen_stand(db, y, m)
+    return {'monat': monat, 'sha256': shas, 'erwartet': st['erwartet'], 'da': st['da'],
+            'nicht_zugeordnet': st['nicht_zugeordnet'], 'gesperrt': ma.zustand(db, y, m)['status'] == 'abgeschlossen'}
+
+
+@router.post('/lohnabrechnungen/{monat}')
+async def lohn_upload(monat: str, request: Request, db: Session = Depends(get_db)):
+    _check(request, db, f'Lohnabrechnung-Upload {monat[:7]}')
+    y, m = _monat_ok(monat)
+    from urllib.parse import unquote
+    name = os.path.basename(unquote(request.headers.get('x-dateiname', '')))[:150]
+    soll = request.headers.get('x-sha256', '').lower().strip()
+    pc = request.headers.get('x-rechner', 'PC')[:40]
+    if not re.fullmatch(r'[^/\\]+\.pdf', name, re.I) or not re.fullmatch(r'[0-9a-f]{64}', soll):
+        raise HTTPException(status_code=400, detail='Header X-Dateiname (.pdf) und X-SHA256 noetig')
+    body = b''
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_PDF:
+            raise HTTPException(status_code=413, detail='Datei zu gross (max. 10 MB)')
+    ist = hashlib.sha256(body).hexdigest()
+    if ist != soll:
+        _audit(db, request, 'lohnabrechnung_upload_fehler', f'{name} ({pc}): Pruefsumme stimmt nicht')
+        raise HTTPException(status_code=422, detail='Pruefsumme stimmt nicht - bitte erneut senden')
+    from app.services import monatsabschluss as ma
+    ma.tabellen(db)
+    try:
+        q = ma.lohnabrechnungen_aufnehmen(db, y, m, [(name, body)], None, quelle=f'PC {pc}')[0]
+    except PermissionError as e:
+        _audit(db, request, 'lohnabrechnung_upload_fehler', f'{name} ({pc}): {e}')
+        raise HTTPException(status_code=409, detail=str(e))
+    zu = ', '.join(f"{t.get('name') or 'nicht zugeordnet'}" for t in q['teile']) or '-'
+    _audit(db, request, 'lohnabrechnung_upload', f"Lohnabrechnung {monat} vom PC {pc}: {name} ({ist[:12]}, {q['status']}) -> {zu}")
+    st = ma.lohnabrechnungen_stand(db, y, m)
+    return {'quittung': q, 'stand': {'erwartet': st['erwartet'], 'da': st['da'], 'nicht_zugeordnet': st['nicht_zugeordnet']}}
