@@ -2,7 +2,10 @@
 
 *Für Drazen. Alles läuft auf **dev.seda.de** mit einer frischen Kopie der LIVE-Daten (automatisch um 12:00). An LIVE und an deinen echten Lexware-Abrechnungen ändert sich nichts. Es geht keine Mail und keine Telegram-Nachricht an Mitarbeiter.*
 
-**Testmonat: Oktober 2026.** Er ist vollständig, und die echten Oktober-Lohnabrechnungen liegen vor. So können wir jede Zahl der Importdatei mit dem vergleichen, was tatsächlich abgerechnet wurde.
+**Testmonat: Oktober 2026.**
+- Oktober ist vollständig, und die echten Oktober-Lohnabrechnungen liegen vor. So können wir jede Zahl der Importdatei mit dem vergleichen, was tatsächlich abgerechnet wurde.
+- November bis heute taugt nicht: Der Monat ist unvollständig, es gibt noch keine echte Abrechnung zum Vergleichen, und die Sperre würde laufende Buchungen treffen.
+- Die neue Mehrzeit-Regel vom 19.11. ändert an Oktober nichts.
 
 **Zeitplan:**
 
