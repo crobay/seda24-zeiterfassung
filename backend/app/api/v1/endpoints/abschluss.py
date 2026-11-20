@@ -73,6 +73,12 @@ def haken(monat: str, data: dict, db: Session = Depends(get_db), user=Depends(nu
     return _fehler(lambda: ma.haken_setzen(db, y, m, str(data.get("key")), bool(data.get("wert", True)), user.id, _wer(db, user)))
 
 
+@router.post("/{monat}/haken-alle-unauffaellig")
+def haken_alle_unauffaellig(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin)):
+    y, m = _ym(monat)
+    return _fehler(lambda: ma.ma_alle_bestaetigen(db, y, m, user.id, _wer(db, user)))
+
+
 @router.put("/einstellungen/lohnarten")
 def lohnarten(data: dict, db: Session = Depends(get_db), user=Depends(nur_admin)):
     return _fehler(lambda: ma.lohnarten_speichern(db, data, user.id))

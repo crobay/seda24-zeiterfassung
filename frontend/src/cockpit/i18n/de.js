@@ -139,6 +139,8 @@ export default {
     ma_title: 'Mitarbeiter prüfen: Stunden und KM', ma_n: '{n} von {m} Mitarbeitern abgehakt',
     ma_hint: 'Je Mitarbeiter „Stunden ✓“ und „KM ✓“ setzen. Erst wenn alle abgehakt sind, wird „Für Lexware erzeugen“ aktiv. Die Stichprobe rechts ist nur ein Hinweis.',
     ma_c_std: 'Stunden (Lohn)', ma_c_km: 'KM-Geld', ma_c_plan: 'Plan / gebucht', ma_c_pruef: 'Stichprobe', ma_h_std: 'Stunden ✓', ma_h_km: 'KM ✓',
+    ma_alle: 'Alle ohne Auffälligkeit bestätigen ({n})', ma_alle_ok: '{n} Mitarbeiter ohne Auffälligkeit abgehakt – {o} mit Hinweis bitte einzeln prüfen',
+    ma_prot: 'Protokoll der Haken ({n})', ma_prot_leer: 'Noch keine Haken gesetzt', ma_sammel: 'per „Alle ohne Auffälligkeit bestätigen“',
     ma_kein_km: 'kein KM-Geld (Dienstwagen)', ma_ok: 'unauffällig', ma_veraltet: 'Zahl hat sich geändert – neu prüfen',
     ma_detail: 'Normal {n} · Sonder {s} · Feiertag {f} · Urlaub {u}', ma_zeiten: 'Zeiten ansehen',
     pruef_title: 'Hast du alles erledigt?', n_of: '{n} von {m} abgehakt', auto_ok: 'geprüft', auto_bad: 'noch offen', auto_hand: 'von Hand',

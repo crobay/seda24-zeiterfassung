@@ -90,7 +90,7 @@ function Pruefliste({ monat, p, zu, onDone, reload, toast }) {
   const n = p.punkte.filter((x) => x.gruen).length;
   return (
     <>
-    <MaListe monat={monat} p={p} zu={zu} haken={haken} sofort={sofort} busy={busy} />
+    <MaListe monat={monat} p={p} zu={zu} haken={haken} sofort={sofort} busy={busy} reload={reload} toast={toast} />
     <section className="ck-card">
       <div className="ck-card-head"><h2><ListChecks size={20} />{t('ab.pruef_title')}</h2>
         <span className={`ck-tag${p.alle_gruen ? ' tone-ok' : ''}`} data-fortschritt>{t('ab.n_of', { n, m: p.punkte.length })}</span></div>
@@ -121,8 +121,20 @@ function Pruefliste({ monat, p, zu, onDone, reload, toast }) {
 
 // Liste je MA (Wunsch Drazen 20.11.): Stunden + KM mit je einem Haken, daneben die automatische Stichprobe.
 // Der Haken merkt sich die Zahl - aendert sie sich (Korrektur), ist er weg und muss neu gesetzt werden.
-function MaListe({ monat, p, zu, haken, sofort, busy }) {
+function MaListe({ monat, p, zu, haken, sofort, busy, reload, toast }) {
   const mas = p.mitarbeiter || [];
+  const [alleBusy, setAlleBusy] = useState(false);
+  const [zeigProt, setZeigProt] = useState(false);
+  const alle = async () => {
+    setAlleBusy(true);
+    try {
+      const r = await api.post(`/abschluss/${monat}/haken-alle-unauffaellig`);
+      toast(t('ab.ma_alle_ok', { n: r.data.gesetzt / 2, o: r.data.offen_mit_hinweis.length }));
+      reload();
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setAlleBusy(false);
+  };
+  const prot = p.haken_protokoll || [];
   const an = (x, art) => { const k = `ma:${x.employee_id}:${art}`; return k in sofort ? sofort[k] : x[`haken_${art}`]; };
   const box = (x, art) => {
     const k = `ma:${x.employee_id}:${art}`;
@@ -135,7 +147,11 @@ function MaListe({ monat, p, zu, haken, sofort, busy }) {
   return (
     <section className="ck-card" style={{ marginBottom: 16 }} data-ma-liste>
       <div className="ck-card-head"><h2><ListChecks size={20} />{t('ab.ma_title')}</h2>
-        <span className={`ck-tag${p.ma_ok === p.ma_gesamt ? ' tone-ok' : ''}`} data-ma-fortschritt>{t('ab.ma_n', { n: p.ma_ok, m: p.ma_gesamt })}</span></div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="ck-btn ck-btn-sm" disabled={zu || alleBusy || !p.ma_unauffaellig_offen} onClick={alle} data-ma-alle>
+            <CheckCircle2 size={15} />{t('ab.ma_alle', { n: p.ma_unauffaellig_offen || 0 })}</button>
+          <span className={`ck-tag${p.ma_ok === p.ma_gesamt ? ' tone-ok' : ''}`} data-ma-fortschritt>{t('ab.ma_n', { n: p.ma_ok, m: p.ma_gesamt })}</span>
+        </div></div>
       <p className="ck-subtle" style={{ margin: '0 16px 10px' }}>{t('ab.ma_hint')}</p>
       <div className="ck-table-wrap"><table className="ck-table ab-ma">
         <thead><tr><th>{t('ab.c_pnr')}</th><th>{t('abr.c_name')}</th><th style={{ textAlign: 'right' }}>{t('ab.ma_c_std')}</th><th></th>
@@ -158,6 +174,13 @@ function MaListe({ monat, p, zu, haken, sofort, busy }) {
             </tr>);
         })}</tbody>
       </table></div>
+      <div style={{ padding: '10px 16px' }}>
+        <button className="ck-btn ck-btn-sm" onClick={() => setZeigProt(!zeigProt)} data-haken-prot-knopf><History size={14} />{t('ab.ma_prot', { n: prot.length })}</button>
+        {zeigProt && <ul className="ab-haken-prot" data-haken-prot>
+          {prot.length === 0 ? <li className="ck-subtle">{t('ab.ma_prot_leer')}</li> : prot.map((r) => (
+            <li key={r.key}><span className="ck-num">{(r.am || '').replace('T', ' ')}</span> · <b>{r.von}</b> · {r.was}{r.sammel ? ` · ${t('ab.ma_sammel')}` : ''}</li>))}
+        </ul>}
+      </div>
     </section>);
 }
 

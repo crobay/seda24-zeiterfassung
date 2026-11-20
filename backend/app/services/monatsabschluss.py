@@ -237,7 +237,12 @@ def pruefliste(db, y, m):
     mas = ma_liste(db, y, m, haken)
     ma_ok = sum(1 for x in mas if x["haken_stunden"] and x["haken_km"])
     db.commit()
-    return {"monat": mk, "punkte": out, "mitarbeiter": mas, "ma_ok": ma_ok, "ma_gesamt": len(mas),
+    prot = haken_protokoll(db, y, m)
+    fr = {p["key"]: p["frage"] for p in out}
+    for r in prot:
+        r["was"] = fr.get(r["key"], r["was"])
+    return {"monat": mk, "punkte": out, "mitarbeiter": mas, "ma_ok": ma_ok, "ma_gesamt": len(mas), "haken_protokoll": prot,
+            "ma_unauffaellig_offen": sum(1 for x in mas if not x["hinweise"] and not (x["haken_stunden"] and x["haken_km"])),
             "alle_gruen": all(p["gruen"] for p in out) and ma_ok == len(mas)}
 
 
@@ -365,6 +370,49 @@ def haken_setzen(db, y, m, key, wert: bool, user_id, wer: str):
     db.commit()
     return pruefliste(db, y, m)
 
+
+def ma_alle_bestaetigen(db, y, m, user_id, wer: str):
+    """Knopf "Alle ohne Auffälligkeit bestätigen" (GO Drazen 20.11.2026): setzt "Stunden ✓" und "KM ✓" bei allen MA,
+    bei denen die Stichprobe nichts findet. MA mit Hinweis bleiben offen und werden einzeln abgehakt.
+    Jeder Haken einzeln mit Name + Zeit (Haken-Protokoll und Änderungsprotokoll)."""
+    from app.services.booking_service import log_audit
+    z = zustand(db, y, m)
+    if z["status"] == "abgeschlossen":
+        raise PermissionError("Der Monat ist abgeschlossen")
+    h = z["haken"]
+    am = datetime.now().isoformat(timespec="minutes")
+    gesetzt, offen = [], []
+    for x in ma_liste(db, y, m, h):
+        if x["hinweise"]:
+            if not (x["haken_stunden"] and x["haken_km"]):
+                offen.append(x["name"])
+            continue
+        for art in ("stunden", "km"):
+            if x[f"haken_{art}"]:
+                continue
+            h[_ma_haken_key(x["employee_id"], art)] = {"von": wer, "am": am, "wert": x[art], "sammel": True}
+            gesetzt.append(f"{x['name']} {'Stunden' if art == 'stunden' else 'KM'}")
+            log_audit(db, user_id, x["employee_id"], "abschluss_haken", entity_type="monat", entity_id=y * 100 + m,
+                      details=f"Monatsabschluss {m:02d}/{y}: '{x['name']} {'Stunden' if art == 'stunden' else 'KM'} "
+                              f"({_num(x[art])})' abgehakt (Alle ohne Auffälligkeit bestätigen)")
+    db.execute(text("UPDATE monatsabschluss SET haken = :h WHERE monat = :k"), {"h": json.dumps(h), "k": monat_key(y, m)})
+    db.commit()
+    return {**pruefliste(db, y, m), "gesetzt": len(gesetzt), "offen_mit_hinweis": offen}
+
+
+def haken_protokoll(db, y, m):
+    """Alle gesetzten Haken (Prüfliste + je MA) mit Name und Zeit, neueste zuerst."""
+    namen = {r["id"]: r["n"] for r in _q(db, "SELECT id, first_name || ' ' || last_name AS n FROM employees")}
+    fragen = {}
+    out = []
+    for k, v in zustand(db, y, m)["haken"].items():
+        mt = re.fullmatch(r"ma:(\d+):(stunden|km)", k)
+        if mt:
+            was = f"{namen.get(int(mt.group(1)), '?')}: {'Stunden' if mt.group(2) == 'stunden' else 'KM'} ✓ ({_num(v.get('wert') or 0)})"
+        else:
+            was = fragen.get(k, k)
+        out.append({"key": k, "was": was, "von": v.get("von"), "am": v.get("am"), "sammel": bool(v.get("sammel"))})
+    return sorted(out, key=lambda r: r["am"] or "", reverse=True)
 
 # ------------------------------------------------------------------ Schritt 2: Lexware-Datei + PDFs
 
