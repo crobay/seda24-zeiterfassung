@@ -559,6 +559,16 @@
 .ab-steps .is-done .ab-num { background: transparent; color: var(--ck-ok, #15803d); }
 .ab-step-txt { display: flex; align-items: center; gap: 6px; line-height: 1.2; }
 .ab-check { list-style: none; margin: 0; padding: 0; }
+.ab-ma td { vertical-align: top; }
+.ab-ma tr.is-ok td { background: color-mix(in srgb, var(--ck-ok, #15803d) 6%, transparent); }
+.ab-ma-haken { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; font-weight: 600; font-size: 13px; }
+.ab-ma-haken input { width: 20px; height: 20px; accent-color: var(--ck-ok, #15803d); }
+.ab-ma-alt { font-size: 12px; color: #b45309; }
+.ab-ma-pruef { font-size: 13px; min-width: 300px; white-space: normal !important; }
+.ab-ma-pruef div { white-space: normal; overflow-wrap: anywhere; }
+.ab-ma th, .ab-ma td { padding-left: 8px; padding-right: 8px; }
+.ab-ma-pruef .is-rot { color: #b91c1c; font-weight: 600; }
+.ab-ma-pruef .is-info { color: var(--ck-muted, #64748b); }
 .ab-check li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 4px; border-bottom: 1px solid var(--ck-border); }
 .ab-check label { display: flex; align-items: center; gap: 12px; cursor: pointer; font-weight: 600; }
 .ab-check input[type=checkbox] { width: 22px; height: 22px; flex: none; accent-color: var(--ck-ok, #15803d); }

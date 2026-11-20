@@ -16,9 +16,11 @@ export default function Zeiten() {
   const [classic, setClassic] = useState(false);
   const now = new Date();
   const von = range === 'week' ? iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)) : iso(new Date(now.getFullYear(), now.getMonth(), 1));
-  const path = pruef ? `/zeiten?pruef=${pruef}${monat ? `&monat=${monat}` : ''}` : `/zeiten?von=${von}&bis=${iso(now)}`;
+  // ?von=&bis=&q= (aus dem Monatsabschluss: Zeiten eines MA im Monat)
+  const path = pruef ? `/zeiten?pruef=${pruef}${monat ? `&monat=${monat}` : ''}`
+    : params.get('von') && params.get('bis') ? `/zeiten?von=${params.get('von')}&bis=${params.get('bis')}` : `/zeiten?von=${von}&bis=${iso(now)}`;
   const { data, loading, error, reload } = useApi(path);
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(() => params.get('q') || '');
   const [onlyHint, setOnlyHint] = useState(false);
   const [sort, setSort] = useState({ k: 'datum', dir: -1 });
   const [edit, setEdit] = useState(null); // {eintrag} | {neu: {...}}

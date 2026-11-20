@@ -10,6 +10,7 @@ const SCHRITTE = [['pruef', ListChecks], ['lexware', FileSpreadsheet], ['upload'
 const ANH_ICON = { lohnabrechnung: Receipt, zeitnachweis: FileText, km: Car };
 
 function vormonat() { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+const monatsende = (k) => { const [y, m] = k.split('-').map(Number); return `${k}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; };
 const monatLabel = (k) => new Date(`${k}-15T12:00:00`).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
 const schiebe = (k, n) => { const d = new Date(`${k}-15T12:00:00`); d.setMonth(d.getMonth() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 
@@ -88,6 +89,8 @@ function Pruefliste({ monat, p, zu, onDone, reload, toast }) {
   };
   const n = p.punkte.filter((x) => x.gruen).length;
   return (
+    <>
+    <MaListe monat={monat} p={p} zu={zu} haken={haken} sofort={sofort} busy={busy} />
     <section className="ck-card">
       <div className="ck-card-head"><h2><ListChecks size={20} />{t('ab.pruef_title')}</h2>
         <span className={`ck-tag${p.alle_gruen ? ' tone-ok' : ''}`} data-fortschritt>{t('ab.n_of', { n, m: p.punkte.length })}</span></div>
@@ -112,6 +115,49 @@ function Pruefliste({ monat, p, zu, onDone, reload, toast }) {
         {!p.alle_gruen && <span className="ck-subtle">{t('ab.pruef_hint')}</span>}
         <button className="ck-btn ck-btn-primary" disabled={!p.alle_gruen} onClick={onDone} data-weiter>{t('ab.next')}<ArrowRight size={16} /></button>
       </div>
+    </section>
+    </>);
+}
+
+// Liste je MA (Wunsch Drazen 20.11.): Stunden + KM mit je einem Haken, daneben die automatische Stichprobe.
+// Der Haken merkt sich die Zahl - aendert sie sich (Korrektur), ist er weg und muss neu gesetzt werden.
+function MaListe({ monat, p, zu, haken, sofort, busy }) {
+  const mas = p.mitarbeiter || [];
+  const an = (x, art) => { const k = `ma:${x.employee_id}:${art}`; return k in sofort ? sofort[k] : x[`haken_${art}`]; };
+  const box = (x, art) => {
+    const k = `ma:${x.employee_id}:${art}`;
+    return (
+      <label className="ab-ma-haken" title={x[`haken_${art}_von`] ? `✓ ${x[`haken_${art}_von`]}` : undefined}>
+        <input type="checkbox" checked={an(x, art)} disabled={zu || busy === k} onChange={(e) => haken(k, e.target.checked)} data-ma-haken={`${x.personal_nr}:${art}`} />
+        {t(`ab.ma_h_${art === 'stunden' ? 'std' : 'km'}`)}
+      </label>);
+  };
+  return (
+    <section className="ck-card" style={{ marginBottom: 16 }} data-ma-liste>
+      <div className="ck-card-head"><h2><ListChecks size={20} />{t('ab.ma_title')}</h2>
+        <span className={`ck-tag${p.ma_ok === p.ma_gesamt ? ' tone-ok' : ''}`} data-ma-fortschritt>{t('ab.ma_n', { n: p.ma_ok, m: p.ma_gesamt })}</span></div>
+      <p className="ck-subtle" style={{ margin: '0 16px 10px' }}>{t('ab.ma_hint')}</p>
+      <div className="ck-table-wrap"><table className="ck-table ab-ma">
+        <thead><tr><th>{t('ab.c_pnr')}</th><th>{t('abr.c_name')}</th><th style={{ textAlign: 'right' }}>{t('ab.ma_c_std')}</th><th></th>
+          <th style={{ textAlign: 'right' }}>{t('ab.ma_c_km')}</th><th></th><th style={{ textAlign: 'right' }}>{t('ab.ma_c_plan')}</th><th>{t('ab.ma_c_pruef')}</th></tr></thead>
+        <tbody>{mas.map((x) => {
+          const rot = x.hinweise.some((h) => h.rot);
+          const fertig = an(x, 'stunden') && an(x, 'km');
+          return (
+            <tr key={x.employee_id} className={fertig ? 'is-ok' : ''} data-ma={x.personal_nr}>
+              <td className="ck-num">{x.personal_nr}</td>
+              <td><Link className="ck-link" to={`/cockpit/zeiten?von=${monat}-01&bis=${monatsende(monat)}&q=${encodeURIComponent(x.personal_nr)}`} title={t('ab.ma_zeiten')}>{x.name}</Link></td>
+              <td className="ck-num" style={{ textAlign: 'right' }} title={t('ab.ma_detail', { n: fmtNum(x.normal, 2), s: fmtNum(x.sonder, 2), f: fmtNum(x.feiertag, 2), u: fmtNum(x.urlaub, 2) })}>{fmtNum(x.stunden, 2)}</td>
+              <td>{box(x, 'stunden')}{x.haken_stunden_veraltet && <div className="ab-ma-alt">{t('ab.ma_veraltet')}</div>}</td>
+              <td className="ck-num" style={{ textAlign: 'right' }}>{x.ohne_km ? <span className="ck-subtle">{t('ab.ma_kein_km')}</span> : `${fmtNum(x.km, 2)} €`}</td>
+              <td>{box(x, 'km')}{x.haken_km_veraltet && <div className="ab-ma-alt">{t('ab.ma_veraltet')}</div>}</td>
+              <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(x.plan_h, 2)} / {fmtNum(x.ist_h, 2)}</td>
+              <td className="ab-ma-pruef">{x.hinweise.length === 0 ? <Status s="approved" label={t('ab.ma_ok')} />
+                : x.hinweise.map((h, i) => <div key={i} className={h.rot ? 'is-rot' : 'is-info'} data-ma-hinweis={h.rot ? 'rot' : 'info'}>{h.rot ? '● ' : '○ '}{h.text}</div>)}
+                {rot && <span className="ck-subtle"> </span>}</td>
+            </tr>);
+        })}</tbody>
+      </table></div>
     </section>);
 }
 

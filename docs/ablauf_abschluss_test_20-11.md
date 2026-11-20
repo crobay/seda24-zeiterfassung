@@ -102,7 +102,19 @@ Ablauf des Refreshs:
 
 ## C) Durchlauf Fr nachmittags – gemeinsam
 
-- [ ] **1 – Drazen:** dev.seda.de/cockpit › **Monatsabschluss › Oktober 2026**. Ergebnis: Prüfliste.
+- [ ] **1 – Drazen:** dev.seda.de/cockpit › **Monatsabschluss › Oktober 2026**. Oben: **Liste je MA** mit Stunden (Lohn) und KM-Geld, je MA zwei Haken „Stunden ✓“ und „KM ✓“. Daneben die **Stichprobe**:
+  - rot „geplant, nicht gebucht“,
+  - „Buchung ohne Plan“,
+  - Plan- gegen Ist-Stunden,
+  - rot „Fahrer ohne KM-Strecke“,
+  - rot „0 Std. gezählt, Lohn rechnet die Stempeldauer“.
+
+  Der Name führt zu den Zeiten des MA im Monat. Ändert sich nach dem Haken eine Zahl, ist der Haken weg. „Für Lexware erzeugen“ ist erst aktiv, wenn alle 12 MA beide Haken haben und die Prüfliste darunter grün ist.
+  Erwartete Treffer im Oktober:
+  - Ruzica 25.10. und 30.10.
+  - Matej 17.10.: „geplant, nicht gebucht“
+  - Andreas 17.10.: THW geplant, nicht gebucht
+  - Andreas 02.10.: THW mit 0 Std. gezählt; die Lohnübersicht rechnet 2,98 Std. Stempeldauer
 - [ ] **2 – Drazen:** Prüfliste abhaken.
   - Ein Punkt ist rot: Azra 03.10., Geiger „Kommen 13:01 / Gehen 10:29“. Das ist der alte Überschneidungs-Fehler; berechnet sind 3,0 Std., das ist richtig.
   - Auf DEV über den Link in **Zeiten** auf 07:30–10:30 korrigieren.

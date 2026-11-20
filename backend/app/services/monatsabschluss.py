@@ -1,6 +1,7 @@
 """Monatsabschluss mit einem Klick (PROTOTYP, nur DEV) - ersetzt das PC-Skript seda_lohn_email.py.
 
-Schritt 1  Pruefliste wie bei Lexware: "Hast du ... erledigt?" mit Haken je Punkt. Automatische Pruefungen
+Schritt 1  Liste je MA (Stunden + KM, je ein Haken, daneben Stichprobe Plan/Ist/KM-Strecke - ma_liste) und
+           Pruefliste wie bei Lexware: "Hast du ... erledigt?" mit Haken je Punkt. Automatische Pruefungen
            (offene Stempel/Antraege, KM, Plausibilitaet, Minijob-Grenze) muessen gruen sein,
            bevor der Haken gesetzt werden kann. Erst wenn alle Punkte abgehakt sind, geht es weiter.
 Schritt 2  "Fuer Lexware erzeugen": EINE Importdatei fuer alle MA (Import-Assistent Lohndaten von Lexware
@@ -230,8 +231,101 @@ def pruefliste(db, y, m):
         p["haken"] = bool(h) and p["auto"] is not False
         p["haken_von"] = h and h.get("von")
         p["gruen"] = p["haken"]
+    mas = ma_liste(db, y, m, haken)
+    ma_ok = sum(1 for x in mas if x["haken_stunden"] and x["haken_km"])
     db.commit()
-    return {"monat": mk, "punkte": out, "alle_gruen": all(p["gruen"] for p in out)}
+    return {"monat": mk, "punkte": out, "mitarbeiter": mas, "ma_ok": ma_ok, "ma_gesamt": len(mas),
+            "alle_gruen": all(p["gruen"] for p in out) and ma_ok == len(mas)}
+
+
+# ------------------------------------------------------------------ Schritt 1: Liste je MA (Wunsch Drazen 20.11.2026)
+# Je MA Stunden + KM mit zwei Haken "Stunden ✓" / "KM ✓". Daneben automatische Stichprobe (nur Anzeige, sperrt
+# den Haken nicht): geplante Schicht ohne Buchung, Buchung ohne Plan, Stunden Plan vs. Ist, Fahrer ohne KM-Strecke.
+# Der Haken merkt sich die Zahlen; aendern sie sich danach (Korrektur), ist er automatisch wieder weg.
+ABWESEND = ('storniert', 'urlaub', 'krank', 'abwesend')
+
+
+def _ma_haken_key(eid, art):
+    return f"ma:{eid}:{art}"
+
+
+def _ma_werte(r):
+    return {"stunden": round(sum(r.get(k) or 0 for k in ("normal_hours", "sonder_hours", "feiertag_hours", "urlaub_hours")), 2),
+            "km": 0.0 if r["personal_nr"] in OHNE_KM_ANHANG else round(r.get("km_amount") or 0, 2)}
+
+
+def ma_liste(db, y, m, haken=None):
+    m0, m1 = _grenzen(y, m)
+    heute = date.today()
+    rows = [r for r in lohnzeilen(db, y, m) if _hat_lohn(r)]
+    ids = [r["employee_id"] for r in rows] or [0]
+    haken = zustand(db, y, m)["haken"] if haken is None else haken
+    plan = _q(db, """SELECT s.employee_id AS e, s.object_id AS o, s.date AS d, coalesce(o.name, '') AS objekt,
+                            coalesce(s.planned_hours, extract(epoch FROM (s.end_time - s.start_time)) / 3600) AS h
+                     FROM schedules s LEFT JOIN objects o ON o.id = s.object_id
+                     WHERE s.date BETWEEN :a AND :b AND s.employee_id = ANY(:ids)
+                       AND coalesce(s.status, 'normal') NOT IN :abw AND s.object_id NOT IN (999, 19)""",
+              a=m0, b=m1, ids=ids, abw=ABWESEND)
+    ist = _q(db, """SELECT t.employee_id AS e, t.object_id AS o, t.check_in::date AS d, coalesce(o.name, '') AS objekt,
+                           coalesce(t.billed_hours, 0) AS h,
+                           CASE WHEN coalesce(t.billed_hours, 0) = 0 AND t.check_out > t.check_in
+                                THEN extract(epoch FROM (t.check_out - t.check_in)) / 3600 END AS dauer_statt_0
+                    FROM time_entries t LEFT JOIN objects o ON o.id = t.object_id
+                    WHERE t.check_in::date BETWEEN :a AND :b AND t.employee_id = ANY(:ids)""", a=m0, b=m1, ids=ids)
+    abw = {(r["e"], r["d"]) for r in ist if r["o"] in (OBJ_URLAUB, OBJ_KRANK)}
+    abw |= {(r["e"], r["d"]) for r in _q(db, """SELECT employee_id AS e, date AS d FROM schedules WHERE date BETWEEN :a AND :b
+                                               AND status IN ('urlaub', 'krank', 'abwesend')""", a=m0, b=m1)}
+    arbeit = [r for r in ist if r["o"] not in (OBJ_URLAUB, OBJ_KRANK)]
+    gebucht = {(r["e"], r["o"], r["d"]) for r in arbeit}
+    geplant = {(r["e"], r["o"], r["d"]) for r in plan}
+    strecke = {(r["e"], r["o"]) for r in _q(db, "SELECT employee_id AS e, object_id AS o FROM km_distances WHERE distance_km > 0")}
+    fahrer = _q(db, """SELECT DISTINCT a.employee_id AS e, a.object_id AS o, o.name AS objekt FROM employee_object_assignments a
+                       JOIN objects o ON o.id = a.object_id WHERE a.is_driver AND coalesce(a.is_active, true)
+                       AND a.employee_id = ANY(:ids)""", ids=ids)
+    out = []
+    for r in rows:
+        e = r["employee_id"]
+        fehlt = sorted({(p["d"], p["objekt"]) for p in plan if p["e"] == e and (e, p["o"], p["d"]) not in gebucht
+                        and (e, p["d"]) not in abw and p["d"] <= heute})
+        ohne = sorted({(b["d"], b["objekt"]) for b in arbeit if b["e"] == e and (e, b["o"], b["d"]) not in geplant})
+        plan_h = round(sum(float(p["h"] or 0) for p in plan if p["e"] == e and (e, p["d"]) not in abw), 2)
+        ist_h = round(sum(float(b["h"]) for b in arbeit if b["e"] == e), 2)
+        gefahren = {b["o"] for b in arbeit if b["e"] == e}
+        ohne_strecke = sorted({f["objekt"] for f in fahrer if f["e"] == e and f["o"] in gefahren and (e, f["o"]) not in strecke})
+        if r["personal_nr"] in OHNE_KM_ANHANG:
+            ohne_strecke = []
+        w = _ma_werte(r)
+        hinweise = []
+        if fehlt:
+            hinweise.append({"rot": True, "text": "geplant, nicht gebucht: " + ", ".join(f"{d:%d.%m.} {o or ''}".strip() for d, o in fehlt[:6])
+                             + (f" (+{len(fehlt) - 6})" if len(fehlt) > 6 else "")})
+        if ohne:
+            hinweise.append({"rot": False, "text": "Buchung ohne Plan: " + ", ".join(f"{d:%d.%m.} {o or 'ohne Objekt'}" for d, o in ohne[:6])
+                             + (f" (+{len(ohne) - 6})" if len(ohne) > 6 else "")})
+        if ohne_strecke:
+            hinweise.append({"rot": True, "text": "Fahrer ohne KM-Strecke: " + ", ".join(ohne_strecke)})
+        null = [b for b in arbeit if b["e"] == e and b["dauer_statt_0"]]
+        if null:   # Lohnuebersicht rechnet bei 0 gezaehlten Stunden die Stempeldauer (nur Hinweis, Lohnlogik unveraendert)
+            hinweise.append({"rot": True, "text": "0 Std. gezählt, Lohn rechnet die Stempeldauer: " + ", ".join(
+                f"{b['d']:%d.%m.} {b['objekt'] or 'ohne Objekt'} {_num(float(b['dauer_statt_0']))} Std." for b in null)})
+        lohn_h = round(w["stunden"] - (r.get("urlaub_hours") or 0), 2)
+        if abs(lohn_h - ist_h - sum(float(b["dauer_statt_0"]) for b in null)) >= 0.01:
+            hinweise.append({"rot": True, "text": f"Lohn {_num(lohn_h)} Std. ≠ gebucht {_num(ist_h)} Std."})
+        if abs(ist_h - plan_h) >= 1:
+            hinweise.append({"rot": False, "text": f"Plan {_num(plan_h)} Std. / Ist {_num(ist_h)} Std."})
+        ma = {"employee_id": e, "personal_nr": r["personal_nr"], "name": r["name"],
+              "normal": round(r.get("normal_hours") or 0, 2), "sonder": round(r.get("sonder_hours") or 0, 2),
+              "feiertag": round(r.get("feiertag_hours") or 0, 2), "urlaub": round(r.get("urlaub_hours") or 0, 2), "stunden": w["stunden"], "km": w["km"],
+              "ohne_km": r["personal_nr"] in OHNE_KM_ANHANG, "plan_h": plan_h, "ist_h": ist_h,
+              "geplant_nicht_gebucht": len(fehlt), "ohne_plan": len(ohne), "hinweise": hinweise}
+        for art in ("stunden", "km"):
+            h = haken.get(_ma_haken_key(e, art))
+            ok = bool(h) and h.get("wert") == w[art]
+            ma[f"haken_{art}"] = ok
+            ma[f"haken_{art}_von"] = h.get("von") if ok else None
+            ma[f"haken_{art}_veraltet"] = bool(h) and not ok
+        out.append(ma)
+    return out
 
 
 def _spalte(db, tab, sp):
@@ -243,14 +337,23 @@ def haken_setzen(db, y, m, key, wert: bool, user_id, wer: str):
     z = zustand(db, y, m)
     if z["status"] == "abgeschlossen":
         raise PermissionError("Der Monat ist abgeschlossen")
-    p = next((p for p in pruefliste(db, y, m)["punkte"] if p["key"] == key), None)
-    if not p:
-        raise KeyError(key)
-    if wert and p["auto"] is False:
-        raise ValueError("Erst erledigen, dann abhaken: " + p["detail"])
     h = z["haken"]
+    mt = re.fullmatch(r"ma:(\d+):(stunden|km)", key)
+    if mt:                                   # Haken je MA: merkt sich die Zahl, die abgehakt wurde
+        x = next((x for x in ma_liste(db, y, m, h) if x["employee_id"] == int(mt.group(1))), None)
+        if not x:
+            raise KeyError(key)
+        p = {"frage": f"{x['name']} {'Stunden' if mt.group(2) == 'stunden' else 'KM'} ({_num(x[mt.group(2)])})"}
+        neu = {"von": wer, "am": datetime.now().isoformat(timespec="minutes"), "wert": x[mt.group(2)]}
+    else:
+        p = next((p for p in pruefliste(db, y, m)["punkte"] if p["key"] == key), None)
+        if not p:
+            raise KeyError(key)
+        if wert and p["auto"] is False:
+            raise ValueError("Erst erledigen, dann abhaken: " + p["detail"])
+        neu = {"von": wer, "am": datetime.now().isoformat(timespec="minutes")}
     if wert:
-        h[key] = {"von": wer, "am": datetime.now().isoformat(timespec="minutes")}
+        h[key] = neu
     else:
         h.pop(key, None)
     db.execute(text("UPDATE monatsabschluss SET haken = :h WHERE monat = :k"), {"h": json.dumps(h), "k": monat_key(y, m)})
