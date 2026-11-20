@@ -1,0 +1,5 @@
+Bilder der Lohn-Mail-Signatur (als CID eingebettet, kein externer Abruf/Tracker).
+- logo.png: SEDA24-Logo (frontend/public/brand/seda24/logo-seda24-weiss.svg, Quelle seda24.de) in Navy #1E537C,
+  240x79 auf weissem Grund (Anzeige 120px; im Dunkelmodus als helle Kachel lesbar)
+- tel/mail/web/pin/recht.png: Lucide-Icons (ISC-Lizenz, wie im Cockpit) phone/mail/globe/map-pin/gavel,
+  weiss auf Navy-Kreis, 36x36 (Anzeige 18px). Erzeugt am 21.11.2026 mit Chromium headless.

@@ -174,7 +174,7 @@ def einstellungen_speichern(db, werte: dict, user_id):
     return neu
 
 
-def nachricht(an, betreff, textkoerper, anhaenge, absender=None, html=None):
+def nachricht(an, betreff, textkoerper, anhaenge, absender=None, html=None, inline=None):
     """Graph-Message (JSON). anhaenge: [(dateiname, pfad)]; absender = absender_von(...) -> From + Antworten-an.
     Mit html: Graph bekommt den HTML-Teil, die .eml/SMTP-Mail beide Teile (Text + HTML, "_text" wird vor Graph entfernt)."""
     files = []
@@ -182,6 +182,9 @@ def nachricht(an, betreff, textkoerper, anhaenge, absender=None, html=None):
     for name, pfad in anhaenge:
         files.append({"@odata.type": "#microsoft.graph.fileAttachment", "name": name, "contentType": "application/pdf",
                       "contentBytes": base64.b64encode(lesen(pfad)).decode()})
+    for cid, name, daten in inline or []:   # Signatur-Bilder, im HTML als cid:... referenziert
+        files.append({"@odata.type": "#microsoft.graph.fileAttachment", "name": name, "contentType": "image/png",
+                      "contentBytes": base64.b64encode(daten).decode(), "isInline": True, "contentId": cid})
     return {"subject": betreff, "body": {"contentType": "HTML", "content": html} if html else {"contentType": "Text", "content": textkoerper},
             **({"_text": textkoerper} if html else {}),
             "toRecipients": [{"emailAddress": {"address": an}}], "attachments": files,
@@ -296,9 +299,16 @@ def eml(msg, absender):
     if msg["body"]["contentType"] == "HTML":
         e.set_content(msg.get("_text") or "", charset="utf-8", cte="base64")
         e.add_alternative(msg["body"]["content"], subtype="html", charset="utf-8", cte="base64")
+        html_teil = e.get_payload()[1]
+        for a in msg.get("attachments", []):
+            if a.get("isInline"):     # multipart/related: Bilder gehoeren zum HTML-Teil, nicht in die Anhangliste
+                html_teil.add_related(base64.b64decode(a["contentBytes"]), maintype="image", subtype="png",
+                                      cid=f"<{a['contentId']}>", filename=a["name"], disposition="inline")
     else:
         e.set_content(msg["body"]["content"], charset="utf-8", cte="base64")
     for a in msg.get("attachments", []):
+        if a.get("isInline"):
+            continue
         e.add_attachment(base64.b64decode(a["contentBytes"]), maintype="application", subtype="pdf", filename=a["name"])
     return e
 
