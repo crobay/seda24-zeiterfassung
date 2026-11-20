@@ -98,7 +98,7 @@ def lexware_lohnarten(db, emp, fg, year, month):
     first = date(year, month, 1)
     last = date(year, month, monthrange(year, month)[1])
     s = lohn_split(db, emp.id, first, last)
-    la = [{"lohnart": 1, "bezeichnung": "Gehalt (Festgehalt)",
+    la = [{"lohnart": 2, "bezeichnung": "Gehalt (Festgehalt)",   # Lexware 0002 Gehalt (Drazen 20.11.2026)
            "stunden": float(fg.monatsstunden), "betrag": betrag(fg)}]
     if s["sonntag_hours"] > 0:
         la.append({"lohnart": 13, "bezeichnung": "Sonntagszuschlag", "stunden": s["sonntag_hours"],

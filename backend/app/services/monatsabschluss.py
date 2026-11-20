@@ -43,7 +43,8 @@ LOHNART_KEY = "lexware_lohnarten"
 # Nummern aus dem bestehenden XML-Export (13/11/16/14); normal/sonder/km gibt es dort nicht -> Platzhalter (leer),
 # Drazen traegt sie aus seinem Lexware-Mandanten ein. Ohne Nummer wird keine Lexware-Datei erzeugt.
 LOHNART_DEFAULT = {"normal": None, "sonder": None, "sonntag": 13, "nacht": 11, "feiertag": 16, "urlaub": 14, "km": None,
-                   "kopfzeile": True, "persnr": "wie_app", "bestaetigt": False}
+                   "kopfzeile": True, "persnr": "wie_app", "bestaetigt": False,
+                   "feiertag_zuschlag": False}   # gearbeitete Feiertagsstunden laufen ueber "normal"; True = zusaetzlich Zuschlag-Zeile
 MONATE = ["", "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
           "November", "Dezember"]
 
@@ -111,6 +112,8 @@ def lohnarten_speichern(db, werte: dict, user_id):
             if not 1 <= v <= 9999:
                 raise ValueError(f"Lohnart {k}: 1 bis 9999")
             neu[k] = v
+    if "feiertag_zuschlag" in werte:
+        neu["feiertag_zuschlag"] = bool(werte["feiertag_zuschlag"])
     if "kopfzeile" in werte:
         neu["kopfzeile"] = bool(werte["kopfzeile"])
     if werte.get("persnr") in ("wie_app", "nur_ziffern"):
@@ -388,10 +391,16 @@ def lexware_zeilen(db, y, m):
             for x in festgehalt.lexware_lohnarten(db, emp, fg, y, m):
                 out.append((p, n, x["lohnart"], x.get("stunden") if x.get("stunden") is not None else x.get("betrag"), None, x["bezeichnung"]))
         else:
-            for k, bez in (("normal_hours", "normal"), ("nacht_hours", "nacht"), ("sonntag_hours", "sonntag"),
-                           ("feiertag_hours", "feiertag"), ("urlaub_hours", "urlaub")):
+            # Am Feiertag GEARBEITETE Stunden sind normale Lohnstunden (Lexware 0001, wie im Oktober abgerechnet);
+            # Lexware 0016/0017 sind steuerfreie Zuschlaege - nur wenn ausdruecklich gewollt (feiertag_zuschlag, Drazen 20.11.).
+            std = round((r.get("normal_hours") or 0) + (r.get("feiertag_hours") or 0), 2)
+            if std:
+                out.append((p, n, la["normal"], std, None, "Stunden" + (" (inkl. Feiertag)" if r.get("feiertag_hours") else "")))
+            for k, bez in (("nacht_hours", "nacht"), ("sonntag_hours", "sonntag"), ("feiertag_hours", "feiertag"), ("urlaub_hours", "urlaub")):
+                if bez == "feiertag" and not la.get("feiertag_zuschlag"):
+                    continue
                 if r.get(k):
-                    out.append((p, n, la[bez], round(r[k], 2), None, {"normal": "Stunden", "nacht": "Nachtzuschlag",
+                    out.append((p, n, la[bez], round(r[k], 2), None, {"nacht": "Nachtzuschlag",
                                "sonntag": "Sonntagszuschlag", "feiertag": "Feiertagszuschlag", "urlaub": "Urlaubsstunden"}[bez]))
             if r.get("sonder_hours"):
                 satz = round((r.get("sonder_amount") or 0) / r["sonder_hours"], 2) if r["sonder_hours"] else None
