@@ -170,7 +170,7 @@ def pruefliste(db, y, m):
                       WHERE t.check_out IS NULL AND t.check_in::date BETWEEN :a AND :b AND NOT coalesce(e.is_test, false)""", a=m0, b=m1)
     out.append(_punkt("offene_stempel", "Sind alle Stempelungen geschlossen (kein offenes Gehen)?", not offen,
                       ", ".join(f"{r['n']} {r['check_in']:%d.%m.}" for r in offen[:6]) if offen else "keine offenen Einträge",
-                      f"/cockpit/zeiten?monat={mk}"))
+                      f"/cockpit/zeiten?monat={mk}&range=month" + (f"&eintrag={offen[0]['id']}" if offen else "")))
 
     antr = []
     antr += [f"Mehrzeit #{r['id']}" for r in _q(db, """SELECT id FROM pending_bookings WHERE coalesce(status, 'offen') NOT IN
@@ -187,7 +187,7 @@ def pruefliste(db, y, m):
     out.append(_punkt("km", "Ist das KM-Journal vollständig (Tagesbereinigung für alle Tage gelaufen)?", not km_offen,
                       f"{len(km_offen)} Tag(e) noch nicht bereinigt" if km_offen else "alle Tage bereinigt"))
 
-    pl = _q(db, """SELECT e.first_name || ' ' || e.last_name AS n, t.check_in, CASE
+    pl = _q(db, """SELECT t.id, e.first_name || ' ' || e.last_name AS n, t.check_in, CASE
                       WHEN t.check_out < t.check_in THEN 'Gehen vor Kommen am selben Tag'
                       WHEN t.billed_hours < 0 THEN 'negative Stunden'
                       WHEN t.billed_hours > 10 THEN 'über 10 Std. an einem Tag'
@@ -202,7 +202,7 @@ def pruefliste(db, y, m):
                    ORDER BY t.check_in""", a=m0, b=m1)
     out.append(_punkt("plausibel", "Sind die Zeiten plausibel?", not pl,
                       "; ".join(f"{r['n']} {r['check_in']:%d.%m.}: {r['grund']}" for r in pl[:5]) + (" …" if len(pl) > 5 else "")
-                      if pl else "keine Auffälligkeiten", f"/cockpit/zeiten?pruef=alle&monat={mk}"))
+                      if pl else "keine Auffälligkeiten", f"/cockpit/zeiten?pruef=alle&monat={mk}" + (f"&eintrag={pl[0]['id']}" if pl else "")))
 
     try:
         from app.services.minijob import grenze

@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Clock3, ArrowUpDown, ArrowUp, ArrowDown, ClipboardCheck, Plus, Pencil, Trash2, AlertTriangle, X, Moon } from 'lucide-react';
+import { Clock3, ArrowUpDown, ArrowUp, ArrowDown, ClipboardCheck, Plus, Pencil, Trash2, AlertTriangle, X, Moon, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Empty, ErrorBox, Skeleton, Dialog, ObjektMarke } from '../core';
 
 const GenehmigungenTab = lazy(() => import('../../pages/GenehmigungenTab'));
@@ -15,10 +15,22 @@ export default function Zeiten() {
   const range = params.get('range') || 'week';
   const [classic, setClassic] = useState(false);
   const now = new Date();
-  const von = range === 'week' ? iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)) : iso(new Date(now.getFullYear(), now.getMonth(), 1));
-  // ?von=&bis=&q= (aus dem Monatsabschluss: Zeiten eines MA im Monat)
-  const path = pruef ? `/zeiten?pruef=${pruef}${monat ? `&monat=${monat}` : ''}`
-    : params.get('von') && params.get('bis') ? `/zeiten?von=${params.get('von')}&bis=${params.get('bis')}` : `/zeiten?von=${von}&bis=${iso(now)}`;
+  // Monat blaettern (‹ Oktober 2026 ›): ?monat=JJJJ-MM, sonst laufender Monat. "Monat" = ganzer Monat (laufender bis heute),
+  // "7 Tage" = die letzten 7 Tage des Monats (laufender: bis heute). ?von=&bis= (Deep-Link aus dem Monatsabschluss) geht vor.
+  const aktM = iso(now).slice(0, 7);
+  const m = monat || aktM;
+  const [my, mm] = m.split('-').map(Number);
+  const ende = m >= aktM ? now : new Date(my, mm, 0);
+  const von = range === 'week' ? iso(new Date(ende.getFullYear(), ende.getMonth(), ende.getDate() - 6)) : `${m}-01`;
+  const path = pruef ? `/zeiten?pruef=${pruef}&monat=${m}`
+    : params.get('von') && params.get('bis') && !monat ? `/zeiten?von=${params.get('von')}&bis=${params.get('bis')}` : `/zeiten?von=${von}&bis=${iso(ende)}`;
+  const blaettern = (n) => {
+    const d = new Date(my, mm - 1 + n, 1);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const x = new URLSearchParams(params); x.set('monat', k); x.delete('von'); x.delete('bis'); x.delete('eintrag'); x.delete('neu');
+    setParams(x, { replace: true });
+  };
+  const monatName = new Date(my, mm - 1, 15).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
   const { data, loading, error, reload } = useApi(path);
   const [q, setQ] = useState(() => params.get('q') || '');
   const [onlyHint, setOnlyHint] = useState(false);
@@ -51,6 +63,11 @@ export default function Zeiten() {
       <div className="ck-page-head">
         <div><h1>{t('zeiten.title')}</h1><p>{data ? t('zeiten.subtitle', { from: fmtDate(data.von), to: fmtDate(data.bis, { day: '2-digit', month: '2-digit', year: 'numeric' }) }) : <Skeleton w={160} h={16} />}</p></div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }} data-monat-nav>
+            <button className="ck-btn ck-btn-icon" onClick={() => blaettern(-1)} aria-label={t('abr.prev')} data-monat-zurueck><ChevronLeft size={18} /></button>
+            <span className="ck-card" style={{ padding: '6px 14px', fontWeight: 650, minWidth: 150, textAlign: 'center' }} data-zeiten-monat={m}>{monatName}</span>
+            <button className="ck-btn ck-btn-icon" onClick={() => blaettern(1)} disabled={m >= aktM} aria-label={t('abr.next')} data-monat-vor><ChevronRight size={18} /></button>
+          </div>
           {!pruef && <div className="ck-seg">{['week', 'month'].map((k) => <button key={k} className={range === k ? 'is-on' : ''} onClick={() => setParam('range', k)}>{t(`zeiten.${k}`)}</button>)}</div>}
           <button className="ck-btn" onClick={() => setClassic(!classic)}><ClipboardCheck size={16} />{t('zeiten.approvals')}</button>
           <button className="ck-btn ck-btn-primary" onClick={() => setEdit({ neu: { datum: iso(now), kommen: '', gehen: '' } })}><Plus size={17} />{t('zeiten.new')}</button>
@@ -59,7 +76,7 @@ export default function Zeiten() {
       {pruef && (
         <div className="ck-callout" style={{ marginBottom: 16, alignItems: 'center' }}><AlertTriangle size={20} style={{ flex: 'none' }} />
           <span>{t(`ls.chk_${pruef}`)} · {data ? new Date(`${data.monat}-01T12:00`).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }) : ''} · {t('zeiten.pruef_hint')}</span>
-          <button className="ck-btn ck-btn-sm" style={{ marginLeft: 'auto' }} onClick={() => { setParam('pruef', null); setParam('monat', null); }}><X size={15} />{t('zeiten.pruef_off')}</button></div>
+          <button className="ck-btn ck-btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setParam('pruef', null)}><X size={15} />{t('zeiten.pruef_off')}</button></div>
       )}
       {classic ? (
         <section className="ck-card"><div className="ck-card-head"><h2>{t('zeiten.approvals')}</h2><button className="ck-btn ck-btn-sm" onClick={() => setClassic(false)}>{t('app.back')}</button></div>
@@ -89,7 +106,7 @@ export default function Zeiten() {
                     <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(r.stunden, 2)}</td>
                     <td className="ck-subtle">{r.weg}</td>
                     <td>{r.hinweis && <Status s="fehlt" label={r.hinweis} />}</td>
-                    <td>{r.fehlt ? <Plus size={15} className="ck-muted" aria-hidden="true" /> : <Pencil size={15} className="ck-muted" aria-hidden="true" />}</td>
+                    <td>{r.fehlt ? <Plus size={15} className="ck-muted" aria-hidden="true" /> : r.gesperrt ? <Lock size={15} className="ck-muted" aria-label={t('zeiten.locked_short')} /> : <Pencil size={15} className="ck-muted" aria-hidden="true" />}</td>
                   </tr>))}</tbody>
               </table>
             </div>
@@ -118,6 +135,7 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
     return ((b - a + 1440) % 1440 || 1440) / 60;
   })();
   const fixed = eintrag?.hinweis?.includes('Gehen vor Kommen');
+  const gesperrt = !!eintrag?.gesperrt;   // abgeschlossener Monat: Server lehnt ab (423), hier gleich sichtbar
 
   const save = async () => {
     setBusy(true); setErr('');
@@ -146,10 +164,11 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
 
   return (
     <Dialog title={eintrag ? t('zeiten.edit_title', { name: eintrag.name }) : t('zeiten.new_title')} onClose={onClose} footer={<>
-      {eintrag && (confirmDel ? <button className="ck-btn" style={{ marginRight: 'auto', color: 'var(--ck-warn)', borderColor: 'var(--ck-warn)' }} disabled={busy} onClick={del}><Trash2 size={16} />{t('zeiten.delete_confirm')}</button>
+      {eintrag && !gesperrt && (confirmDel ? <button className="ck-btn" style={{ marginRight: 'auto', color: 'var(--ck-warn)', borderColor: 'var(--ck-warn)' }} disabled={busy} onClick={del}><Trash2 size={16} />{t('zeiten.delete_confirm')}</button>
         : <button className="ck-btn ck-btn-ghost" style={{ marginRight: 'auto' }} onClick={() => setConfirmDel(true)}><Trash2 size={16} />{t('zeiten.delete')}</button>)}
       <button className="ck-btn" onClick={onClose}>{t('app.cancel')}</button>
-      <button className="ck-btn ck-btn-primary" disabled={busy || !f.datum || !f.kommen || !f.gehen || (!eintrag && (!f.employee_id || !f.object_id))} onClick={save}>{t('app.save')}</button></>}>
+      <button className="ck-btn ck-btn-primary" disabled={gesperrt || busy || !f.datum || !f.kommen || !f.gehen || (!eintrag && (!f.employee_id || !f.object_id))} onClick={save}>{t('app.save')}</button></>}>
+      {gesperrt && <div className="ck-callout" data-gesperrt><Lock size={20} style={{ flex: 'none' }} />{t('zeiten.locked')}</div>}
       {fixed && <div className="ck-callout"><AlertTriangle size={20} style={{ flex: 'none' }} />{t('zeiten.fix_hint', { kommen: fmtDate(eintrag.datum), gehen: fmtDate(eintrag.gehen_datum) })}</div>}
       {!eintrag && (
         <label className="ck-field">{t('zeiten.name')}

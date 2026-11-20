@@ -563,8 +563,18 @@ def zeiten(von: str = Query(None), bis: str = Query(None), pruef: str = Query(No
     rows = _q(db, f"""{_ZEIT_SELECT}
          WHERE {where} AND NOT coalesce(e.is_test,false) AND coalesce(t.object_id,0) NOT IN ({OBJ_URLAUB},{OBJ_KRANK})
          ORDER BY t.check_in DESC""", a=d0, b=d1)
+    zu = _gesperrte_monate(db)
+    eintraege = [_zeile(r) for r in rows]
+    for e in eintraege:             # Monatssperre (Monatsabschluss): Bearbeiten erst nach "Wieder öffnen"
+        e["gesperrt"] = e["datum"][:7] in zu or (e["gehen_datum"] or "")[:7] in zu
     return {"von": d0.isoformat(), "bis": d1.isoformat(), "pruef": pruef, "monat": d0.strftime("%Y-%m"),
-            "eintraege": [_zeile(r) for r in rows]}
+            "gesperrte_monate": sorted(zu), "eintraege": eintraege}
+
+
+def _gesperrte_monate(db):
+    if not db.execute(text("SELECT to_regclass('monatsabschluss') IS NOT NULL")).scalar():
+        return set()
+    return {r[0] for r in db.execute(text("SELECT monat FROM monatsabschluss WHERE status = 'abgeschlossen'")).fetchall()}
 
 
 @router.get("/zeiten/{entry_id}")
@@ -572,7 +582,10 @@ def zeit(entry_id: int, db: Session = Depends(get_db), user=Depends(verify_admin
     rows = _q(db, f"{_ZEIT_SELECT} WHERE t.id = :i", i=entry_id)
     if not rows:
         raise HTTPException(404, "Buchung nicht gefunden")
-    return _zeile(rows[0])
+    z = _zeile(rows[0])
+    zu = _gesperrte_monate(db)
+    z["gesperrt"] = z["datum"][:7] in zu or (z["gehen_datum"] or "")[:7] in zu
+    return z
 
 
 def _pruefe_zeiten(data):

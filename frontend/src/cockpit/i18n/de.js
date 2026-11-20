@@ -131,7 +131,7 @@ export default {
     pruef_hint: 'Zeile anklicken zum Korrigieren', pruef_off: 'Filter aufheben',
     pruef_empty_title: 'Nichts zu korrigieren', pruef_empty: 'Für diesen Prüfpunkt gibt es im laufenden Monat keine Einträge.',
     hours: 'Std.', way: 'Weg', hint: 'Hinweis', filter: 'Filtern …', only_hints: 'Nur mit Hinweis', empty_title: 'Keine Einträge',
-    empty: 'Im gewählten Zeitraum gibt es keine Buchungen.', sum: '{n} Einträge · {h} Std.', week: '7 Tage', month: 'Monat',
+    empty: 'Im gewählten Zeitraum gibt es keine Buchungen.', sum: '{n} Einträge · {h} Std.', week: '7 Tage', month: 'Monat', locked: 'Dieser Monat ist abgeschlossen. Ändern geht erst nach „Wieder öffnen“ mit Super-PIN im Monatsabschluss.', locked_short: 'Monat abgeschlossen',
     approvals: 'Genehmigungen (klassisch)', edit: 'Buchung bearbeiten', add_for_shift: 'Buchung für diese Schicht anlegen' },
   ab: { title: 'Monatsabschluss', subtitle: 'Prüfen · Lexware · Lohnabrechnungen · Versand – ein Ablauf statt PC-Skript', steps: 'Schritte',
     proto: 'Lohn-Mails gehen aus {von} (Kopie in „Gesendete Elemente“, Antworten der Mitarbeiter landen dort). Im Testmodus geht alles an die Test-Adresse statt an die Mitarbeiter.',
