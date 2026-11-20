@@ -402,7 +402,7 @@ function Versand({ monat, data, toast, reload }) {
           <div data-absender>{t('ab.weg', { von: weg.absender || 'lohn@seda.de', name: weg.absender_name || '', antwort: weg.antwort_an || weg.absender || '' })}{!weg.konfiguriert && <b> {t('ab.weg_fehlt')}</b>}</div>
           <Absender ein={ein} einstellen={einstellen} />
           {!weg.konfiguriert && test && <div data-testweg>{t('ab.testweg', { weg: weg.weg || '' })}
-            {weg.weg_test === 'datei_test' && prot?.versand?.some((r) => r.status === 'test') && <> · <a href="#" onClick={(e) => { e.preventDefault(); laden(`/abschluss/${monat}/testversand.zip`, `Testversand_${monat}.zip`); }} data-eml>{t('ab.eml_laden')}</a></>}</div>}
+</div>}
           <label className="ab-la-check" style={{ marginTop: 6 }}>
             <input type="checkbox" checked={test} data-testmodus onChange={(e) => einstellen({ testmodus: e.target.checked })} disabled={!weg.echt_erlaubt && test} />
             {t('ab.testmodus')}</label>
@@ -419,6 +419,9 @@ function Versand({ monat, data, toast, reload }) {
         {!bereit && v.data && <div className="ck-callout"><AlertTriangle size={18} />{t('ab.send_notready', { n: v.data.gesamt - v.data.bereit })}</div>}
         <button className="ck-btn ck-btn-primary ab-big" disabled={!bereit || !!busy || !kannSenden} onClick={() => setFrage(true)} data-versenden>
           <Send size={18} />{busy === 'alle' ? t('ab.sending') : t(test ? 'ab.send_btn_test' : 'ab.send_btn', { n: v.data?.gesamt ?? '' })}</button>
+        {test && weg.weg_test === 'datei_test' && prot?.versand?.some((r) => r.status === 'test') &&
+          <button className="ck-btn ab-big" style={{ marginLeft: 10 }} onClick={() => laden(`/abschluss/${monat}/testversand.zip`, `Testversand_${monat}.zip`)} data-eml>
+            <Download size={18} />{t('ab.eml_laden')}</button>}
       </>}
 
       {vorschauMa.length > 0 && <div className="ck-table-wrap" style={{ marginTop: 16 }}><table className="ck-table" data-je-ma>

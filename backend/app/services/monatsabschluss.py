@@ -771,9 +771,14 @@ def dokument_loeschen(db, y, m, dok_id):
 
 # ------------------------------------------------------------------ Schritt 4: Vorschau je MA
 
-def anrede(vorname, gender):
+def anrede(vorname, nachname, gender):
+    """Alle MA per Sie (Drazen 21.11.): Frau/Herr aus den Stammdaten, ohne Geschlecht mit vollem Namen."""
     g = (gender or "").upper()
-    return f"Liebe {vorname}" if g in ("W", "F") else f"Lieber {vorname}" if g == "M" else f"Hallo {vorname}"
+    if g in ("W", "F"):
+        return f"Guten Tag Frau {nachname}"
+    if g == "M":
+        return f"Guten Tag Herr {nachname}"
+    return f"Guten Tag {vorname} {nachname}"
 
 
 def vorschau(db, y, m):
@@ -781,7 +786,7 @@ def vorschau(db, y, m):
     je = {}
     for d in docs:
         je.setdefault(d["employee_id"], []).append(d)
-    info = {r["id"]: r for r in _q(db, """SELECT e.id, e.first_name, e.gender, u.email FROM employees e
+    info = {r["id"]: r for r in _q(db, """SELECT e.id, e.first_name, e.last_name, e.gender, u.email FROM employees e
                                           LEFT JOIN users u ON u.id = e.user_id""")}
     out = []
     for r in lohnzeilen(db, y, m):
@@ -789,7 +794,9 @@ def vorschau(db, y, m):
             continue
         i = info[r["employee_id"]]
         d = je.get(r["employee_id"], [])
-        anh = [{"art": x["art"], "datei": x["dateiname"]} for x in sorted(d, key=lambda x: ["lohnabrechnung", "zeitnachweis", "km"].index(x["art"]))]
+        anh = [{"art": x["art"], "datei": x["dateiname"]} for x in sorted(d, key=lambda x: ["lohnabrechnung", "zeitnachweis", "km"].index(x["art"]))
+               if not (x["art"] == "km" and r["personal_nr"] in OHNE_KM_ANHANG)]
+        mit_km = any(x["art"] == "km" for x in anh)
         fehlt = []
         if not any(x["art"] == "lohnabrechnung" for x in d):
             fehlt.append("Lohnabrechnung")
@@ -799,8 +806,9 @@ def vorschau(db, y, m):
         if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", mail, re.I):
             fehlt.append("Mail-Adresse")
         out.append({"employee_id": r["employee_id"], "personal_nr": r["personal_nr"], "name": r["name"], "email": mail or None,
-                    "anrede": anrede(i["first_name"], i["gender"]), "betreff": betreff(y, m),
-                    "text": mailtext(i["first_name"], i["gender"], y, m), "anhaenge": anh, "fehlt": fehlt,
+                    "anrede": anrede(i["first_name"], i["last_name"], i["gender"]), "betreff": betreff(y, m),
+                    "text": mailtext(i["first_name"], i["last_name"], i["gender"], y, m, mit_km),
+                    "html": mailhtml(i["first_name"], i["last_name"], i["gender"], y, m, mit_km), "anhaenge": anh, "fehlt": fehlt,
                     "ohne_km": r["personal_nr"] in OHNE_KM_ANHANG, "bereit": not fehlt})
     lose = [dict(x) for x in _q(db, """SELECT id, dateiname FROM monatsabschluss_dokument WHERE monat = :k AND art = 'lohnabrechnung'
                                        AND employee_id IS NULL""", k=monat_key(y, m))]
@@ -809,13 +817,48 @@ def vorschau(db, y, m):
 
 
 def betreff(y, m):
-    return f"SEDA24 – deine Lohnabrechnung {MONATE[m]} {y}"
+    return f"Ihre Lohnabrechnung {MONATE[m]} {y}"
 
 
-def mailtext(vorname, gender, y, m):
-    return (f"{anrede(vorname, gender)},\n\nanbei deine Lohnabrechnung für {MONATE[m]} {y} mit Zeitnachweis"
-            f" (und Kilometer-Nachweis, falls du gefahren bist).\nBei Fragen melde dich gern bei uns.\n\n"
-            f"Viele Grüße\nDein SEDA24-Team")
+SIGNATUR = ["SEDA24 Lohnbuchhaltung", "Seda Consulting GmbH", "Zeppelinstr. 42, 76571 Gaggenau",
+            "Tel. +49 (0) 72 25 - 180 49 70", "lohn@seda.de · www.seda24.de", "Amtsgericht Mannheim, HRB 739405"]
+DISCLAIMER = ("HAFTUNGSAUSSCHLUSS: Diese E-Mail-Nachricht, einschließlich aller Anhänge, ist ausschließlich für den/die "
+              "beabsichtigten Empfänger bestimmt und kann vertrauliche und privilegierte Informationen enthalten, die "
+              "gesetzlich geschützt sind. Jede unbefugte Überprüfung, Verwendung oder Verbreitung ist untersagt. Wenn Sie "
+              "nicht der beabsichtigte Empfänger sind, wenden Sie sich bitte per Antwort-E-Mail an den Absender und "
+              "vernichten Sie alle Kopien der ursprünglichen Nachricht.")
+
+
+def _mail_absaetze(vorname, nachname, gender, y, m, mit_km):
+    satz = f"im Anhang finden Sie Ihre Lohnabrechnung für {MONATE[m]} {y} und Ihren Zeitnachweis."
+    if mit_km:
+        satz += " Ihr Kilometer-Nachweis liegt ebenfalls bei."
+    return [f"{anrede(vorname, nachname, gender)},", satz, "Wenn Ihnen etwas unklar ist, antworten Sie einfach auf diese E-Mail."]
+
+
+def mailtext(vorname, nachname, gender, y, m, mit_km):
+    """Text-Teil der Lohn-Mail (Sie-Form, Signatur, Haftungsausschluss)."""
+    return ("\n\n".join(_mail_absaetze(vorname, nachname, gender, y, m, mit_km)) + "\n\nMit freundlichen Grüßen\n\n"
+            + "\n".join(SIGNATUR) + "\n\n" + DISCLAIMER)
+
+
+def mailhtml(vorname, nachname, gender, y, m, mit_km, vorspann=""):
+    """HTML-Teil: schlicht, Signatur in Navy, Haftungsausschluss klein grau (kein Bild, kein Personenname)."""
+    from html import escape
+    font = "font-family:Arial,Helvetica,sans-serif;"
+    teile = [f'<p style="{font}font-size:14px;color:#b45309;"><b>{escape(vorspann)}</b></p>'] if vorspann else []
+    teile += [f'<p style="{font}font-size:14px;color:#1f2937;margin:0 0 14px;">{escape(a)}</p>'
+              for a in _mail_absaetze(vorname, nachname, gender, y, m, mit_km)]
+    teile.append(f'<p style="{font}font-size:14px;color:#1f2937;margin:0 0 14px;">Mit freundlichen Grüßen</p>')
+    link = 'style="color:#1E537C;text-decoration:none;"'
+    zeilen = [f"<b>{escape(SIGNATUR[0])}</b>", escape(SIGNATUR[1]), escape(SIGNATUR[2]),
+              f'Tel. <a href="tel:+4972251804970" {link}>+49 (0) 72 25 - 180 49 70</a>',
+              f'<a href="mailto:lohn@seda.de" {link}>lohn@seda.de</a> · <a href="https://www.seda24.de" {link}>www.seda24.de</a>',
+              escape(SIGNATUR[5])]
+    teile.append(f'<p style="{font}font-size:13px;color:#1E537C;line-height:1.45;margin:0 0 14px;">' + "<br>".join(zeilen) + "</p>")
+    teile.append(f'<p style="{font}font-size:10px;color:#8a8f98;line-height:1.35;margin:0;">{escape(DISCLAIMER)}</p>')
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:16px;">'
+            + "".join(teile) + "</body></html>")
 
 
 # ------------------------------------------------------------------ Schritt 5: versenden + sperren
@@ -837,6 +880,11 @@ def _anhaenge(db, y, m, eid, pnr):
     return out
 
 
+def _esc(t):
+    from html import escape
+    return escape(t)
+
+
 def _senden(db, y, m, user_id, mas):
     """Schickt die Mails fuer die Vorschau-Eintraege mas mit EINER Anmeldung. Status je MA sofort gespeichert."""
     from app.services import lohnversand as lv
@@ -853,12 +901,15 @@ def _senden(db, y, m, user_id, mas):
             an_ma = x["email"]
             an = einst["test_an"] if test else an_ma
             betreff = (f"[TEST – an {x['name']} <{an_ma}>] " if test else "") + x["betreff"]
-            koerper = (f"TESTMODUS – diese Mail ginge an: {x['name']} <{an_ma}>\n\n" if test else "") + x["text"]
+            vorspann = f"TESTMODUS – diese Mail ginge an: {x['name']} <{an_ma}>" if test else ""
+            koerper = (vorspann + "\n\n" if test else "") + x["text"]
+            html = x.get("html") and x["html"].replace('<body style="margin:0;padding:16px;">', '<body style="margin:0;padding:16px;">'
+                                     + (f'<p style="font-family:Arial,sans-serif;font-size:14px;color:#b45309;"><b>{_esc(vorspann)}</b></p>' if test else ""), 1)
             status, fehler, namen = ("test" if test else "gesendet"), None, []
             try:
                 anh = _anhaenge(db, y, m, x["employee_id"], x["personal_nr"])
                 namen = [n for n, _ in anh]
-                conn.senden(lv.nachricht(an, betreff, koerper, anh, absender))
+                conn.senden(lv.nachricht(an, betreff, koerper, anh, absender, html=html))
                 ergebnis["gesendet"] += 1
             except Exception as e:      # ein MA bricht den Lauf nicht ab
                 status, fehler = "fehler", f"{type(e).__name__}: {str(e)[:200]}"

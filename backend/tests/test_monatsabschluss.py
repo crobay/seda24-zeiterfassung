@@ -44,8 +44,9 @@ def test_nur_admin(client, db):
 def test_ueberspringen_und_anrede():
     assert ma.ueberspringen("A0001", False) and ma.ueberspringen("TEST01", False) and ma.ueberspringen("D0040", True)
     assert not ma.ueberspringen("D0040", False)
-    assert ma.anrede("Lara", "W") == "Liebe Lara" and ma.anrede("Ruzica", "F") == "Liebe Ruzica"
-    assert ma.anrede("Matej", "M") == "Lieber Matej" and ma.anrede("Kim", None) == "Hallo Kim"
+    assert ma.anrede("Lara", "Hardt-Fabrizis", "W") == "Guten Tag Frau Hardt-Fabrizis"
+    assert ma.anrede("Ruzica", "Sertic", "F") == "Guten Tag Frau Sertic"
+    assert ma.anrede("Matej", "Stjepic", "M") == "Guten Tag Herr Stjepic" and ma.anrede("Kim", "Lee", None) == "Guten Tag Kim Lee"
 
 
 def test_haken_erst_wenn_gruen(client, db, monkeypatch):
@@ -136,7 +137,7 @@ def test_upload_vorschau_versand_sperre(client, db, monkeypatch):
     assert r["neu"] == 0 and r["doppelt"] == 1                                             # gleicher Inhalt nicht doppelt
     v = client.get(f"{API}/2026-10/vorschau", headers=h).json()
     lv = next(x for x in v["mitarbeiter"] if x["employee_id"] == lara)
-    assert lv["anrede"] == "Liebe Lara" and "Oktober 2026" in lv["betreff"] and "Zeitnachweis" in lv["fehlt"]
+    assert lv["anrede"] == "Guten Tag Frau Hardt-Fabrizis" and "Oktober 2026" in lv["betreff"] and "Zeitnachweis" in lv["fehlt"]
     assert len(v["nicht_zugeordnet"]) == 1 and all(not x["personal_nr"].startswith("A") for x in v["mitarbeiter"])
     assert next((x for x in v["mitarbeiter"] if x["personal_nr"] == "D0002"), {"ohne_km": True})["ohne_km"]
     # Versand: nur wenn alles gruen und bereit -> sonst 409

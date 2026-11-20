@@ -174,14 +174,16 @@ def einstellungen_speichern(db, werte: dict, user_id):
     return neu
 
 
-def nachricht(an, betreff, textkoerper, anhaenge, absender=None):
-    """Graph-Message (JSON). anhaenge: [(dateiname, pfad)]; absender = absender_von(...) -> From + Antworten-an."""
+def nachricht(an, betreff, textkoerper, anhaenge, absender=None, html=None):
+    """Graph-Message (JSON). anhaenge: [(dateiname, pfad)]; absender = absender_von(...) -> From + Antworten-an.
+    Mit html: Graph bekommt den HTML-Teil, die .eml/SMTP-Mail beide Teile (Text + HTML, "_text" wird vor Graph entfernt)."""
     files = []
     from app.services.lohnablage import lesen
     for name, pfad in anhaenge:
         files.append({"@odata.type": "#microsoft.graph.fileAttachment", "name": name, "contentType": "application/pdf",
                       "contentBytes": base64.b64encode(lesen(pfad)).decode()})
-    return {"subject": betreff, "body": {"contentType": "Text", "content": textkoerper},
+    return {"subject": betreff, "body": {"contentType": "HTML", "content": html} if html else {"contentType": "Text", "content": textkoerper},
+            **({"_text": textkoerper} if html else {}),
             "toRecipients": [{"emailAddress": {"address": an}}], "attachments": files,
             **({"from": {"emailAddress": {"address": absender["adresse"], "name": absender["name"]}},
                 "replyTo": [{"emailAddress": {"address": absender["antwort_an"]}}]} if absender else {})}
@@ -205,6 +207,7 @@ class Versand:
         self._http.headers["Authorization"] = "Bearer " + r.json()["access_token"]
 
     def senden(self, msg):
+        msg = {k: v for k, v in msg.items() if not k.startswith("_")}
         r = self._http.post(f"{GRAPH}/users/{self.absender}/sendMail", json={"message": msg, "saveToSentItems": True}, timeout=60)
         if r.status_code != 202:
             raise RuntimeError(f"Microsoft Graph HTTP {r.status_code}: {_fehlertext(r)}")
@@ -269,7 +272,8 @@ class DateiVersand:
         self.n += 1
         an = re.sub(r"[^A-Za-z0-9.@_-]", "_", msg["toRecipients"][0]["emailAddress"]["address"])
         name = re.sub(r"[^A-Za-z0-9_-]", "_", msg["subject"].split("] ")[0].replace("[TEST – an ", ""))[:60]
-        schreiben(os.path.join(self.ordner, f"{self.n:02d}_{name}_{an}.eml"), eml(msg, self.absender).as_bytes())
+        from email import policy
+        schreiben(os.path.join(self.ordner, f"{self.n:02d}_{name}_{an}.eml"), eml(msg, self.absender).as_bytes(policy=policy.SMTP))
 
     def schliessen(self):
         pass
@@ -287,7 +291,13 @@ def eml(msg, absender):
     e["To"] = msg["toRecipients"][0]["emailAddress"]["address"]
     e["Subject"] = msg["subject"]
     e["Date"] = formatdate(localtime=True)
-    e.set_content(msg["body"]["content"])
+    # Sauberes UTF-8 (Drazen 21.11.: "Kilome=er"): Text und HTML base64-kodiert statt quoted-printable,
+    # .eml mit CRLF (policy.SMTP) - so bricht kein Mailprogramm Umlaute oder Zeilen falsch um.
+    if msg["body"]["contentType"] == "HTML":
+        e.set_content(msg.get("_text") or "", charset="utf-8", cte="base64")
+        e.add_alternative(msg["body"]["content"], subtype="html", charset="utf-8", cte="base64")
+    else:
+        e.set_content(msg["body"]["content"], charset="utf-8", cte="base64")
     for a in msg.get("attachments", []):
         e.add_attachment(base64.b64decode(a["contentBytes"]), maintype="application", subtype="pdf", filename=a["name"])
     return e

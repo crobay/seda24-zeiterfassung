@@ -158,7 +158,7 @@ export default {
     testweg: 'Für den Test: {weg}.', lex_als: 'Nur Importdatei als {m} (Testfirma)',
     ms_eintragen: 'Microsoft-Zugang eintragen', ms_neu: 'Zugang ersetzen', ms_test: 'Verbindung testen (ohne Mail)', ms_saved: 'Microsoft-Zugang gespeichert',
     ms_da: 'Microsoft-Zugang eingetragen ({am}, Anwendungs-ID …{id}).', ms_tenant: 'Verzeichnis-ID (Mandant)', ms_client: 'Anwendungs-ID (Client)', ms_secret: 'Geheimer Clientschlüssel – Wert',
-    ms_hint: 'Wird nur auf dem Server gespeichert und nie wieder angezeigt – nicht in Chat oder Mail weitergeben.', eml_laden: 'Testmails herunterladen (.eml, in Outlook öffnen)',
+    ms_hint: 'Wird nur auf dem Server gespeichert und nie wieder angezeigt – nicht in Chat oder Mail weitergeben.', eml_laden: 'Testmails herunterladen (.eml)',
     up_stand: '{n} von {m} Lohnabrechnungen da', drop: 'Dateien hierher ziehen oder klicken', drop_sub: 'PDF oder ZIP, gleiche Dateien werden nicht doppelt gespeichert',
     up_done: '{n} Lohnabrechnung(en) hochgeladen, {d} doppelt übersprungen', up_missing: 'Noch ohne Lohnabrechnung', c_datei: 'Datei', c_ma: 'Mitarbeiter', c_wie: 'Zuordnung',
     pick: 'Mitarbeiter wählen …', wie_persnr: 'über PersNr', wie_name: 'über Namen', wie_nachname: 'über Nachnamen', wie_hand: 'von Hand', wie_offen: 'nicht zugeordnet', del: 'Datei entfernen',
