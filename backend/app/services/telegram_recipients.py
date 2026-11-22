@@ -17,11 +17,13 @@ CAT_GENEHMIGUNGEN = "genehmigungen"
 CAT_STEMPEL = "stempel"
 CAT_ABWESENHEIT = "abwesenheit"
 CAT_SONSTIGES = "sonstiges"
+CAT_MATERIAL = "material"
 
 CATEGORIES = [
     (CAT_GENEHMIGUNGEN, "Genehmigungen", "Mehrzeit, Nachtrag, Korrektur, offene Genehmigungen 9 Uhr"),
     (CAT_STEMPEL, "Nicht gestempelt / Überfällig", "Fehlende Stempel, überfällige Stempel, 48h ohne Antwort"),
     (CAT_ABWESENHEIT, "Urlaub, Tausch, Krankmeldung, Absage", "Urlaubsanträge, Tauschanfragen, Krankmeldungen, Ausfälle"),
+    (CAT_MATERIAL, "Materialmeldungen", "Neue Materialmeldung der MA, Erinnerung 08:00 bei offenen Meldungen"),
     (CAT_SONSTIGES, "Sonstiges", "Nachrichten, verspätete Stempelung, Schichtabfrage-Antworten, Monatskorrektur"),
 ]
 CATEGORY_KEYS = [c[0] for c in CATEGORIES]

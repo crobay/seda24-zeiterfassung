@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Sun, CalendarDays, CalendarCog, Users, Building2, Clock3, Wallet, ClipboardCheck, Settings, Search, Moon, LogOut, LayoutGrid, User, CornerDownLeft } from 'lucide-react';
+import { Sun, CalendarDays, CalendarCog, Users, Building2, Clock3, Wallet, ClipboardCheck, Settings, Package, Search, Moon, LogOut, LayoutGrid, User, CornerDownLeft } from 'lucide-react';
 import { api, t, useApp, initials, ObjektMarke } from './core';
 
 export const NAV = [
@@ -12,6 +12,7 @@ export const NAV = [
   { key: 'zeiten', path: '/cockpit/zeiten', Icon: Clock3 },
   { key: 'abrechnung', path: '/cockpit/abrechnung', Icon: Wallet, right: 'verwalten' },
   { key: 'abschluss', path: '/cockpit/abschluss', Icon: ClipboardCheck, right: 'abschluss' },
+  { key: 'material', path: '/cockpit/material', Icon: Package, right: 'material' },
   { key: 'einstellungen', path: '/cockpit/einstellungen', Icon: Settings, right: 'verwalten' },
 ];
 const MOBILE = ['heute', 'dienstplan', 'mitarbeiter', 'zeiten'];

@@ -604,3 +604,11 @@
 .ck-tag.tone-warn { background: var(--ck-warn-soft); color: var(--ck-warn); border-color: transparent; }
 .ck-tag.tone-bad { background: #fee2e2; color: #b91c1c; border-color: transparent; }
 .ab-nach s { color: var(--ck-text-2); }
+
+/* Materialmeldungen */
+.ck-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.mat-artikel-zeile { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+.mat-artikel-zeile .ck-input { flex: 1; }
+.mat-tabelle td { white-space: normal; vertical-align: top; }
+.mat-tabelle td.mat-aktionen { white-space: normal; min-width: 150px; }
+.mat-tabelle td.mat-aktionen .ck-btn { margin: 0 6px 6px 0; }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { LogOut, Play, Square, Pause, Building, User, Clock, Calendar, Star, CheckCircle, AlertCircle, Gauge, Users, PlayCircle, ChevronsRight, Shield, UserCheck, Info, Home, History, Car, Menu, X as CloseIcon, Mail, Send, Lock, HelpCircle } from 'lucide-react';
+import { LogOut, Play, Square, Pause, Building, User, Clock, Calendar, Star, CheckCircle, AlertCircle, Gauge, Users, PlayCircle, ChevronsRight, Shield, UserCheck, Info, Home, History, Car, Menu, X as CloseIcon, Mail, Send, Lock, HelpCircle, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config.js';
 import HistoryTab from "../components/HistoryTab";
@@ -11,12 +11,19 @@ import NachrichtenTab from "../components/NachrichtenTab";
 import SelbstbuchungTab from "../components/SelbstbuchungTab";
 import Bie2Stempeluhr from "../components/Bie2Stempeluhr";
 import DienstplanTab from "../components/DienstplanTab";
+import MaterialTab from "../components/MaterialTab";
 import { getPendingNotifications } from '../services/pushService';
 import { saveCObjects, loadCachedCObjects, saveTodayShifts, loadCachedTodayShifts } from '../services/cObjectsCache';
 
 const Dashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [activeTab, setActiveTab] = useState('stempeluhr');
+  // Materialmeldung: Knopf nur, wenn heute/morgen Dienst (Server prueft das auch); 404 = auf dem Server aus
+  const [materialObjekte, setMaterialObjekte] = useState(0);
+  const ladeMaterial = () => axios.get(`${API_URL}/material/meine`, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || sessionStorage.getItem('token')}` } })
+    .then((r) => setMaterialObjekte(r.data.objekte.length + (r.data.meldungen.some((m) => m.status !== 'erledigt') ? 0.5 : 0)))
+    .catch(() => setMaterialObjekte(0));
+  useEffect(() => { ladeMaterial(); }, []); // eslint-disable-line
   const [isWorking, setIsWorking] = useState(false);
   const [workStartTime, setWorkStartTime] = useState(null);
   const [todayHours, setTodayHours] = useState(0);
@@ -789,8 +796,8 @@ const Dashboard = () => {
               border: 'none',
               padding: '8px',
               cursor: 'pointer',
-              color: showMoreMenu || ['urlaub', 'schichtaenderung', 'selbstbuchung'].includes(activeTab) ? '#1e3a5f' : '#666',
-              fontWeight: showMoreMenu || ['urlaub', 'schichtaenderung', 'selbstbuchung'].includes(activeTab) ? 'bold' : 'normal'
+              color: showMoreMenu || ['urlaub', 'schichtaenderung', 'selbstbuchung', 'material'].includes(activeTab) ? '#1e3a5f' : '#666',
+              fontWeight: showMoreMenu || ['urlaub', 'schichtaenderung', 'selbstbuchung', 'material'].includes(activeTab) ? 'bold' : 'normal'
             }}
           >
             <Menu size={24} />
@@ -921,6 +928,34 @@ const Dashboard = () => {
                 <Clock size={24} />
                 Schichtaenderung
               </button>
+
+              {materialObjekte > 0 && (
+              <button
+                data-menu-material
+                onClick={() => {
+                  setActiveTab('material');
+                  setShowMoreMenu(false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  marginTop: '12px',
+                  backgroundColor: activeTab === 'material' ? '#1e3a5f' : '#f8f9fa',
+                  color: activeTab === 'material' ? 'white' : '#333',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}
+              >
+                <Package size={24} />
+                Material melden
+              </button>
+              )}
 
               <button
                 onClick={() => {
@@ -1345,6 +1380,8 @@ const Dashboard = () => {
               <ShiftChangeForm />
             ) : activeTab === 'nachrichten' ? (
               <NachrichtenTab />
+            ) : activeTab === 'material' ? (
+              <MaterialTab />
             ) : null}
           </div>
 
@@ -1790,6 +1827,8 @@ const Dashboard = () => {
               <NachrichtenTab />
             ) : activeTab === 'selbstbuchung' ? (
               <SelbstbuchungTab />
+            ) : activeTab === 'material' ? (
+              <MaterialTab />
             ) : null}
 
             {/* Bie2 Stempeluhr fuer C-Zuweisungen */}
@@ -2135,6 +2174,8 @@ const Dashboard = () => {
             <NachrichtenTab />
           ) : activeTab === 'selbstbuchung' ? (
             <SelbstbuchungTab />
+          ) : activeTab === 'material' ? (
+            <MaterialTab />
           ) : null}
 
         </div>

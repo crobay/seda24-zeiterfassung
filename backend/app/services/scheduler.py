@@ -185,8 +185,32 @@ def init_scheduler():
             max_instances=1,
         )
 
+    # Job 17: Materialmeldungen - offen seit ueber 24 Std. -> Telegram-Erinnerung jeden Morgen 08:00 (bis erledigt)
+    if features.an("MATERIAL"):
+        scheduler.add_job(
+            material_erinnerung,
+            CronTrigger(hour=8, minute=0),
+            id='material_erinnerung',
+            replace_existing=True,
+            max_instances=1,
+        )
+
     scheduler.start()
     logger.info(f"APScheduler gestartet mit {len(scheduler.get_jobs())} Jobs (Monatsbestaetigung abgeschaltet)")
+
+
+def material_erinnerung():
+    """Job 17: offene Materialmeldungen (> 24 Std.) als Telegram-Sammelmeldung (services/material.py)."""
+    from app.services import material
+    db = SessionLocal()
+    try:
+        r = material.erinnerung(db)
+        logger.info(f"Material-Erinnerung: {r['erinnert']} offene Meldungen")
+    except Exception as e:
+        logger.error(f"Material-Erinnerung fehlgeschlagen: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 def shutdown_scheduler():

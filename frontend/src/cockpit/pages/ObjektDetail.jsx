@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2, Users, CalendarDays, Timer, Pencil, Info, Car, Plus, Euro, MapPin, ImagePlus, Trash2, Check, Wand2 } from 'lucide-react';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, Skeleton, SkeletonRows, Empty, ErrorBox, ObjektMarke } from '../core';
+import MaterialObjekt from './MaterialObjekt';
 import { SchichtDialog } from './Dienstplan';
 import { KmEingabe } from './Objekte';
 
@@ -184,6 +185,7 @@ export default function ObjektDetail() {
       </div>
 
       {s && me?.rechte?.objekt_logo && <MarkeKarte id={Number(id)} name={s.name} />}
+      {s && me?.rechte?.material && <MaterialObjekt id={Number(id)} />}
 
       <div className="ck-two">
         <div className="ck-grid" style={{ gap: 24 }}>

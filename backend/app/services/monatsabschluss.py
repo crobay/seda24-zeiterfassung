@@ -820,25 +820,12 @@ def betreff(y, m):
     return f"Ihre Lohnabrechnung {MONATE[m]} {y}"
 
 
-SIGNATUR = ["SEDA24 Lohnbuchhaltung", "Seda Consulting GmbH", "Tel. +49 (0) 72 25 - 180 49 70", "lohn@seda.de",
-            "www.seda24.de", "Zeppelinstr. 42, 76571 Gaggenau", "Amtsgericht Mannheim, HRB 739405"]
-DISCLAIMER = ("HAFTUNGSAUSSCHLUSS: Diese E-Mail-Nachricht, einschließlich aller Anhänge, ist ausschließlich für den/die "
-              "beabsichtigten Empfänger bestimmt und kann vertrauliche und privilegierte Informationen enthalten, die "
-              "gesetzlich geschützt sind. Jede unbefugte Überprüfung, Verwendung oder Verbreitung ist untersagt. Wenn Sie "
-              "nicht der beabsichtigte Empfänger sind, wenden Sie sich bitte per Antwort-E-Mail an den Absender und "
-              "vernichten Sie alle Kopien der ursprünglichen Nachricht.")
-# Signatur-Bilder (app/assets/lohnmail, als CID eingebettet - kein externer Abruf): cid -> Datei
-SIG_BILDER = {"logo": "logo.png", "tel": "tel.png", "mail": "mail.png", "web": "web.png", "pin": "pin.png", "recht": "recht.png"}
-SIG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "lohnmail")
+LOHN_TITEL, LOHN_MAIL = "SEDA24 Lohnbuchhaltung", "lohn@seda.de"
 
 
 def sig_bilder():
-    """[(content_id, dateiname, bytes)] fuer die eingebetteten Signatur-Bilder."""
-    out = []
-    for cid, datei in SIG_BILDER.items():
-        with open(os.path.join(SIG_DIR, datei), "rb") as f:
-            out.append((f"{cid}@seda24", f"sig_{datei}", f.read()))
-    return out
+    from app.services import mail_signatur
+    return mail_signatur.bilder()
 
 
 def _mail_absaetze(vorname, nachname, gender, y, m, mit_km):
@@ -850,46 +837,16 @@ def _mail_absaetze(vorname, nachname, gender, y, m, mit_km):
 
 def mailtext(vorname, nachname, gender, y, m, mit_km):
     """Text-Teil der Lohn-Mail (Sie-Form, Signatur, Haftungsausschluss)."""
+    from app.services import mail_signatur
     return ("\n\n".join(_mail_absaetze(vorname, nachname, gender, y, m, mit_km)) + "\n\nMit freundlichen Grüßen\n\n"
-            + "\n".join(SIGNATUR) + "\n\n" + DISCLAIMER)
+            + mail_signatur.text(LOHN_TITEL, LOHN_MAIL))
 
 
 def mailhtml(vorname, nachname, gender, y, m, mit_km, vorspann=""):
-    """HTML-Teil im Stil von Drazens Outlook-Signatur (ohne Foto, ohne Personenname): Tabelle mit schmaler hellblauer
-    Linie links, Logo, Name/Firma, Zeilen mit Icons (CID-Bilder, siehe sig_bilder), Haftungsausschluss klein grau.
-    Nur Tabellen + Inline-Styles + width/height-Attribute, damit Outlook (auch Dunkelmodus) und Gmail es gleich zeigen."""
-    from html import escape
-    f = "font-family:Arial,Helvetica,sans-serif;"
-    navy, hell, ink, grau = "#1E537C", "#8EC1E6", "#1C2B38", "#8A8F98"
-    teile = [f'<p style="{f}font-size:14px;color:#b45309;margin:0 0 14px;"><b>{escape(vorspann)}</b></p>'] if vorspann else []
-    teile += [f'<p style="{f}font-size:14px;line-height:1.45;color:{ink};margin:0 0 14px;">{escape(a)}</p>'
-              for a in _mail_absaetze(vorname, nachname, gender, y, m, mit_km)]
-    teile.append(f'<p style="{f}font-size:14px;color:{ink};margin:0 0 16px;">Mit freundlichen Grüßen</p>')
-    a_stil = f'style="{f}color:{navy};text-decoration:none;"'
-    zeilen = [("tel", f'<a href="tel:+4972251804970" {a_stil}>+49 (0) 72 25 - 180 49 70</a>'),
-              ("mail", f'<a href="mailto:lohn@seda.de" {a_stil}>lohn@seda.de</a>'),
-              ("web", f'<a href="https://www.seda24.de" {a_stil}>www.seda24.de</a>'),
-              ("pin", "Zeppelinstr. 42<br>76571 Gaggenau"),
-              ("recht", "Amtsgericht Mannheim<br>HRB: 739405")]
-    reihen = "".join(
-        f'<tr><td width="18" valign="top" style="width:18px;padding:0 8px 6px 0;">'
-        f'<img src="cid:{cid}@seda24" width="18" height="18" alt="" style="display:block;width:18px;height:18px;border:0;"></td>'
-        f'<td valign="middle" style="{f}font-size:12px;line-height:16px;color:{ink};padding:1px 0 6px 0;">{inhalt}</td></tr>'
-        for cid, inhalt in zeilen)
-    teile.append(
-        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 16px;">'
-        f'<tr><td width="3" bgcolor="{hell}" style="width:3px;min-width:3px;background-color:{hell};font-size:1px;line-height:1px;">&nbsp;</td>'
-        '<td width="14" style="width:14px;font-size:1px;line-height:1px;">&nbsp;</td>'
-        '<td valign="top" style="padding:2px 0;">'
-        '<img src="cid:logo@seda24" width="120" height="40" alt="SEDA24" style="display:block;width:120px;height:40px;border:0;margin:0 0 10px;">'
-        f'<div style="{f}font-size:15px;line-height:19px;font-weight:bold;color:{navy};">SEDA24 Lohnbuchhaltung</div>'
-        f'<div style="{f}font-size:13px;line-height:18px;color:{ink};margin:0 0 10px;">Seda Consulting GmbH</div>'
-        f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">{reihen}</table>'
-        '</td></tr></table>')
-    teile.append(f'<p style="{f}font-size:9px;line-height:12px;color:{grau};margin:0;max-width:600px;">{escape(DISCLAIMER)}</p>')
-    return ('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">'
-            '<meta name="supported-color-schemes" content="light dark"></head><body style="margin:0;padding:16px;">'
-            + "".join(teile) + "</body></html>")
+    """HTML-Teil im Stil von Drazens Outlook-Signatur (services/mail_signatur.py)."""
+    from app.services import mail_signatur as ms
+    inhalt = "".join(ms.absatz(a) for a in _mail_absaetze(vorname, nachname, gender, y, m, mit_km))
+    return ms.dokument(inhalt, LOHN_TITEL, LOHN_MAIL, vorspann)
 
 
 # ------------------------------------------------------------------ Schritt 5: versenden + sperren

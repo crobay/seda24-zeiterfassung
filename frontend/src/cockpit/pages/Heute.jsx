@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Skeleton, Empty, ErrorBox, Dialog, ObjektMarke } from '../core';
 import { MinijobKarte, MargeKarte, MehrzeitKarte } from './GfKarten';
+import { MaterialKachel } from './Material';
 
 const greet = () => { const h = new Date().getHours(); return t(h < 11 ? 'greet.morning' : h < 18 ? 'greet.day' : 'greet.evening'); };
 const ATTENTION = ['fehlt', 'offen'];
@@ -132,6 +133,7 @@ export default function Heute() {
         </section>
 
         <div className="ck-stack span-5 m5">
+          {me?.rechte?.material && <MaterialKachel />}
           <MargeKarte rows={ls.data?.marge} />
           <MinijobKarte rows={ls.data?.minijob} />
           <MehrzeitKarte d={ls.data?.mehrzeit} onReload={ls.reload} />

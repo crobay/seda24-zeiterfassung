@@ -4,6 +4,7 @@ Gesetzt in backend/.env, Standard AUS. DEV setzt alle auf 1; LIVE schaltet sie m
     COCKPIT_ABSCHLUSS=1    Monatsabschluss (Seite + /api/v1/cockpit/abschluss)        -> Etappe 2
     COCKPIT_FIXUM_JOBS=1   Scheduler: Do 18:00 Fixum-Entwurf, Fr 09:00 Plan-Erinnerung -> spaeter
     COCKPIT_OBJEKT_LOGO=1  Objekt-Logo/Kuerzel bearbeiten + gross in der Stempeluhr    -> spaeter
+    COCKPIT_MATERIAL=1     Materialmeldung (MA-App, Cockpit, Telegram, 08:00-Erinnerung) -> spaeter
 Die Monatssperre ist kein Schalter: sie wirkt erst, wenn migrations/monatssperre.sql eingespielt ist (Etappe 2).
 """
 import os
