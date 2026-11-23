@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sun, CalendarDays, CalendarCog, Users, Building2, Clock3, Wallet, ClipboardCheck, Settings, Package, Search, Moon, LogOut, LayoutGrid, User, CornerDownLeft } from 'lucide-react';
 import { api, t, useApp, initials, ObjektMarke } from './core';
+import { setKlassisch } from '../services/ansicht';
 
 export const NAV = [
   { key: 'heute', path: '/cockpit', Icon: Sun },
@@ -36,7 +37,7 @@ export default function Shell({ children }) {
   useEffect(() => { setMore(false); }, [loc]);
   useEffect(() => { if (brand) document.title = `${brand.firma} · ${t('app.subtitle')}`; }, [brand]);
 
-  const logout = () => { ['token'].forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); }); nav('/login'); };
+  const logout = () => { ['token'].forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); }); setKlassisch(false); nav('/login'); };
   const go = (p) => nav(p);
   // Mit Logo (Wortmarke aus dem Branding): Logo in voller Breite; ohne Logo: Buchstaben-Quadrat + Firmenname
   const Brand = brand?.logo_url ? (
@@ -69,7 +70,8 @@ export default function Shell({ children }) {
         ))}
         <div className="ck-sidebar-foot">
           <button className="ck-nav-item" onClick={() => setDark(!dark)}>{dark ? <Sun size={20} /> : <Moon size={20} />}{dark ? t('app.theme_light') : t('app.theme_dark')}</button>
-          <a className="ck-nav-item" href="/admin"><LayoutGrid size={20} />{t('app.classic')}</a>
+          <button className="ck-nav-item" onClick={() => nav('/dashboard')} data-stempeln><Clock3 size={20} />{t('app.stempeln')}</button>
+          <a className="ck-nav-item" href="/admin?klassisch=1" data-klassisch><LayoutGrid size={20} />{t('app.classic')}</a>
           <button className="ck-nav-item" onClick={logout}><LogOut size={20} />{t('app.logout')}</button>
         </div>
       </aside>
@@ -110,7 +112,8 @@ export default function Shell({ children }) {
               {items.filter((n) => !MOBILE.includes(n.key)).map(({ key, path, Icon }) => (
                 <button key={key} className="ck-nav-item" onClick={() => go(path)}><Icon size={20} />{t(`nav.${key}`)}</button>))}
               <button className="ck-nav-item" onClick={() => setDark(!dark)}>{dark ? <Sun size={20} /> : <Moon size={20} />}{dark ? t('app.theme_light') : t('app.theme_dark')}</button>
-              <a className="ck-nav-item" href="/admin"><LayoutGrid size={20} />{t('app.classic')}</a>
+              <button className="ck-nav-item" onClick={() => nav('/dashboard')} data-stempeln><Clock3 size={20} />{t('app.stempeln')}</button>
+          <a className="ck-nav-item" href="/admin?klassisch=1" data-klassisch><LayoutGrid size={20} />{t('app.classic')}</a>
               <button className="ck-nav-item" onClick={logout}><LogOut size={20} />{t('app.logout')}</button>
             </div>
           </div>

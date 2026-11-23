@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, Building2, Calendar, Activity, FileText, Plus, Edit2, Trash2,
   Save, X, Check, CheckCircle, AlertCircle, LogOut, Search, Download, Upload,
-  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu, Calculator, Bell, ClipboardList, Smartphone, Mail, Lock, MessageSquare, LogIn
+  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu, Calculator, Bell, ClipboardList, Smartphone, Mail, Lock, MessageSquare, LogIn, LayoutGrid
 } from 'lucide-react';
+import { setKlassisch } from '../services/ansicht';
 import ScheduleTab from "../components/ScheduleTab";
 import AbrechnungenTab from "./AbrechnungenTab";
 import KmJournalTab from "./KmJournalTab";
@@ -2289,6 +2290,16 @@ const AdminDashboard = () => {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setKlassisch(false); navigate('/cockpit'); }}
+                data-zum-cockpit
+                className="px-5 py-2 rounded-lg font-bold flex items-center gap-2 shadow hover:scale-105 transition-all"
+                style={{ backgroundColor: '#F9B233', color: '#163d5c' }}
+                title="Zur neuen Cockpit-Ansicht"
+              >
+                <LayoutGrid size={20} />
+                Zum Cockpit
+              </button>
               <button
                 onClick={() => navigate('/dashboard')}
                 className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"

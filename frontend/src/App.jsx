@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Dashboard from './pages/Dashboard';
 import { authService } from './services/api';
+import { istLeitung, klassisch, setKlassisch, leitungStart } from './services/ansicht';
 import AdminDashboard from './pages/AdminDashboard';
 import EmployeeManagement from './pages/EmployeeManagement';
 import MonthlyConfirmation from './pages/MonthlyConfirmation';
@@ -24,6 +25,19 @@ function ProtectedAdminRoute({ children }) {
   if (!isAuth) return <Navigate to="/login" />;
   if (role !== 'admin' && role !== 'objektleiter') return <Navigate to="/dashboard" />;
   return children;
+}
+
+// Alte Admin-Ansicht nur, wenn bewusst "Klassische Ansicht" gewaehlt (/admin?klassisch=1, gilt bis Abmelden)
+function KlassischRoute({ children }) {
+  if (new URLSearchParams(window.location.search).has('klassisch')) setKlassisch(true);
+  if (authService.isAuthenticated() && istLeitung() && !klassisch()) return <Navigate to="/cockpit" replace />;
+  return <ProtectedAdminRoute>{children}</ProtectedAdminRoute>;
+}
+
+// app.seda.de: Admin/Objektleitung ins Cockpit (bzw. klassisch), alle anderen zur Stempeluhr
+function StartRedirect() {
+  const ziel = authService.isAuthenticated() && istLeitung() ? leitungStart() : '/dashboard';
+  return <Navigate to={ziel} replace />;
 }
 
 function App() {
@@ -76,8 +90,8 @@ function App() {
           }
         />
         <Route path="/fest" element={<SommerfestPage />} />
-        <Route path="/" element={<Navigate to="/dashboard" />} />
-        <Route path="/admin" element={<ProtectedAdminRoute><AdminDashboard /></ProtectedAdminRoute>} />
+        <Route path="/" element={<StartRedirect />} />
+        <Route path="/admin" element={<KlassischRoute><AdminDashboard /></KlassischRoute>} />
         <Route path="/cockpit/*" element={<ProtectedAdminRoute><Suspense fallback={null}><Cockpit /></Suspense></ProtectedAdminRoute>} />
         <Route path="/employees" element={<EmployeeManagement />} />
       </Routes>

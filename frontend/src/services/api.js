@@ -44,6 +44,7 @@ export const authService = {
     localStorage.removeItem('token');
     sessionStorage.removeItem('token');
     localStorage.removeItem('user_email');
+    localStorage.removeItem('ansicht_klassisch');
     window.location.href = '/login';
   },
 

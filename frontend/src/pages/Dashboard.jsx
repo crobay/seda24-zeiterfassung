@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { leitungStart } from '../services/ansicht';
 import { LogOut, Play, Square, Pause, Building, User, Clock, Calendar, Star, CheckCircle, AlertCircle, Gauge, Users, PlayCircle, ChevronsRight, Shield, UserCheck, Info, Home, History, Car, Menu, X as CloseIcon, Mail, Send, Lock, HelpCircle, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config.js';
@@ -1271,7 +1272,7 @@ const Dashboard = () => {
               </div>
               <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                 {canAccessAdmin && (
-                  <button onClick={() => navigate('/admin')} className="px-4 py-1 text-sm rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#3b82f6' }}>
+                  <button onClick={() => navigate(leitungStart())} className="px-4 py-1 text-sm rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#3b82f6' }}>
                     <Shield size={20} className="inline mr-1" />
                     Verwaltung
                   </button>
@@ -1417,7 +1418,7 @@ const Dashboard = () => {
               </div>
               <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                 {canAccessAdmin && (
-                  <button onClick={() => navigate('/admin')} className="px-4 py-1 text-sm rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#3b82f6' }}>
+                  <button onClick={() => navigate(leitungStart())} className="px-4 py-1 text-sm rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#3b82f6' }}>
                     <Shield size={20} className="inline mr-1" />
                     Verwaltung
                   </button>
@@ -2079,7 +2080,7 @@ const Dashboard = () => {
             </div>
             <div style={{ flex: '1', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               {canAccessAdmin && (
-                <button onClick={() => navigate('/admin')} className="px-4 py-2 rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#3b82f6' }}>
+                <button onClick={() => navigate(leitungStart())} className="px-4 py-2 rounded-lg text-white transition-all hover:scale-105" style={{ backgroundColor: '#3b82f6' }}>
                   <Shield size={20} className="inline mr-1" />
                   Verwaltung
                 </button>

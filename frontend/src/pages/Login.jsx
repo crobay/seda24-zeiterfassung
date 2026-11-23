@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config.js';
+import { leitungStart, setKlassisch } from '../services/ansicht';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -42,6 +43,7 @@ const handleLogin = async (e) => {
       storage.setItem('token', response.data.access_token);
       localStorage.setItem('userEmail', email);
       localStorage.setItem('userRole', response.data.role);
+      setKlassisch(false);   // neuer Login startet im Cockpit
       localStorage.setItem('userName', response.data.user_name);
       localStorage.setItem('personalNr', response.data.personal_nr);
 
@@ -49,7 +51,7 @@ const handleLogin = async (e) => {
         setShowChangePassword(true);
       } else {
         if (response.data.role === 'admin' || response.data.role === 'objektleiter') {
-          navigate('/admin');
+          navigate(leitungStart());
         } else {
           navigate('/dashboard');
         }
@@ -86,7 +88,7 @@ const handlePasswordChange = async (e) => {
     alert('Passwort erfolgreich geändert!');
     const role = localStorage.getItem('userRole');
     if (role === 'admin' || role === 'objektleiter') {
-      navigate('/admin');
+      navigate(leitungStart());
     } else {
       navigate('/dashboard');
     }
