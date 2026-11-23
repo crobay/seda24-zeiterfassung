@@ -28,7 +28,8 @@ cd $ROOT/frontend
 npm run build || fail "Build fehlgeschlagen"
 
 TIMESTAMP=$(date +%s)
-sed -i "s/\.js\"/\.js?v=$TIMESTAMP\"/" $DIST/index.html
+# Kein ?v= an index.html-Skripten: die Bundles haben Hash-Namen, und ein Query am Haupt-Bundle laedt es doppelt,
+# sobald ein nachgeladener Teil (Cockpit) es ohne Query importiert (zwei React-Kopien -> React-Fehler #321).
 
 # Precache-Liste: alle Dateien in dist/assets (gehashte Bundles dieses Builds)
 PRECACHE=$(cd $DIST && find assets -type f | sort | sed "s|^|'/|; s|\$|'|" | paste -sd, -)
