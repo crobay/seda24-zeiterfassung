@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  CopyX,
   UserCheck, UserX, ListChecks, Timer, Inbox, CalendarCheck2, PartyPopper, Check, X, MessageSquare, Palmtree, Thermometer,
   Building2, CalendarRange, AlertTriangle, ChevronRight, FileCheck2, CheckCircle2, Car, TrendingUp, TrendingDown, Minus,
   Activity, LogIn, LogOut, Bot, Pencil, ArrowRightLeft, Clock, CircleCheckBig, Moon as MoonIcon, CalendarClock, CircleDashed, BellRing,
@@ -11,7 +12,7 @@ import { MaterialKachel } from './Material';
 
 const greet = () => { const h = new Date().getHours(); return t(h < 11 ? 'greet.morning' : h < 18 ? 'greet.day' : 'greet.evening'); };
 const ATTENTION = ['fehlt', 'offen'];
-const ITEM_ICON = { genehmigung: CalendarCheck2, nachtrag: CalendarCheck2, urlaub: Palmtree, schichtwunsch: ArrowRightLeft, nachricht: MessageSquare };
+const ITEM_ICON = { genehmigung: CalendarCheck2, nachtrag: CalendarCheck2, urlaub: Palmtree, schichtwunsch: ArrowRightLeft, nachricht: MessageSquare, doppelt: CopyX };
 const monthName = () => new Date().toLocaleDateString('de-DE', { month: 'long' });
 
 export default function Heute() {
@@ -35,8 +36,8 @@ export default function Heute() {
     try {
       await api.post(`/aktion/${item.typ}/${item.id}`, { aktion, text });
       setHidden((h) => new Set(h).add(`${item.typ}${item.id}`));
-      const undo = aktion === 'gelesen' ? async () => {
-        await api.post(`/aktion/nachricht/${item.id}`, { aktion: 'ungelesen' });
+      const undo = (aktion === 'gelesen' || aktion === 'erledigt') ? async () => {
+        await api.post(`/aktion/${item.typ}/${item.id}`, { aktion: aktion === 'gelesen' ? 'ungelesen' : 'offen' });
         setHidden((h) => { const n = new Set(h); n.delete(`${item.typ}${item.id}`); return n; });
         reloadAll();
       } : undefined;
@@ -90,7 +91,10 @@ export default function Heute() {
                       <div className="ck-row-meta">{i.text}</div>
                     </div>
                     <div className="ck-row-actions">
-                      {i.typ === 'nachricht' ? (<>
+                      {i.typ === 'doppelt' ? (<>
+                        {i.buchung_id && <Link className="ck-btn ck-btn-sm" to={`/cockpit/zeiten?eintrag=${i.buchung_id}`} data-doppelt-buchung>{t('act.buchung')}</Link>}
+                        <button className="ck-btn ck-btn-primary ck-btn-sm" disabled={b} onClick={() => run(i, 'erledigt')} data-doppelt-erledigt><Check size={16} />{t('act.gelesen')}</button>
+                      </>) : i.typ === 'nachricht' ? (<>
                         <button className="ck-btn ck-btn-primary ck-btn-sm" disabled={b} onClick={() => setDialog({ item: i, aktion: 'antworten' })}><MessageSquare size={16} />{t('act.antworten')}</button>
                         <button className="ck-btn ck-btn-sm" disabled={b} onClick={() => run(i, 'gelesen')}><Check size={16} />{t('act.gelesen')}</button>
                       </>) : (<>

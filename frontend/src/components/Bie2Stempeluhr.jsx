@@ -345,7 +345,11 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
 
     for (const item of queue) {
       const r = await stempelSenden(item, headers, SYNC_TIMEOUT_MS);
-      if (r.art === 'ok') {
+      if (r.art === 'ok' && r.res.data && r.res.data.nicht_uebernommen) {
+        // Doppelt nachgereicht (Server 23.11.2026): war schon gebucht -> bestaetigt, aus der Warteschlange, nicht wiederholen
+        markSynced(item.id);
+        setError(r.res.data.meldung || `${AKTION_NAME[item.action]} ${uhrzeit(item.timestamp)} war schon gebucht – nicht doppelt übernommen`);
+      } else if (r.art === 'ok') {
         stempelSeqRef.current++;
         if (item.action === 'check_out') merkeGehenEintrag(item.id, r.res.data && r.res.data.id);
         markSynced(item.id);
@@ -573,6 +577,13 @@ const Bie2Stempeluhr = ({ token, onStatusChange, onLogout, shiftsToday = [] }) =
     const r = await stempelSenden(item, headers, BESTAETIGUNG_MS);
 
     setErreichbar(r.art !== 'offen');
+    if (r.art === 'ok' && r.res.data && r.res.data.nicht_uebernommen) {
+      // Server: Zeit lag schon in einer vorhandenen Buchung (Handy-Uhr falsch?) -> nichts gebucht, Stand neu holen
+      setError(r.res.data.meldung);
+      await checkStatus('after_' + action);
+      if (onStatusChange) onStatusChange();
+      return true;
+    }
     if (r.art === 'ok') {
       // Bestaetigtes Kommen sofort merken (nicht erst nach /current), damit es ohne Netz sichtbar bleibt
       if (action === 'check_in') saveOfflineState({ action: 'checked_in', objectId, checkInTime: item.timestamp });

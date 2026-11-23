@@ -669,6 +669,17 @@ async def check_in(
         if existing:
             return existing
 
+    # Doppelt nachgereicht (GO Drazen 23.11.2026): Offline-Kommen, das in eine vorhandene Buchung faellt, wird nicht
+    # angelegt - Hinweis Cockpit + Telegram, die App bekommt trotzdem ihre Bestaetigung (services/stempel_doppelt.py)
+    from app.services import stempel_doppelt as sd
+    v = sd.schon_verworfen(db, client_id)
+    if v:
+        return sd.antwort(client_id, v["art"], v["stempel_zeit"], v["buchung_text"])
+    if sd.ist_offline(client_ts_str, stamp_time):
+        konflikt = sd.konflikt_kommen(db, employee.id, stamp_time)
+        if konflikt:
+            return sd.verwerfen(db, employee, "kommen", stamp_time, client_id, data.get("object_id"), konflikt)
+
     # Prüfe offene Einträge
     old_entries = db.query(TimeEntry).filter(
         TimeEntry.employee_id == employee.id,
@@ -777,6 +788,18 @@ def check_out(
             TimeEntry.check_out == None
         )
     ).first()
+
+    # Doppelt nachgereicht (GO Drazen 23.11.2026): Offline-Gehen, das nicht zur offenen Buchung passt (die erst danach
+    # beginnt) oder in eine abgeschlossene Buchung faellt -> nicht buchen, vermerken, App bestaetigen.
+    # Telegram nur, wenn eine offene Buchung betroffen ist (das Gehen zu einem verworfenen Kommen meldet nicht doppelt).
+    from app.services import stempel_doppelt as sd
+    v = sd.schon_verworfen(db, client_id)
+    if v:
+        return sd.antwort(client_id, v["art"], v["stempel_zeit"], v["buchung_text"])
+    if client_id and sd.ist_offline(client_ts_str, stamp_time):
+        konflikt = sd.konflikt_gehen(db, employee.id, stamp_time, active_entry)
+        if konflikt:
+            return sd.verwerfen(db, employee, "gehen", stamp_time, client_id, None, konflikt, melden=active_entry is not None)
 
     if not active_entry:
         # Idempotent: Wenn client_id, letzten Eintrag des MA zurückgeben

@@ -229,6 +229,16 @@ def _offene_punkte(db, obj, emp):
                       "text": (r["subject"] or r["category"] or "") + (": " if r["subject"] else "") + (r["body"] or "")[:160],
                       "seit": r["created_at"].isoformat() if r["created_at"] else None,
                       "aktionen": ["antworten", "gelesen"]})
+    # Doppelt nachgereichte Offline-Stempel (nicht übernommen, services/stempel_doppelt.py)
+    from app.services import stempel_doppelt as sd
+    for r in sd.offene(db, emp):
+        was = "Kommen" if r["art"] == "kommen" else "Gehen"
+        items.append({"typ": "doppelt", "id": r["id"], "titel": "Doppelt nachgereicht", "name": r["name"],
+                      "employee_id": r["employee_id"],
+                      "text": f"{was} {r['stempel_zeit']:%d.%m. %H:%M} offline, übertragen {r['empfangen_am']:%d.%m. %H:%M} – "
+                              f"nicht übernommen, überschneidet sich mit {r['buchung_text']}",
+                      "buchung_id": r["buchung_id"],
+                      "seit": r["empfangen_am"].isoformat(), "aktionen": ["erledigt"]})
     return items
 
 
@@ -292,6 +302,14 @@ def aktion(typ: str, item_id: int, data: dict = None, db: Session = Depends(get_
         if akt == "antworten":
             from app.api.v1.endpoints.messages import reply_to_message
             return reply_to_message(item_id, {"body": data.get("text", "")}, db=db, admin=user)
+    elif typ == "doppelt":
+        from app.services import stempel_doppelt as sd
+        row = _q(db, "SELECT employee_id FROM stempel_verworfen WHERE id = :i", i=item_id)
+        if not row:
+            raise HTTPException(404, "Hinweis nicht gefunden")
+        ol_scope.require_employee(db, user, row[0]["employee_id"])
+        if akt in ("erledigt", "offen"):
+            return sd.erledigen(db, item_id, user.id, zurueck=akt == "offen")
     raise HTTPException(400, "Unbekannte Aktion")
 
 

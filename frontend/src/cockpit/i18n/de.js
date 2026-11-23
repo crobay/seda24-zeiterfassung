@@ -45,10 +45,10 @@ export default {
     geplant: 'Geplant', urlaub: 'Urlaub', krank: 'Krank', aktiv: 'Aktiv', inaktiv: 'Inaktiv',
     pending: 'Offen', approved: 'Genehmigt', rejected: 'Abgelehnt', cancelled: 'Storniert', shifted: 'Verschoben' },
   kat: { A: 'Kat. A · automatisch', B: 'Kat. B · Bestätigung', C: 'Kat. C · Stempeln' },
-  item: { genehmigung: 'Selbstbuchung', nachtrag: 'Nachtrag', urlaub: 'Urlaubsantrag', schichtwunsch: 'Schichtänderung', nachricht: 'Nachricht' },
-  act: { genehmigen: 'Genehmigen', ablehnen: 'Ablehnen', gelesen: 'Erledigt', antworten: 'Antworten', open: 'Öffnen',
+  item: { genehmigung: 'Selbstbuchung', nachtrag: 'Nachtrag', urlaub: 'Urlaubsantrag', schichtwunsch: 'Schichtänderung', nachricht: 'Nachricht', doppelt: 'Doppelt nachgereicht' },
+  act: { genehmigen: 'Genehmigen', ablehnen: 'Ablehnen', gelesen: 'Erledigt', antworten: 'Antworten', open: 'Öffnen', buchung: 'Buchung ansehen',
     done_genehmigen: '{what} von {name} genehmigt', done_ablehnen: '{what} von {name} abgelehnt',
-    done_gelesen: 'Nachricht von {name} als erledigt markiert', done_antworten: 'Antwort an {name} gesendet',
+    done_gelesen: 'Nachricht von {name} als erledigt markiert', done_antworten: 'Antwort an {name} gesendet', done_erledigt: 'Hinweis zu {name} erledigt',
     reply_title: 'Antwort an {name}', reply_label: 'Ihre Antwort', reject_title: 'Ablehnen: {what} von {name}',
     reject_label: 'Begründung (optional, geht an den Mitarbeiter)', confirm_approve: 'Wirklich genehmigen?' },
   ls: {
