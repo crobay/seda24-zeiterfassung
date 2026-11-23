@@ -612,3 +612,15 @@
 .mat-tabelle td { white-space: normal; vertical-align: top; }
 .mat-tabelle td.mat-aktionen { white-space: normal; min-width: 150px; }
 .mat-tabelle td.mat-aktionen .ck-btn { margin: 0 6px 6px 0; }
+
+/* Monatsabschluss 23.11.: Drag&Drop Lohnabrechnungen, Vorschau gruen/rot */
+.ab-drop { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 4px 0 14px; padding: 18px; border: 2px dashed var(--ck-border-strong, #94a3b8); border-radius: 12px; color: var(--ck-text-2); cursor: pointer; text-align: center; }
+.ab-drop:hover, .ab-drop:focus-visible, .ab-drop.is-over { border-color: var(--ck-accent, #1e537c); color: var(--ck-text); background: color-mix(in srgb, var(--ck-accent, #1e537c) 6%, transparent); }
+.ab-vor tr.is-ok td { background: rgba(21, 128, 61, .09); }
+.ab-vor tr.is-ok td:first-child { box-shadow: inset 4px 0 0 #15803d; }
+.ab-vor tr.is-bad td { background: rgba(185, 28, 28, .09); }
+.ab-vor tr.is-bad td:first-child { box-shadow: inset 4px 0 0 #b91c1c; }
+.ab-vor tr.is-ok .ck-status { background: #dcfce7; color: #166534; }
+.ab-vor tr.is-bad .ck-status { background: #fee2e2; color: #991b1b; }
+.ck.ck-dark .ab-vor tr.is-ok .ck-status { background: rgba(34,197,94,.2); color: #86efac; }
+.ck.ck-dark .ab-vor tr.is-bad .ck-status { background: rgba(239,68,68,.2); color: #fca5a5; }

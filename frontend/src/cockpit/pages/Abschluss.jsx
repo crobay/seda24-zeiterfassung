@@ -14,6 +14,11 @@ const monatsende = (k) => { const [y, m] = k.split('-').map(Number); return `${k
 const monatLabel = (k) => new Date(`${k}-15T12:00:00`).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
 const schiebe = (k, n) => { const d = new Date(`${k}-15T12:00:00`); d.setMonth(d.getMonth() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 
+// Schritt 2 -> 3 erst nach Download des Lexware-Pakets (Drazen 23.11.). Gemerkt je Monat + Erzeugungszeit:
+// neu erzeugen = neu herunterladen.
+const zipKey = (monat, am) => `ab-zip:${monat}:${am || ''}`;
+const zipGeladen = (monat, am) => { try { return !!am && localStorage.getItem(zipKey(monat, am)) === '1'; } catch { return false; } };
+
 async function laden(pfad, name) {
   const r = await api.get(pfad, { responseType: 'blob' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(r.data); a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -24,11 +29,13 @@ export default function Abschluss() {
   const [monat, setMonat] = useState(() => new URLSearchParams(window.location.search).get('monat') || vormonat());
   const { data, loading, error, reload } = useApi(`/abschluss/${monat}`);
   const [schritt, setSchritt] = useState(0);
+  const [, setZipTick] = useState(0);
   const p = data?.pruefliste;
   const zu = data?.status === 'abgeschlossen';
   const offen = data?.protokoll?.nachtraege?.oeffnungen?.find((o) => o.offen);
   // geoeffneter Monat: Schritt 5 (wieder sperren) immer erreichbar - auch wenn die Korrektur die Pruefliste rot macht
-  const erreichbar = (i) => i === 0 || (offen && i === 4) || (p?.alle_gruen && (i <= 1 || ['erzeugt', 'abgeschlossen'].includes(data?.status)));
+  const zipOk = zu || zipGeladen(monat, data?.erzeugt_am);
+  const erreichbar = (i) => i === 0 || (offen && i === 4) || (p?.alle_gruen && (i <= 1 || (['erzeugt', 'abgeschlossen'].includes(data?.status) && zipOk)));
   useEffect(() => { if (zu) setSchritt(4); }, [zu]);
   useEffect(() => { setSchritt(0); }, [monat]);
 
@@ -65,7 +72,7 @@ export default function Abschluss() {
       {error ? <ErrorBox text={error} onRetry={reload} /> : loading && !data ? <SkeletonRows n={8} /> : (
         <>
           {schritt === 0 && <Pruefliste monat={monat} p={p} zu={zu} onDone={() => setSchritt(1)} reload={reload} toast={toast} />}
-          {schritt === 1 && <Lexware monat={monat} data={data} zu={zu} onDone={() => { reload(); setSchritt(2); }} toast={toast} reload={reload} />}
+          {schritt === 1 && <Lexware monat={monat} data={data} zu={zu} zipOk={zipOk} onZip={() => setZipTick((n) => n + 1)} onDone={() => { reload(); setSchritt(2); }} toast={toast} reload={reload} />}
           {schritt === 2 && <Hochladen monat={monat} data={data} zu={zu} onDone={() => setSchritt(3)} toast={toast} reload={reload} />}
           {schritt === 3 && <Vorschau monat={monat} onDone={() => setSchritt(4)} />}
           {schritt === 4 && <Versand monat={monat} data={data} toast={toast} reload={reload} />}
@@ -185,7 +192,7 @@ function MaListe({ monat, p, zu, haken, sofort, busy, reload, toast }) {
 }
 
 // ---------- Schritt 2: Für Lexware erzeugen ----------
-function Lexware({ monat, data, zu, onDone, toast, reload }) {
+function Lexware({ monat, data, zu, zipOk, onZip, onDone, toast, reload }) {
   const v = useApi(`/abschluss/${monat}/lexware-vorschau`);
   const [la, setLa] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -225,9 +232,13 @@ function Lexware({ monat, data, zu, onDone, toast, reload }) {
       <section className="ck-card">
         <div className="ck-card-head"><h2>{t('ab.lex_title', { n: zeilen.length })}</h2>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {data?.status !== 'offen' && <button className="ck-btn" onClick={() => laden(`/abschluss/${monat}/paket`, `Monatsabschluss_${monat}_fuer_Lexware.zip`)}><Download size={16} />{t('ab.zip')}</button>}
-            {data?.status !== 'offen' && <button className="ck-btn" data-lex-test onClick={() => laden(`/abschluss/${monat}/lexware-datei?als=${schiebe(monat, 1)}`, `Lexware_Lohndaten_${monat}_als_${schiebe(monat, 1)}_TEST.txt`).catch(() => toast(t('ab.la_fehlt', { was: '…' }), { tone: 'warn' }))}>
-              <Download size={16} />{t('ab.lex_als', { m: monatLabel(schiebe(monat, 1)) })}</button>}
+            {data?.status !== 'offen' && <button className={`ck-btn${zipOk ? '' : ' ck-btn-primary'}`} data-zip onClick={async () => {
+              try {
+                await laden(`/abschluss/${monat}/paket`, `Monatsabschluss_${monat}_fuer_Lexware.zip`);
+                try { localStorage.setItem(zipKey(monat, data?.erzeugt_am), '1'); } catch { /* privat */ }
+                onZip();
+              } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+            }}><Download size={16} />{t('ab.zip')}</button>}
             <button className="ck-btn ck-btn-primary" disabled={busy || zu} onClick={erzeugen} data-erzeugen><FileSpreadsheet size={16} />{busy ? t('ab.making') : t('ab.make')}</button>
           </div></div>
         <p className="ck-subtle" style={{ marginTop: 0 }}>{t('ab.lex_hint')}</p>
@@ -244,7 +255,8 @@ function Lexware({ monat, data, zu, onDone, toast, reload }) {
           <div className="ab-made" data-erzeugt>
             <CheckCircle2 size={18} /><span>{t('ab.made_info', { z: docs.filter((d) => d.art === 'zeitnachweis').length, k: docs.filter((d) => d.art === 'km').length, am: (data?.erzeugt_am || '').replace('T', ' ') })}</span>
             {erg?.fehler?.length > 0 && <span className="ck-subtle">{erg.fehler.join(' · ')}</span>}
-            <button className="ck-btn ck-btn-primary" onClick={onDone} style={{ marginLeft: 'auto' }}>{t('ab.next')}<ArrowRight size={16} /></button>
+            {!zipOk && <span className="ck-subtle" data-zip-erst style={{ marginLeft: 'auto' }}>{t('ab.zip_erst')}</span>}
+            <button className="ck-btn ck-btn-primary" disabled={!zipOk} onClick={onDone} style={zipOk ? { marginLeft: 'auto' } : undefined} data-weiter-lex>{t('ab.next')}<ArrowRight size={16} /></button>
           </div>)}
       </section>
     </>);
@@ -252,8 +264,9 @@ function Lexware({ monat, data, zu, onDone, toast, reload }) {
 
 // ---------- Schritt 3: Lohnabrechnungen hochladen ----------
 function Hochladen({ monat, data, zu, onDone, toast, reload }) {
-  // Kein manuelles Hochladen (Drazen 19.11.): das PC-Skript seda24_lohn_upload.ps1 auf SEDA2026 laedt neue
-  // Lohnabrechnung_*.pdf aus dem Lexware-Ausgabeordner hoch. Hier: Stand "x von y da", Zuordnung, Aufbewahrung.
+  // Regulaer laedt das PC-Skript seda24_lohn_upload.ps1 (SEDA2026) die Lohnabrechnung_*.pdf aus dem Lexware-Ordner hoch.
+  // Zusaetzlich (Drazen 23.11.): PDFs/ZIP von Hand hier hineinziehen oder auswaehlen - gleiche Zuordnung wie beim Skript.
+  // Hier ausserdem: Stand "x von y da", Zuordnung, Aufbewahrung.
   const v = useApi(`/abschluss/${monat}/vorschau`);
   const docs = (data?.dokumente || []).filter((d) => d.art === 'lohnabrechnung');
   const st = data?.lohnabrechnungen;
@@ -273,6 +286,22 @@ function Hochladen({ monat, data, zu, onDone, toast, reload }) {
     catch (e) { toast(apiError(e), { tone: 'warn' }); }
   };
   const wie = (z) => (z === 'von Hand' ? 'hand' : z === 'PDF-Text' ? 'text' : z);
+  const [zieh, setZieh] = useState(false);
+  const [laedt, setLaedt] = useState(false);
+  const wahl = useRef(null);
+  const hoch = async (liste) => {
+    const fs = [...(liste || [])].filter((f) => /\.(pdf|zip)$/i.test(f.name));
+    if (!fs.length) { toast(t('ab.up_nur_pdf'), { tone: 'warn' }); return; }
+    const fd = new FormData();
+    fs.forEach((f) => fd.append('dateien', f, f.name));
+    setLaedt(true);
+    try {
+      const r = await api.post(`/abschluss/${monat}/lohnabrechnungen`, fd);
+      toast(t('ab.up_ok', { n: r.data.neu, d: r.data.doppelt }));
+      reload(); v.reload();
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setLaedt(false);
+  };
   return (
     <section className="ck-card">
       <div className="ck-card-head"><h2><Receipt size={20} />{t('ab.up_title')}</h2>
@@ -280,6 +309,14 @@ function Hochladen({ monat, data, zu, onDone, toast, reload }) {
           {st.komplett && <CheckCircle2 size={14} />} {t('ab.up_stand', { n: st.da, m: st.erwartet })}</span>}</div>
       <p className="ck-subtle" style={{ marginTop: 0 }}>{t('ab.up_hint')}{' '}
         <a href="/downloads/seda24_lohn_upload.ps1" download>{t('ab.up_skript')}</a></p>
+      {!zu && <div className={`ab-drop${zieh ? ' is-over' : ''}`} data-up-drop role="button" tabIndex={0}
+        onClick={() => wahl.current?.click()} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); wahl.current?.click(); } }}
+        onDragOver={(e) => { e.preventDefault(); setZieh(true); }} onDragLeave={() => setZieh(false)}
+        onDrop={(e) => { e.preventDefault(); setZieh(false); if (!laedt) hoch(e.dataTransfer.files); }}>
+        <Upload size={22} /><span>{laedt ? t('ab.up_laedt') : t('ab.up_drop')}</span>
+        <input ref={wahl} type="file" accept=".pdf,.zip,application/pdf,application/zip" multiple hidden data-up-input
+          onChange={(e) => { const f = e.target.files; hoch(f); e.target.value = ''; }} />
+      </div>}
       {st && st.fehlen.length > 0 && <div className="ck-callout" data-up-fehlen><AlertTriangle size={18} style={{ flex: 'none' }} />
         <span>{t('ab.up_missing')}: {st.fehlen.map((m) => m.name).join(', ')}</span></div>}
       {docs.length > 0 && <div className="ck-table-wrap"><table className="ck-table">
@@ -316,10 +353,10 @@ function Vorschau({ monat, onDone }) {
       <div className="ck-card-head"><h2><Eye size={20} />{t('ab.vor_title')}</h2>
         <span className={`ck-tag${alle ? ' tone-ok' : ''}`} data-bereit>{t('ab.vor_stand', { n: data.bereit, m: data.gesamt })}</span></div>
       {data.nicht_zugeordnet.length > 0 && <div className="ck-callout"><AlertTriangle size={18} />{t('ab.vor_lose', { n: data.nicht_zugeordnet.length })}</div>}
-      <div className="ck-table-wrap"><table className="ck-table">
+      <div className="ck-table-wrap"><table className="ck-table ab-vor">
         <thead><tr><th>{t('abr.c_name')}</th><th>{t('ab.c_mail')}</th><th>{t('ab.c_anh')}</th><th>{t('ab.c_status')}</th></tr></thead>
         <tbody>{data.mitarbeiter.map((m) => (
-          <tr key={m.employee_id} className="ab-row" onClick={() => setOffen(m)} data-ma={m.personal_nr}>
+          <tr key={m.employee_id} className={`ab-row ${m.bereit ? 'is-ok' : 'is-bad'}`} onClick={() => setOffen(m)} data-ma={m.personal_nr} data-bereit-ma={m.bereit ? 'ja' : 'nein'}>
             <td><b>{m.name}</b> <span className="ck-subtle">{m.personal_nr}</span><div className="ck-subtle">{m.anrede},</div></td>
             <td>{m.email ? <span><Mail size={13} /> {m.email}</span> : <Status s="fehlt" label={t('ab.no_mail')} />}</td>
             <td><div className="ab-anh">{m.anhaenge.map((a, i) => { const I = ANH_ICON[a.art] || FileText; return <span key={i} className="ck-tag" title={a.datei}><I size={13} />{t(`ab.art_${a.art}`)}</span>; })}

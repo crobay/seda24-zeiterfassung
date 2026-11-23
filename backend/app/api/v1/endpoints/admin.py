@@ -2230,10 +2230,20 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
     old_vals = _booking_snap(entry)
 
     # Update Felder
+    alt_kommen = entry.check_in
     if 'check_in' in data:
         entry.check_in = datetime.fromisoformat(data['check_in'].replace('Z', '+00:00'))
     if 'check_out' in data:
-        entry.check_out = datetime.fromisoformat(data['check_out'].replace('Z', '+00:00'))
+        entry.check_out = datetime.fromisoformat(data['check_out'].replace('Z', '+00:00')) if data['check_out'] else None
+    # Datum geaendert (Kommen auf anderen Tag): Gehen um dieselben Tage mitschieben, sonst steht Gehen vor Kommen
+    # (Fehler 01.11.2026: 5 Buchungen Okt -> Nov verschoben, Gehen blieb im Oktober)
+    if alt_kommen and entry.check_in and entry.check_out and ('check_out' not in data or entry.check_out < entry.check_in):
+        tage = (entry.check_in.date() - alt_kommen.date()).days
+        if tage:
+            entry.check_out += timedelta(days=tage)
+    if entry.check_in and entry.check_out and entry.check_out < entry.check_in:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Gehen liegt vor Kommen – bitte Datum/Uhrzeit prüfen")
     if 'object_id' in data:
         entry.object_id = data['object_id']
     if 'service_type' in data:
@@ -2249,12 +2259,8 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
     elif 'check_in' in data and 'check_out' in data:
         # billed_hours automatisch neu berechnen wenn Zeiten geändert
         # aber kein expliziter billed_hours-Wert mitgeschickt wurde
-        try:
-            ci = datetime.fromisoformat(data['check_in'].replace('Z', '+00:00'))
-            co = datetime.fromisoformat(data['check_out'].replace('Z', '+00:00'))
-            entry.billed_hours = round((co - ci).total_seconds() / 3600, 2)
-        except Exception:
-            pass
+        if entry.check_in and entry.check_out:
+            entry.billed_hours = round((entry.check_out - entry.check_in).total_seconds() / 3600, 2)
 
     # Bei Datumsänderung: KM-Einträge mitverschieben
     if 'check_in' in data:

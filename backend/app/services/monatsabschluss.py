@@ -242,7 +242,7 @@ def pruefliste(db, y, m):
     for r in prot:
         r["was"] = fr.get(r["key"], r["was"])
     return {"monat": mk, "punkte": out, "mitarbeiter": mas, "ma_ok": ma_ok, "ma_gesamt": len(mas), "haken_protokoll": prot,
-            "ma_unauffaellig_offen": sum(1 for x in mas if not x["hinweise"] and not (x["haken_stunden"] and x["haken_km"])),
+            "ma_unauffaellig_offen": sum(1 for x in mas if not _rot(x) and not (x["haken_stunden"] and x["haken_km"])),
             "alle_gruen": all(p["gruen"] for p in out) and ma_ok == len(mas)}
 
 
@@ -371,9 +371,14 @@ def haken_setzen(db, y, m, key, wert: bool, user_id, wer: str):
     return pruefliste(db, y, m)
 
 
+def _rot(x):
+    return any(h.get("rot") for h in x["hinweise"])
+
+
 def ma_alle_bestaetigen(db, y, m, user_id, wer: str):
     """Knopf "Alle ohne Auffälligkeit bestätigen" (GO Drazen 20.11.2026): setzt "Stunden ✓" und "KM ✓" bei allen MA,
-    bei denen die Stichprobe nichts findet. MA mit Hinweis bleiben offen und werden einzeln abgehakt.
+    bei denen die Stichprobe keinen ROTEN Hinweis findet (graue Hinweise wie "Plan/Ist" zaehlen nicht, Drazen 23.11.).
+    MA mit rotem Hinweis bleiben offen und werden einzeln abgehakt.
     Jeder Haken einzeln mit Name + Zeit (Haken-Protokoll und Änderungsprotokoll)."""
     from app.services.booking_service import log_audit
     z = zustand(db, y, m)
@@ -383,7 +388,7 @@ def ma_alle_bestaetigen(db, y, m, user_id, wer: str):
     am = datetime.now().isoformat(timespec="minutes")
     gesetzt, offen = [], []
     for x in ma_liste(db, y, m, h):
-        if x["hinweise"]:
+        if _rot(x):
             if not (x["haken_stunden"] and x["haken_km"]):
                 offen.append(x["name"])
             continue

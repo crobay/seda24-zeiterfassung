@@ -733,10 +733,21 @@ import api from '../services/api';
                       value={editingBooking.check_in?.split('T')[0] || ''}
                       onChange={(e) => {
                         const newDate = e.target.value;
-                        const oldTime = editingBooking.check_in.split('T')[1];
+                        if (!newDate) return;
+                        const [oldDate, oldTime] = editingBooking.check_in.split('T');
+                        // Gehen um dieselben Tage mitschieben (sonst Gehen vor Kommen, Fehler 01.11.2026)
+                        let checkOut = editingBooking.check_out;
+                        if (checkOut) {
+                          const tage = Math.round((new Date(`${newDate}T12:00:00`) - new Date(`${oldDate}T12:00:00`)) / 86400000);
+                          const d = new Date(`${checkOut.split('T')[0]}T12:00:00`);
+                          d.setDate(d.getDate() + tage);
+                          const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                          checkOut = `${ds}T${checkOut.split('T')[1]}`;
+                        }
                         setEditingBooking({
                           ...editingBooking,
-                          check_in: `${newDate}T${oldTime}`
+                          check_in: `${newDate}T${oldTime}`,
+                          check_out: checkOut
                         });
                       }}
                       className="w-full p-2 border rounded-lg"
