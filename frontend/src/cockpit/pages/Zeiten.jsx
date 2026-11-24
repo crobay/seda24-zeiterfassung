@@ -9,7 +9,12 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const Versp = ({ r, art }) => {
   const v = (r.verspaetet || []).find((x) => x.art === art);
   return v ? <span title={v.text} aria-label={v.text} data-versp={art} onClick={(e) => e.stopPropagation()}
-    style={{ marginLeft: 5, cursor: 'help', color: '#b45309', verticalAlign: '-2px' }}><WifiOff size={14} /></span> : null;
+    style={{ display: 'inline-flex', marginLeft: 5, cursor: 'help', color: '#b45309', verticalAlign: '-2px' }}><WifiOff size={14} /></span> : null;
+};
+// ... und darunter immer sichtbar (auch Handy/Tablet, Drazen 24.11. 18:37): klein, grau "📶 +3:40 h verspätet"
+const VerspKurz = ({ r, art }) => {
+  const v = (r.verspaetet || []).find((x) => x.art === art);
+  return v ? <div className="ck-subtle" style={{ fontSize: '75%', fontWeight: 400, whiteSpace: 'nowrap', lineHeight: 1.3 }} data-versp-kurz={art}>{v.kurz}</div> : null;
 };
 const COLS = [['datum', 'zeiten.date'], ['name', 'zeiten.name'], ['objekt', 'zeiten.object'], ['kommen', 'zeiten.in'], ['gehen', 'zeiten.out'], ['stunden', 'zeiten.hours'], ['weg', 'zeiten.way'], ['hinweis', 'zeiten.hint']];
 
@@ -107,8 +112,8 @@ export default function Zeiten() {
                     <td className="ck-num">{fmtDate(r.datum)}</td>
                     <td><Link className="ck-link" to={`/cockpit/mitarbeiter/${r.employee_id}`} onClick={(e) => e.stopPropagation()} style={{ fontWeight: 600 }}>{r.name}</Link></td>
                     <td>{r.objekt ? <ObjektMarke id={r.object_id} name={r.objekt} size="xs" /> : '–'}</td>
-                    <td className="ck-num">{r.kommen}<Versp r={r} art="kommen" /></td>
-                    <td className="ck-num">{r.gehen ? <>{r.gehen}{r.gehen_datum && r.gehen_datum !== r.datum && <span className="ck-subtle"> ({fmtDate(r.gehen_datum)})</span>}<Versp r={r} art="gehen" /></> : <Status s="da" label={t('status.da')} />}</td>
+                    <td className="ck-num"><span style={{ whiteSpace: 'nowrap' }}>{r.kommen}<Versp r={r} art="kommen" /></span><VerspKurz r={r} art="kommen" /></td>
+                    <td className="ck-num">{r.gehen ? <><span style={{ whiteSpace: 'nowrap' }}>{r.gehen}{r.gehen_datum && r.gehen_datum !== r.datum && <span className="ck-subtle"> ({fmtDate(r.gehen_datum)})</span>}<Versp r={r} art="gehen" /></span><VerspKurz r={r} art="gehen" /></> : <Status s="da" label={t('status.da')} />}</td>
                     <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(r.stunden, 2)}</td>
                     <td className="ck-subtle">{r.weg}</td>
                     <td>{r.hinweis && <Status s="fehlt" label={r.hinweis} />}</td>

@@ -632,13 +632,15 @@ import api from '../services/api';
                       <td className="px-4 py-3 text-sm">
                         {new Date(booking.check_in).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
                         {(booking.verspaetet || []).filter((v) => v.art === 'kommen').map((v) => (
-                          <span key="k" className="ml-1 cursor-help inline-block align-[-2px] text-amber-700" title={v.text} aria-label={v.text} data-versp="kommen"><WifiOff size={13} /></span>))}
+                          <React.Fragment key="k"><span className="ml-1 cursor-help inline-block align-[-2px] text-amber-700" title={v.text} aria-label={v.text} data-versp="kommen"><WifiOff size={13} /></span>
+                            <span className="block text-[75%] leading-tight text-gray-500 whitespace-nowrap" data-versp-kurz="kommen">{v.kurz}</span></React.Fragment>))}
                         {' - '}
                         {booking.check_out
                           ? new Date(booking.check_out).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
                           : 'Offen'}
                         {(booking.verspaetet || []).filter((v) => v.art === 'gehen').map((v) => (
-                          <span key="g" className="ml-1 cursor-help inline-block align-[-2px] text-amber-700" title={v.text} aria-label={v.text} data-versp="gehen"><WifiOff size={13} /></span>))}
+                          <React.Fragment key="g"><span className="ml-1 cursor-help inline-block align-[-2px] text-amber-700" title={v.text} aria-label={v.text} data-versp="gehen"><WifiOff size={13} /></span>
+                            <span className="block text-[75%] leading-tight text-gray-500 whitespace-nowrap" data-versp-kurz="gehen">{v.kurz}</span></React.Fragment>))}
                       </td>
                       <td className="px-4 py-3 text-sm text-center">
                         {booking.pause_minutes > 0 ? (

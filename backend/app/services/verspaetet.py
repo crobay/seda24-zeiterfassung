@@ -16,14 +16,15 @@ def _zeit(t, bezug):
 
 
 def stempel(art, handy, eingang):
-    """{art, minuten, handy, server, text} oder None (nicht verspaetet / unbekannt)."""
+    """{art, minuten, handy, server, text (Tooltip), kurz (immer sichtbar)} oder None (nicht verspaetet / unbekannt)."""
     if not handy or not eingang:
         return None
     minuten = int((eingang - handy).total_seconds() // 60)
     if minuten <= GRENZE_MIN:
         return None
     return {"art": art, "minuten": minuten, "handy": handy.strftime("%H:%M"), "server": _zeit(eingang, handy),
-            "text": f"📶 {_dauer(minuten)} verspätet übertragen (Handy {handy:%H:%M}, Server {_zeit(eingang, handy)})"}
+            "text": f"📶 {_dauer(minuten)} verspätet übertragen (Handy {handy:%H:%M}, Server {_zeit(eingang, handy)})",
+            "kurz": f"📶 +{_dauer(minuten)} verspätet"}
 
 
 def hinweise(r):
