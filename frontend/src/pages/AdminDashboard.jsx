@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, Building2, Calendar, Activity, FileText, Plus, Edit2, Trash2,
   Save, X, Check, CheckCircle, AlertCircle, LogOut, Search, Download, Upload,
-  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu, Calculator, Bell, ClipboardList, Smartphone, Mail, Lock, MessageSquare, LogIn, LayoutGrid, WifiOff
+  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu, Calculator, Bell, ClipboardList, Smartphone, Mail, Lock, MessageSquare, LogIn, LayoutGrid
 } from 'lucide-react';
 import { setKlassisch } from '../services/ansicht';
 import ScheduleTab from "../components/ScheduleTab";
@@ -632,15 +632,13 @@ import api from '../services/api';
                       <td className="px-4 py-3 text-sm">
                         {new Date(booking.check_in).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
                         {(booking.verspaetet || []).filter((v) => v.art === 'kommen').map((v) => (
-                          <React.Fragment key="k"><span className="ml-1 cursor-help inline-block align-[-2px] text-amber-700" title={v.text} aria-label={v.text} data-versp="kommen"><WifiOff size={13} /></span>
-                            <span className="block text-[75%] leading-tight text-gray-500 whitespace-nowrap" data-versp-kurz="kommen">{v.kurz}</span></React.Fragment>))}
+                          <span key="k" className="block text-[75%] leading-tight text-gray-500 whitespace-nowrap cursor-help" title={v.text} data-versp-kurz="kommen">{v.kurz}</span>))}
                         {' - '}
                         {booking.check_out
                           ? new Date(booking.check_out).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
                           : 'Offen'}
                         {(booking.verspaetet || []).filter((v) => v.art === 'gehen').map((v) => (
-                          <React.Fragment key="g"><span className="ml-1 cursor-help inline-block align-[-2px] text-amber-700" title={v.text} aria-label={v.text} data-versp="gehen"><WifiOff size={13} /></span>
-                            <span className="block text-[75%] leading-tight text-gray-500 whitespace-nowrap" data-versp-kurz="gehen">{v.kurz}</span></React.Fragment>))}
+                          <span key="g" className="block text-[75%] leading-tight text-gray-500 whitespace-nowrap cursor-help" title={v.text} data-versp-kurz="gehen">{v.kurz}</span>))}
                       </td>
                       <td className="px-4 py-3 text-sm text-center">
                         {booking.pause_minutes > 0 ? (

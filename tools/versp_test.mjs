@@ -29,15 +29,15 @@ try {
   console.log('Cockpit Zeiten (Monat)');
   await page.goto(`${BASE}/cockpit/zeiten?range=month`);
   await page.waitForSelector('table.ck-table tbody tr');
-  const zeichen = await page.$$eval('[data-versp]', (els) => els.map((e) => ({ art: e.dataset.versp, t: e.getAttribute('title') })));
+  const zeichen = await page.$$eval('[data-versp-kurz]', (els) => els.map((e) => ({ art: e.dataset.verspKurz, t: e.getAttribute('title') })));
   ok('Zeichen vorhanden', zeichen.length > 0, `${zeichen.length} Stück`);
   ok('Tooltip-Text wie vorgegeben', zeichen.every((z) => MUSTER.test(z.t)), zeichen[0]?.t);
   const alle = await page.$$eval('table.ck-table tbody tr', (r) => r.length);
-  const sauber = await page.$$eval('table.ck-table tbody tr', (rs) => rs.filter((r) => !r.querySelector('[data-versp]')).length);
+  const sauber = await page.$$eval('table.ck-table tbody tr', (rs) => rs.filter((r) => !r.querySelector('[data-versp-kurz]')).length);
   ok('sauber gestempelte ohne Zeichen', sauber > 0 && sauber < alle, `${sauber} von ${alle}`);
   let k = await kurzOk(page);
-  ok('Kurztext unter jeder Zeit mit Zeichen', k.length === zeichen.length && k.every((x) => KURZ.test(x.t) && x.sichtbar && x.klein), k[0]?.t);
-  const z = page.locator('[data-versp]').first();
+  ok('Kurztext unter jeder Zeit', k.length === zeichen.length && k.every((x) => KURZ.test(x.t) && x.sichtbar && x.klein), k[0]?.t);
+  const z = page.locator('[data-versp-kurz]').first();
   await z.scrollIntoViewIfNeeded(); await z.hover();
   await page.screenshot({ path: path.join(OUT, 'zeiten_zeichen.png') });
   const vorher = page.url();
@@ -47,22 +47,23 @@ try {
   console.log('Filter "Nur mit Hinweis"');
   await page.getByLabel(/Nur mit Hinweis/i).check().catch(async () => page.locator('label', { hasText: /Hinweis/ }).locator('input').check());
   await page.waitForTimeout(300);
-  const gefiltert = await page.$$eval('table.ck-table tbody tr', (rs) => rs.map((r) => !!r.querySelector('[data-versp]') || /\S/.test(r.cells[7]?.textContent || '')));
-  ok('alle Zeilen mit Zeichen bleiben drin', (await page.$$('[data-versp]')).length === zeichen.length);
+  const gefiltert = await page.$$eval('table.ck-table tbody tr', (rs) => rs.map((r) => !!r.querySelector('[data-versp-kurz]') || /\S/.test(r.cells[7]?.textContent || '')));
+  ok('alle Zeilen mit Zeichen bleiben drin', (await page.$$('[data-versp-kurz]')).length === zeichen.length);
   ok('jede gefilterte Zeile hat Zeichen oder Hinweis', gefiltert.length > 0 && gefiltert.every(Boolean), `${gefiltert.length} Zeilen`);
   await page.screenshot({ path: path.join(OUT, 'zeiten_filter.png') });
 
   console.log('Alte Journal-Ansicht');
   await page.goto(`${BASE}/admin?klassisch=1`);
   await page.locator('button', { hasText: /^\s*Journal\s*$/ }).first().click();
-  await page.waitForSelector('[data-versp]', { timeout: 15000 }).catch(() => null);
-  const alt = await page.$$eval('[data-versp]', (els) => els.map((e) => e.getAttribute('title')));
+  await page.waitForSelector('[data-versp-kurz]', { timeout: 15000 }).catch(() => null);
+  const alt = await page.$$eval('[data-versp-kurz]', (els) => els.map((e) => e.getAttribute('title')));
   ok('Zeichen im Journal', alt.length > 0, `${alt.length} Stück`);
   ok('Tooltip-Text im Journal', alt.length > 0 && alt.every((t) => MUSTER.test(t)), alt[0]);
   ok('altes Etikett "offline, … verspätet" weg', !(await page.content()).includes('🕓 offline'));
-  await page.locator('[data-versp]').first().scrollIntoViewIfNeeded();
+  await page.locator('[data-versp-kurz]').first().scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(OUT, 'journal_zeichen.png') });
   k = await kurzOk(page);
+  ok('kein separates WLAN-Symbol mehr', !(await page.$('[data-versp]')));
   ok('Kurztext im Journal', k.length === alt.length && k.every((x) => KURZ.test(x.t) && x.sichtbar && x.klein), k[0]?.t);
 
   console.log('Handy (390 px, Touch)');
