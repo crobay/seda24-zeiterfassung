@@ -38,6 +38,8 @@ $PG psql -X -q -d dev_cockpit -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO se
 # danach: Protokoll-Tabellen gehoeren postgres, App nur lesen/anfuegen (Rechte setzt monatssperre.sql selbst)
 $PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -f "$DEV/backend/migrations/monatssperre.sql"
 $PG psql -X -q -d dev_cockpit -c "ALTER FUNCTION monatssperre_check(date,date) OWNER TO seda24_user; ALTER FUNCTION monatssperre_trigger() OWNER TO seda24_user"
+# Terminal-Modus (24.11.2026): Tabellen + time_entries.quelle (idempotent, solange LIVE sie noch nicht hat)
+$PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -f "$DEV/backend/migrations/terminal.sql"
 
 echo "5) DEV-Einstellungen zurueck, Nachrichtenwege auf der Kopie aus"
 $PG psql -X -q -v ON_ERROR_STOP=1 -d dev_cockpit -f "$TMP/dev_settings.sql" >/dev/null
