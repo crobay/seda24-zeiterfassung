@@ -1,10 +1,16 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Clock3, ArrowUpDown, ArrowUp, ArrowDown, ClipboardCheck, Plus, Pencil, Trash2, AlertTriangle, X, Moon, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
+import { Clock3, ArrowUpDown, ArrowUp, ArrowDown, ClipboardCheck, Plus, Pencil, Trash2, AlertTriangle, X, Moon, ChevronLeft, ChevronRight, Lock, WifiOff } from 'lucide-react';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Empty, ErrorBox, Skeleton, Dialog, ObjektMarke } from '../core';
 
 const GenehmigungenTab = lazy(() => import('../../pages/GenehmigungenTab'));
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// Verspaetet uebertragen (offline nachgereicht, Drazen 24.11.2026): kleines Zeichen neben der Zeit, Text im Tooltip
+const Versp = ({ r, art }) => {
+  const v = (r.verspaetet || []).find((x) => x.art === art);
+  return v ? <span title={v.text} aria-label={v.text} data-versp={art} onClick={(e) => e.stopPropagation()}
+    style={{ marginLeft: 5, cursor: 'help', color: '#b45309', verticalAlign: '-2px' }}><WifiOff size={14} /></span> : null;
+};
 const COLS = [['datum', 'zeiten.date'], ['name', 'zeiten.name'], ['objekt', 'zeiten.object'], ['kommen', 'zeiten.in'], ['gehen', 'zeiten.out'], ['stunden', 'zeiten.hours'], ['weg', 'zeiten.way'], ['hinweis', 'zeiten.hint']];
 
 export default function Zeiten() {
@@ -49,7 +55,7 @@ export default function Zeiten() {
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     return (data?.eintraege || [])
-      .filter((r) => (!onlyHint || r.hinweis) && (!s || `${r.name} ${r.personal_nr} ${r.objekt} ${r.weg}`.toLowerCase().includes(s)))
+      .filter((r) => (!onlyHint || r.hinweis || r.verspaetet?.length) && (!s || `${r.name} ${r.personal_nr} ${r.objekt} ${r.weg}`.toLowerCase().includes(s)))
       .sort((a, b) => { const x = a[sort.k] ?? '', y = b[sort.k] ?? ''; return (x > y ? 1 : x < y ? -1 : 0) * sort.dir || (a.check_in > b.check_in ? -1 : 1); });
   }, [data, q, onlyHint, sort]);
   const sum = rows.reduce((a, r) => a + r.stunden, 0);
@@ -101,8 +107,8 @@ export default function Zeiten() {
                     <td className="ck-num">{fmtDate(r.datum)}</td>
                     <td><Link className="ck-link" to={`/cockpit/mitarbeiter/${r.employee_id}`} onClick={(e) => e.stopPropagation()} style={{ fontWeight: 600 }}>{r.name}</Link></td>
                     <td>{r.objekt ? <ObjektMarke id={r.object_id} name={r.objekt} size="xs" /> : '–'}</td>
-                    <td className="ck-num">{r.kommen}</td>
-                    <td className="ck-num">{r.gehen ? <>{r.gehen}{r.gehen_datum && r.gehen_datum !== r.datum && <span className="ck-subtle"> ({fmtDate(r.gehen_datum)})</span>}</> : <Status s="da" label={t('status.da')} />}</td>
+                    <td className="ck-num">{r.kommen}<Versp r={r} art="kommen" /></td>
+                    <td className="ck-num">{r.gehen ? <>{r.gehen}{r.gehen_datum && r.gehen_datum !== r.datum && <span className="ck-subtle"> ({fmtDate(r.gehen_datum)})</span>}<Versp r={r} art="gehen" /></> : <Status s="da" label={t('status.da')} />}</td>
                     <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(r.stunden, 2)}</td>
                     <td className="ck-subtle">{r.weg}</td>
                     <td>{r.hinweis && <Status s="fehlt" label={r.hinweis} />}</td>

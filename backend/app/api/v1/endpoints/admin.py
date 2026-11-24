@@ -2188,13 +2188,10 @@ def get_all_bookings(db: Session = Depends(get_db), admin = Depends(verify_admin
                     pause_minutes += (b.end_time - b.start_time).total_seconds() / 60
             pause_minutes = round(pause_minutes)
 
-        # Offline-Sync Delay berechnen
-        delay = None
-        if e.server_received_at:
-            ref_time = e.check_out or e.check_in
-            if ref_time:
-                d = (e.server_received_at - ref_time).total_seconds() / 60
-                delay = round(d) if d >= 5 else 0
+        # Verspaetet uebertragen (offline nachgereicht) je Kommen/Gehen: services/verspaetet.py
+        from app.services import verspaetet
+        versp = verspaetet.hinweise(e)
+        delay = max((v["minuten"] for v in versp), default=0)
 
         result.append({
             "id": e.id,
@@ -2213,6 +2210,7 @@ def get_all_bookings(db: Session = Depends(get_db), admin = Depends(verify_admin
             "is_manual_entry": e.is_manual_entry,
             "server_received_at": e.server_received_at.isoformat() if e.server_received_at else None,
             "sync_delay_minutes": delay,
+            "verspaetet": versp,
         })
     return result
 

@@ -133,6 +133,11 @@ class TimeEntry(Base):
     overdue_notified = Column(Boolean, default=False)
     server_received_at = Column(DateTime, nullable=True)
     client_ip = Column(String(45), nullable=True)  # erkannte Client-IP beim Stempeln (Journal)
+    # Handy-Zeit + Eingang am Server je Stempel (migrations/verspaetet.sql, services/verspaetet.py)
+    kommen_handy = Column(DateTime, nullable=True)
+    kommen_eingang = Column(DateTime, nullable=True)
+    gehen_handy = Column(DateTime, nullable=True)
+    gehen_eingang = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
 
     employee = relationship("Employee", back_populates="time_entries")

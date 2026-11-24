@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, Building2, Calendar, Activity, FileText, Plus, Edit2, Trash2,
   Save, X, Check, CheckCircle, AlertCircle, LogOut, Search, Download, Upload,
-  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu, Calculator, Bell, ClipboardList, Smartphone, Mail, Lock, MessageSquare, LogIn, LayoutGrid
+  MapPin, Clock, Shield, Eye, EyeOff, ChevronDown, Filter, BookOpen, TrendingUp, Menu, Calculator, Bell, ClipboardList, Smartphone, Mail, Lock, MessageSquare, LogIn, LayoutGrid, WifiOff
 } from 'lucide-react';
 import { setKlassisch } from '../services/ansicht';
 import ScheduleTab from "../components/ScheduleTab";
@@ -29,19 +29,6 @@ import GenehmigungenTab from "./GenehmigungenTab";
 import TelegramLogTab from "./TelegramLogTab";
 import api from '../services/api';
 
-  // Hilfsfunktion: Offline-Sync Verzögerung formatieren
-  const formatDelay = (minutes) => {
-    if (!minutes || minutes < 1) return '';
-    if (minutes < 60) return `${minutes}min`;
-    if (minutes < 1440) {
-      const h = Math.floor(minutes / 60);
-      const m = minutes % 60;
-      return m > 0 ? `${h}h ${m}min` : `${h}h`;
-    }
-    const d = Math.floor(minutes / 1440);
-    const h = Math.floor((minutes % 1440) / 60);
-    return h > 0 ? `${d}d ${h}h` : `${d}d`;
-  };
 
   // ==================== JOURNAL TAB (NEU!) ====================
   
@@ -644,18 +631,14 @@ import api from '../services/api';
                       </td>
                       <td className="px-4 py-3 text-sm">
                         {new Date(booking.check_in).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                        {(booking.verspaetet || []).filter((v) => v.art === 'kommen').map((v) => (
+                          <span key="k" className="ml-1 cursor-help inline-block align-[-2px] text-amber-700" title={v.text} aria-label={v.text} data-versp="kommen"><WifiOff size={13} /></span>))}
                         {' - '}
                         {booking.check_out
                           ? new Date(booking.check_out).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
                           : 'Offen'}
-                        {booking.sync_delay_minutes >= 5 && (
-                          <span
-                            className="ml-1 inline-flex items-center gap-0.5 text-[11px] text-slate-500 border border-slate-300 rounded px-1 whitespace-nowrap align-middle"
-                            title="Offline gestempelt und verspätet an den Server übertragen (Empfang minus Stempelzeit). Das ist KEINE Mehrarbeit und keine Arbeitszeit."
-                          >
-                            🕓 offline, {formatDelay(booking.sync_delay_minutes)} verspätet übertragen
-                          </span>
-                        )}
+                        {(booking.verspaetet || []).filter((v) => v.art === 'gehen').map((v) => (
+                          <span key="g" className="ml-1 cursor-help inline-block align-[-2px] text-amber-700" title={v.text} aria-label={v.text} data-versp="gehen"><WifiOff size={13} /></span>))}
                       </td>
                       <td className="px-4 py-3 text-sm text-center">
                         {booking.pause_minutes > 0 ? (
@@ -891,11 +874,11 @@ import api from '../services/api';
                     <div className="bg-gray-50 rounded p-3 text-sm text-gray-600">
                       <div>Gestempelt: {new Date(editingBooking.check_out || editingBooking.check_in).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: undefined, hour: '2-digit', minute: '2-digit' })}</div>
                       <div>Empfangen: {new Date(editingBooking.server_received_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: undefined, hour: '2-digit', minute: '2-digit' })}</div>
-                      {editingBooking.sync_delay_minutes >= 5 && (
-                        <div className="text-slate-600 font-medium">
-                          🕓 Offline gestempelt, {formatDelay(editingBooking.sync_delay_minutes)} verspätet übertragen (keine Mehrarbeit)
+                      {(editingBooking.verspaetet || []).map((v) => (
+                        <div key={v.art} className="text-slate-600 font-medium">
+                          {v.art === 'kommen' ? 'Kommen' : 'Gehen'}: {v.text} – keine Mehrarbeit
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>

@@ -714,7 +714,9 @@ async def check_in(
             check_in=stamp_time,
             client_id=client_id,
             client_ip=client_ip,
-            server_received_at=datetime.now()
+            server_received_at=datetime.now(),
+            kommen_handy=stamp_time,
+            kommen_eingang=datetime.now()
         )
         db.add(time_entry)
         db.commit()
@@ -741,6 +743,13 @@ async def check_in(
                     Schedule.date == stamp_time.date(),
                     Schedule.no_stamp_notified == True
                 ).first()
+            # Nur ausserhalb der Toleranz (GO Drazen 24.11.2026): massgeblich ist die Handy-Zeit, auch wenn das
+            # Kommen offline erst spaeter am Server ankam - puenktlich gestempelt = keine Meldung
+            if notified_sched and notified_sched.start_time and \
+                    stamp_time <= datetime.combine(stamp_time.date(), notified_sched.start_time) + timedelta(minutes=TOLERANZ_MIN):
+                logger.info(f"Kommen innerhalb Toleranz (Eintrag {time_entry.id}, Handy {stamp_time:%H:%M}, "
+                            f"Schicht {notified_sched.start_time:%H:%M}) - keine Meldung 'erst um'")
+                notified_sched = None
             if notified_sched and notified_sched.start_time:
                 late_text = late_check_in_text(f"{employee.first_name} {employee.last_name}", stamp_time,
                                                notified_sched.start_time, notified_sched.end_time)
@@ -820,6 +829,8 @@ def check_out(
     active_entry.check_out = stamp_time
     active_entry.server_received_at = datetime.now()
     active_entry.client_ip = get_client_ip(request)
+    active_entry.gehen_handy = stamp_time
+    active_entry.gehen_eingang = active_entry.server_received_at
 
     # hourly_rate + service_type aus Zuweisung (Vorrang) oder Stammblatt setzen
     obj = db.query(Object).filter(Object.id == active_entry.object_id).first()

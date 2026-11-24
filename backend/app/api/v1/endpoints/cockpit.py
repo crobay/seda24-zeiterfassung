@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.api.v1.endpoints.admin import verify_admin_or_objektleiter
-from app.services import ol_scope
+from app.services import ol_scope, verspaetet
 from app.services.booking_service import log_audit
 
 router = APIRouter()
@@ -547,12 +547,13 @@ def _zeile(r):
             "weg": "Terminal" if r.get("quelle") == "terminal" else
                    (r["notes"] or "").split(" - ")[0][:40] if r["notes"] else ("App" if r["is_manual_entry"] is False else "Manuell"),
             "quelle": r.get("quelle"),
+            "verspaetet": verspaetet.hinweise(r),
             "hinweis": ", ".join(hint)}
 
 
 _ZEIT_SELECT = f"""
         SELECT t.id, t.check_in, t.check_out, t.billed_hours, t.notes, t.is_manual_entry, t.object_id, t.service_type, t.schedule_id,
-               t.quelle, o.name AS objekt, e.first_name || ' ' || e.last_name AS name, e.personal_nr, t.employee_id,
+               t.quelle, t.kommen_handy, t.kommen_eingang, t.gehen_handy, t.gehen_eingang, o.name AS objekt, e.first_name || ' ' || e.last_name AS name, e.personal_nr, t.employee_id,
                (SELECT coalesce(sum(extract(epoch FROM b.end_time - b.start_time)),0) FROM break_entries b
                  WHERE b.time_entry_id = t.id AND b.end_time IS NOT NULL) AS brk
           FROM time_entries t JOIN employees e ON e.id = t.employee_id LEFT JOIN objects o ON o.id = t.object_id"""

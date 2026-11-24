@@ -58,7 +58,8 @@ try {
   await page.click('[data-term-registrieren]');
   await page.waitForSelector('[data-term-andere]');
   await page.unroute('**/api/v1/auth/login');
-  ok('registriert, Startbildschirm', (await page.textContent('[data-term-objekt]')).includes('TEST BrowserStack'));
+  const kopf = await page.waitForFunction(() => document.querySelector('[data-term-objekt]')?.textContent.includes('TEST BrowserStack'), null, { timeout: 8000 }).then(() => true, () => false);
+  ok('registriert, Startbildschirm', kopf);
   ok('Login-Token NICHT gespeichert', await page.evaluate(() => !localStorage.getItem('token') && !!localStorage.getItem('terminal_token')));
   ok('Server-Uhr sichtbar', /\d\d:\d\d/.test(await page.textContent('[data-term-uhr]')));
   await shot('02_start');
