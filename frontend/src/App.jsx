@@ -11,6 +11,7 @@ import MonthlyConfirmation from './pages/MonthlyConfirmation';
 import SommerfestPage from './pages/SommerfestPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 const Cockpit = lazy(() => import('./cockpit'));
+const Terminal = lazy(() => import('./pages/Terminal'));
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -90,6 +91,7 @@ function App() {
           }
         />
         <Route path="/fest" element={<SommerfestPage />} />
+        <Route path="/terminal" element={<Suspense fallback={null}><Terminal /></Suspense>} />
         <Route path="/" element={<StartRedirect />} />
         <Route path="/admin" element={<KlassischRoute><AdminDashboard /></KlassischRoute>} />
         <Route path="/cockpit/*" element={<ProtectedAdminRoute><Suspense fallback={null}><Cockpit /></Suspense></ProtectedAdminRoute>} />

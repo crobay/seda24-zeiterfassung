@@ -10,7 +10,7 @@ const errs = []; page.on('pageerror', (e) => errs.push(`${page.url()}: ${e.messa
 page.on('response', (r) => { if (r.url().includes('/api/v1/cockpit') && r.status() >= 400 && r.status() !== 409) errs.push(`${page.url()} -> API ${r.status()} ${r.url().replace(/^.*\/api/, '/api')}`); });
 await page.goto('https://dev.seda.de/login');
 await page.fill('input[name=email]', WHO === 'ol' ? env.OL_EMAIL : env.ADMIN_EMAIL); await page.fill('input[name=password]', WHO === 'ol' ? env.OL_PASSWORD : env.ADMIN_PASSWORD);
-await page.click('button[type=submit]'); await page.waitForURL(/\/(admin|dashboard)/);
+await page.click('button[type=submit]'); await page.waitForURL(/\/(admin|dashboard|cockpit)/);
 const seen = new Set(); const queue = ['/cockpit', '/cockpit/dienstplan', '/cockpit/mitarbeiter', '/cockpit/objekte', '/cockpit/zeiten', '/cockpit/abrechnung', '/cockpit/einstellungen'];
 const bad = [];
 while (queue.length && seen.size < 90) {

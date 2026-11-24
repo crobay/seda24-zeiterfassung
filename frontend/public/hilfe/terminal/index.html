@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terminal-Tablet einrichten | SEDA24</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #1f2937; font-size: 19px; line-height: 1.5; }
+  .header { background: #163d5c; color: white; padding: 18px 16px; }
+  .header div { max-width: 760px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
+  .header img { height: 40px; }
+  .header h1 { font-size: 24px; line-height: 1.2; }
+  .header p { font-size: 15px; color: #F9B233; font-weight: 600; }
+  .container { max-width: 760px; margin: 0 auto; padding: 16px 16px 60px; }
+  .step { background: white; border-radius: 16px; margin-bottom: 14px; border: 2px solid #e5e7eb; padding: 16px 18px; page-break-inside: avoid; }
+  .step h2 { font-size: 21px; color: #163d5c; display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .nr { flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; background: #163d5c; color: white; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  ol, ul { padding-left: 26px; }
+  li { margin-bottom: 6px; }
+  .k { background: #e0e7ff; color: #3730a3; padding: 1px 7px; border-radius: 6px; font-weight: 700; white-space: nowrap; }
+  .info { background: #eff6ff; border-left: 5px solid #2563eb; border-radius: 0 10px 10px 0; padding: 10px 14px; margin-top: 10px; }
+  .warn { background: #fef2f2; border-left: 5px solid #b91c1c; border-radius: 0 10px 10px 0; padding: 10px 14px; margin-top: 10px; }
+  .ok { background: #f0fdf4; border-left: 5px solid #15803d; border-radius: 0 10px 10px 0; padding: 10px 14px; margin-top: 10px; }
+  @media print { body { background: white; font-size: 15px; } .step { border-color: #ccc; } }
+</style>
+</head>
+<body>
+<div class="header"><div>
+  <img src="/brand/seda24/logo-seda24-weiss.svg" alt="SEDA24">
+  <div><h1>Terminal-Tablet einrichten</h1><p>Android-Tablet am Objekt · ca. 15 Minuten · einmalig</p></div>
+</div></div>
+<div class="container">
+
+<div class="step">
+  <h2><span class="nr">1</span>Vorher im Cockpit: PINs vergeben</h2>
+  <ol>
+    <li>Im Cockpit links <span class="k">Terminal</span> öffnen.</li>
+    <li>Bei jeder Mitarbeiterin / jedem Mitarbeiter <span class="k">PIN setzen</span> → <span class="k">Zufällige PIN</span> (oder selbst 4 Ziffern eingeben).</li>
+    <li>Die PIN wird nur einmal angezeigt – der Person <b>persönlich</b> sagen (nicht in die Gruppe schreiben).</li>
+  </ol>
+  <div class="info">Nicht erlaubt sind leichte PINs wie 0000, 1111 … 1234, 4321. Wer die PIN vergessen hat, bekommt im Cockpit einfach eine neue.</div>
+</div>
+
+<div class="step">
+  <h2><span class="nr">2</span>Tablet vorbereiten</h2>
+  <ol>
+    <li>Tablet an einen festen Platz am Eingang stellen, <b>Ladekabel dauerhaft anschließen</b>.</li>
+    <li><span class="k">Einstellungen › WLAN</span>: mit dem <b>Lidl-WLAN</b> verbinden. Erscheint eine Anmeldeseite: dort bestätigen.</li>
+    <li><span class="k">Einstellungen › Anzeige › Bildschirm-Timeout</span>: den <b>längsten Wert</b> wählen.</li>
+    <li><span class="k">Einstellungen › Akku</span>: <b>Energiesparmodus aus</b>.</li>
+    <li>Automatisches Drehen einschalten (Schnelleinstellungen von oben herunterwischen) und das Tablet <b>quer</b> hinstellen.</li>
+  </ol>
+</div>
+
+<div class="step">
+  <h2><span class="nr">3</span>Terminal in Chrome öffnen und registrieren</h2>
+  <ol>
+    <li><b>Chrome</b> öffnen und oben eintippen: <span class="k">app.seda.de/terminal</span><br><small>(Test am Donnerstag auf DEV: <span class="k">dev.seda.de/terminal</span>)</small></li>
+    <li>Mit <b>deiner</b> Cockpit-E-Mail und deinem Passwort anmelden (nur Admin oder Objektleitung).</li>
+    <li>Objekt <b>Lidl Neu Bie2</b> wählen, Gerätename z. B. <i>Tablet Eingang</i> → <span class="k">Als Terminal registrieren</span>.</li>
+  </ol>
+  <div class="ok">Dein Login wird auf dem Tablet <b>nicht</b> gespeichert. Das Tablet kann nur noch stempeln – sonst nichts.</div>
+</div>
+
+<div class="step">
+  <h2><span class="nr">4</span>Auf den Startbildschirm legen</h2>
+  <ol>
+    <li>In Chrome oben rechts auf <span class="k">⋮</span> tippen.</li>
+    <li><span class="k">Zum Startbildschirm hinzufügen</span> bzw. <span class="k">App installieren</span> → <span class="k">Installieren</span>.</li>
+    <li>Chrome schließen und das neue Symbol <b>SEDA24 Terminal</b> antippen. Es öffnet sich bildschirmfüllend im Querformat.</li>
+  </ol>
+  <div class="info"><b>Tipp – Tablet „festhalten“:</b> <span class="k">Einstellungen › Sicherheit › App anheften</span> (Samsung: <i>Apps anheften</i>) einschalten. Dann unten die Übersicht öffnen, oben auf das Symbol der Terminal-App tippen → <span class="k">Diese App anheften</span>. So kann niemand aus Versehen herauswechseln. Lösen: Zurück + Übersicht gleichzeitig gedrückt halten.</div>
+</div>
+
+<div class="step">
+  <h2><span class="nr">5</span>So stempeln die Mitarbeiter</h2>
+  <ol>
+    <li>Auf den <b>eigenen Namen</b> tippen (wer heute nicht eingeplant ist: <span class="k">Andere Mitarbeiter</span> und Namen suchen).</li>
+    <li>Die <b>4-stellige PIN</b> eintippen.</li>
+    <li>Den großen Knopf drücken: grün <b>KOMMEN</b> oder rot <b>GEHEN</b>.</li>
+    <li>Großer Haken ✓ mit Uhrzeit = beim Server angekommen. Nach 5 Sekunden ist wieder der Startbildschirm da.</li>
+  </ol>
+  <div class="info">Es zählt die Uhrzeit des Servers, nicht die des Tablets. Im Cockpit stehen diese Buchungen mit der Quelle <b>Terminal</b>.</div>
+</div>
+
+<div class="step">
+  <h2><span class="nr">6</span>Wenn der Bildschirm rot ist</h2>
+  <p><b>„Kein WLAN – bitte mit Lidl-WLAN verbinden“</b>: Dann kann <b>nicht</b> gestempelt werden – auch nicht später nachgereicht.</p>
+  <ol>
+    <li>Auf <span class="k">WLAN-Anmeldung öffnen</span> tippen und die Lidl-Anmeldeseite bestätigen.</li>
+    <li>Oder in <span class="k">Einstellungen › WLAN</span> neu verbinden.</li>
+    <li>Das Terminal prüft alle 15 Sekunden selbst und wird wieder normal, sobald die Verbindung steht.</li>
+  </ol>
+  <div class="warn">Klappt es nicht: Objektleitung anrufen. Die Zeit wird dann wie bisher im Cockpit nachgetragen.</div>
+</div>
+
+<div class="step">
+  <h2><span class="nr">7</span>Tablet verloren, getauscht oder neu einrichten</h2>
+  <ul>
+    <li>Im Cockpit <span class="k">Terminal › Widerrufen</span>: das Tablet kann sofort nicht mehr stempeln.</li>
+    <li>Am Tablet selbst: das <b>SEDA24-Logo 5 Sekunden gedrückt halten</b> → mit Admin/Objektleitung-Login abmelden.</li>
+    <li>Danach wieder ab Schritt 3.</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>

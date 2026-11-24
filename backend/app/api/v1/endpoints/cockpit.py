@@ -544,13 +544,15 @@ def _zeile(r):
             "gehen_datum": r["check_out"].date().isoformat() if r["check_out"] else None,
             "stunden": round(_net_hours(r["check_in"], r["check_out"], r["billed_hours"], r["brk"]), 2),
             "billed_hours": r["billed_hours"], "notes": r["notes"], "service_type": r["service_type"], "schedule_id": r["schedule_id"],
-            "weg": (r["notes"] or "").split(" - ")[0][:40] if r["notes"] else ("App" if r["is_manual_entry"] is False else "Manuell"),
+            "weg": "Terminal" if r.get("quelle") == "terminal" else
+                   (r["notes"] or "").split(" - ")[0][:40] if r["notes"] else ("App" if r["is_manual_entry"] is False else "Manuell"),
+            "quelle": r.get("quelle"),
             "hinweis": ", ".join(hint)}
 
 
 _ZEIT_SELECT = f"""
         SELECT t.id, t.check_in, t.check_out, t.billed_hours, t.notes, t.is_manual_entry, t.object_id, t.service_type, t.schedule_id,
-               o.name AS objekt, e.first_name || ' ' || e.last_name AS name, e.personal_nr, t.employee_id,
+               t.quelle, o.name AS objekt, e.first_name || ' ' || e.last_name AS name, e.personal_nr, t.employee_id,
                (SELECT coalesce(sum(extract(epoch FROM b.end_time - b.start_time)),0) FROM break_entries b
                  WHERE b.time_entry_id = t.id AND b.end_time IS NOT NULL) AS brk
           FROM time_entries t JOIN employees e ON e.id = t.employee_id LEFT JOIN objects o ON o.id = t.object_id"""

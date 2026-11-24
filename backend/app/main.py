@@ -11,7 +11,7 @@ from app.api.v1.endpoints import (
     corrections, warnings, quick_booking, hours_management,
     admin, schedule, vacation, km
 )
-from app.api.v1.endpoints import push, confirmations, messages, self_booking, fest, export, cockpit, abschluss, material
+from app.api.v1.endpoints import push, confirmations, messages, self_booking, fest, export, cockpit, abschluss, material, terminal
 from app.services.ol_scope import ol_guard
 from app.services import features
 from app.middleware.audit import AuditMiddleware
@@ -164,6 +164,9 @@ if features.an("ABSCHLUSS"):  # Etappe 2 (Schalter COCKPIT_ABSCHLUSS, siehe serv
 if features.an("MATERIAL"):  # Materialmeldung (Schalter COCKPIT_MATERIAL, siehe services/features.py)
     app.include_router(material.router, prefix="/api/v1/material", tags=["material"])
     app.include_router(material.cockpit_router, prefix="/api/v1/cockpit/material", tags=["material"])
+if features.an("TERMINAL"):  # Terminal-Tablet je Objekt (Schalter COCKPIT_TERMINAL, siehe services/features.py)
+    app.include_router(terminal.router, prefix="/api/v1/terminal", tags=["terminal"])
+    app.include_router(terminal.cockpit_router, prefix="/api/v1/cockpit/terminal", tags=["terminal"])
 app.include_router(schedule.router, prefix="/api/v1/schedule", tags=["schedule"])
 app.include_router(vacation.router, prefix="/api/v1/vacation", tags=["vacation"])
 
