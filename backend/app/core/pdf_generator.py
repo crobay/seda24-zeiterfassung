@@ -146,8 +146,7 @@ class PDFGenerator:
                 'amount': round(amount, 2),
                 'type': entry_type,
                 'pause_minutes': pause_minutes,
-                'service_type': entry.service_type,
-                'taetigkeit': getattr(entry, 'taetigkeit', None)
+                'service_type': entry.service_type
             })
 
         return result
@@ -267,11 +266,9 @@ class PDFGenerator:
             else:
                 row_class = ""
                 badge = e['object_name']
-                # Sonderreinigung mit Taetigkeit (Drazen 25.11.2026) - Unterhaltsreinigung bleibt wie bisher
-                if e.get('service_type') in ('Sonderreinigung', 'Fensterreinigung', 'Grundreinigung'):
-                    from html import escape
-                    art = escape(e['service_type'] + (f": {e['taetigkeit']}" if e.get('taetigkeit') else ''))
-                    badge = f"{badge}<br><small style=\"color:#6b7280\">{art}</small>"
+                # Art unter dem Objekt (Drazen 25.11.2026) - Unterhaltsreinigung bleibt wie bisher ohne Zusatz
+                if e.get('service_type') in ('Grundreinigung', 'Sonderreinigung', 'Fensterreinigung'):
+                    badge = f"{badge}<br><small style=\"color:#6b7280\">{e['service_type']}</small>"
                 zeit = f"{e['check_in'].strftime('%H:%M')} - {e['check_out'].strftime('%H:%M')}"
                 pause_cell = f"{e['pause_minutes']} Min" if e.get('pause_minutes', 0) > 0 else "-"
                 stunden = f"{e['hours']}"

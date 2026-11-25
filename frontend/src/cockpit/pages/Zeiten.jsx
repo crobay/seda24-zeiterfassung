@@ -11,6 +11,9 @@ const VerspKurz = ({ r, art }) => {
   const v = (r.verspaetet || []).find((x) => x.art === art);
   return v ? <div className="ck-subtle" title={v.text} onClick={(e) => e.stopPropagation()} style={{ fontSize: '75%', fontWeight: 400, whiteSpace: 'nowrap', lineHeight: 1.3, cursor: 'help' }} data-versp-kurz={art}>{v.kurz}</div> : null;
 };
+// Art wie alte Ansicht/App (gleiche gespeicherte Werte); Grund/Sonder/Fenster = Lohnart Sonder
+const ARTEN = ['Unterhaltsreinigung', 'Grundreinigung', 'Sonderreinigung', 'Fensterreinigung'];
+const LINK = { background: 'none', border: 0, padding: 0, font: 'inherit', color: 'var(--ck-accent-ink)', textDecoration: 'underline', textUnderlineOffset: 3, cursor: 'pointer' };
 const COLS = [['datum', 'zeiten.date'], ['name', 'zeiten.name'], ['objekt', 'zeiten.object'], ['kommen', 'zeiten.in'], ['gehen', 'zeiten.out'], ['stunden', 'zeiten.hours'], ['weg', 'zeiten.way'], ['hinweis', 'zeiten.hint']];
 
 export default function Zeiten() {
@@ -129,10 +132,10 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
   const { data: aus } = useApi('/auswahl');
   const init = eintrag ? { employee_id: eintrag.employee_id, object_id: eintrag.object_id || '', datum: eintrag.gehen_datum && eintrag.hinweis.includes('Gehen vor Kommen') ? eintrag.gehen_datum : eintrag.datum,
     kommen: eintrag.kommen, gehen: eintrag.gehen || '', notes: eintrag.notes || '',
-    art: eintrag.service_type || 'Unterhaltsreinigung', taetigkeit: eintrag.taetigkeit || '', fahrt: !!eintrag.fahrt }
-    : { employee_id: '', object_id: '', notes: '', art: 'Unterhaltsreinigung', taetigkeit: '', fahrt: false, ...neu };
+    art: ARTEN.includes(eintrag.service_type) ? eintrag.service_type : 'Unterhaltsreinigung', fahrt: !!eintrag.fahrt }
+    : { employee_id: '', object_id: '', notes: '', art: 'Unterhaltsreinigung', fahrt: false, ...neu };
   const [f, setF] = useState(init);
-  // Art / Satz / Fahrt mit KM (Drazen 25.11.2026): Satz und Lohnart nur Anzeige, Haken vorbelegt wie Fahrer laut Schicht/Zuweisung
+  // Art / Satz / Fahrt mit KM (Drazen 25.11.2026): Satz je Art vorbelegt, ueber "ändern" eigener Satz; Haken vorbelegt wie Fahrer laut Schicht/Zuweisung
   const [satz, setSatz] = useState(null);
   const [fahrtAngefasst, setFahrtAngefasst] = useState(!!eintrag);
   const eid = f.employee_id || eintrag?.employee_id;
@@ -144,9 +147,11 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
       .catch(() => aktiv && setSatz(null));
     return () => { aktiv = false; };
   }, [eid, f.object_id, f.art]); // eslint-disable-line
-  const sonder = ['Sonderreinigung', 'Fensterreinigung', 'Grundreinigung'].includes(f.art);
-  const artOptionen = ['Unterhaltsreinigung', 'Sonderreinigung', ...(eintrag?.service_type && !['Unterhaltsreinigung', 'Sonderreinigung'].includes(eintrag.service_type) ? [eintrag.service_type] : [])];
-  const satzAnzeige = eintrag && f.art === eintrag.service_type && eintrag.hourly_rate != null ? eintrag.hourly_rate : satz?.satz;
+  const [eigen, setEigen] = useState(null);   // null = Vorbelegung, sonst eingegebener Satz (Text)
+  const gespeichert = eintrag && f.art === (eintrag.service_type || 'Unterhaltsreinigung') && eintrag.hourly_rate != null;
+  const satzAnzeige = gespeichert ? eintrag.hourly_rate : satz?.satz;
+  const eigenerSatz = gespeichert && satz && Math.abs(eintrag.hourly_rate - satz.satz) > 0.004;
+  const eigenOk = eigen == null || /^\d{1,3}([.,]\d{1,2})?$/.test(eigen.trim());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [confirmDel, setConfirmDel] = useState(false);
@@ -165,12 +170,12 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
     try {
       if (eintrag) {
         const before = { datum: eintrag.datum, kommen: eintrag.kommen, gehen: eintrag.gehen, object_id: eintrag.object_id, notes: eintrag.notes,
-          art: eintrag.service_type || 'Unterhaltsreinigung', taetigkeit: eintrag.taetigkeit || '', fahrt: !!eintrag.fahrt };
+          art: eintrag.service_type || 'Unterhaltsreinigung', stundensatz: eintrag.hourly_rate ?? undefined, fahrt: !!eintrag.fahrt };
         await api.put(`/zeiten/${eintrag.id}`, { datum: f.datum, kommen: f.kommen, gehen: f.gehen, object_id: f.object_id ? Number(f.object_id) : undefined, notes: f.notes,
-          art: f.art, taetigkeit: sonder ? f.taetigkeit : '', fahrt: !!f.fahrt });
+          art: f.art, stundensatz: eigen ?? undefined, fahrt: !!f.fahrt });
         toast(t('zeiten.saved', { name: eintrag.name }), before.gehen && !fixed ? { undo: async () => { await api.put(`/zeiten/${eintrag.id}`, before); onDone(); } } : {});
       } else {
-        const r = await api.post('/zeiten', { ...f, taetigkeit: sonder ? f.taetigkeit : '', fahrt: !!f.fahrt, employee_id: Number(f.employee_id), object_id: Number(f.object_id) });
+        const r = await api.post('/zeiten', { ...f, stundensatz: eigen ?? undefined, fahrt: !!f.fahrt, employee_id: Number(f.employee_id), object_id: Number(f.object_id) });
         toast(t('zeiten.created', { name: r.data.name }), { undo: async () => { await api.delete(`/zeiten/${r.data.id}`); onDone(); } });
       }
       onDone();
@@ -183,7 +188,7 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
       const r = await api.delete(`/zeiten/${eintrag.id}`);
       const a = r.data.alt;
       toast(t('zeiten.deleted', { name: eintrag.name }), a.gehen ? { undo: async () => { await api.post('/zeiten', { employee_id: a.employee_id, object_id: a.object_id, datum: a.datum, kommen: a.kommen, gehen: a.gehen, notes: a.notes, schedule_id: a.schedule_id,
-        art: a.service_type, taetigkeit: a.taetigkeit || '', fahrt: !!a.fahrt }); onDone(); } } : {});
+        art: a.service_type, stundensatz: a.hourly_rate ?? undefined, fahrt: !!a.fahrt }); onDone(); } } : {});
       onDone();
     } catch (e) { setErr(apiError(e)); setBusy(false); }
   };
@@ -193,7 +198,7 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
       {eintrag && !gesperrt && (confirmDel ? <button className="ck-btn" style={{ marginRight: 'auto', color: 'var(--ck-warn)', borderColor: 'var(--ck-warn)' }} disabled={busy} onClick={del}><Trash2 size={16} />{t('zeiten.delete_confirm')}</button>
         : <button className="ck-btn ck-btn-ghost" style={{ marginRight: 'auto' }} onClick={() => setConfirmDel(true)}><Trash2 size={16} />{t('zeiten.delete')}</button>)}
       <button className="ck-btn" onClick={onClose}>{t('app.cancel')}</button>
-      <button className="ck-btn ck-btn-primary" disabled={gesperrt || busy || !f.datum || !f.kommen || !f.gehen || (!eintrag && (!f.employee_id || !f.object_id))} onClick={save}>{t('app.save')}</button></>}>
+      <button className="ck-btn ck-btn-primary" disabled={gesperrt || busy || !eigenOk || !f.datum || !f.kommen || !f.gehen || (!eintrag && (!f.employee_id || !f.object_id))} onClick={save}>{t('app.save')}</button></>}>
       {gesperrt && <div className="ck-callout" data-gesperrt><Lock size={20} style={{ flex: 'none' }} />{t('zeiten.locked')}</div>}
       {fixed && <div className="ck-callout"><AlertTriangle size={20} style={{ flex: 'none' }} />{t('zeiten.fix_hint', { kommen: fmtDate(eintrag.datum), gehen: fmtDate(eintrag.gehen_datum) })}</div>}
       {!eintrag && (
@@ -210,16 +215,23 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
       </div>
       {dauer != null && <div className="ck-subtle" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: -6 }}>
         {nacht && <><Moon size={15} />{t('zeiten.next_day')} · </>}{t('zeiten.duration', { h: fmtNum(dauer, 2) })}</div>}
-      <div style={{ display: 'grid', gridTemplateColumns: sonder ? '1fr 1fr' : '1fr', gap: 12 }}>
-        <label className="ck-field">{t('zeiten.art')}
-          <select className="ck-input" value={f.art} onChange={set('art')} data-buchung-art>
-            {artOptionen.map((a) => <option key={a} value={a}>{a === 'Unterhaltsreinigung' ? t('zeiten.art_u') : a === 'Sonderreinigung' ? t('zeiten.art_s') : a}</option>)}</select></label>
-        {sonder && <label className="ck-field">{t('zeiten.taetigkeit')}
-          <input className="ck-input" value={f.taetigkeit} maxLength={60} placeholder={t('zeiten.taetigkeit_ph')} onChange={set('taetigkeit')} data-buchung-taetigkeit /></label>}
+      <label className="ck-field">{t('zeiten.art')}
+        <select className="ck-input" value={f.art} onChange={set('art')} data-buchung-art>
+          {ARTEN.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
+      <div className="ck-subtle" style={{ marginTop: -6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} data-buchung-satz>
+        {eigen == null ? <>
+          {satzAnzeige != null && t('zeiten.satz', { satz: fmtNum(satzAnzeige, 2) })}
+          {eigenerSatz && <> · {t('zeiten.satz_eigen')}</>}
+          {eintrag && !gespeichert && <> · {t('zeiten.satz_neu')}</>}
+          <button type="button" style={LINK} onClick={() => setEigen(satzAnzeige != null ? fmtNum(satzAnzeige, 2) : '')} data-buchung-satz-aendern>{t('zeiten.satz_aendern')}</button>
+        </> : <>
+          <input className="ck-input" value={eigen} inputMode="decimal" style={{ width: 96 }} autoFocus aria-label={t('zeiten.satz_label')}
+            onChange={(e) => setEigen(e.target.value)} data-buchung-satz-eingabe /> €/h
+          <button type="button" style={LINK} onClick={() => setEigen(null)}>{t('zeiten.satz_zurueck')}</button>
+          {!eigenOk && <span style={{ color: 'var(--ck-warn)' }}>{t('zeiten.satz_falsch')}</span>}
+        </>}
+        {satz?.lohnart && <span>· {t('zeiten.lohnart', { nr: satz.lohnart })}</span>}
       </div>
-      {satzAnzeige != null && <div className="ck-subtle" style={{ marginTop: -6 }} data-buchung-satz>
-        {t('zeiten.satz', { satz: fmtNum(satzAnzeige, 2) })}{satz?.lohnart && <> · {t('zeiten.lohnart', { nr: satz.lohnart })}</>}
-        {eintrag && f.art !== eintrag.service_type && <> · {t('zeiten.satz_neu')}</>}</div>}
       <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontWeight: 500 }}>
         <input type="checkbox" checked={!!f.fahrt} disabled={!f.object_id} style={{ width: 18, height: 18 }} data-buchung-fahrt
           onChange={(e) => { setFahrtAngefasst(true); setF({ ...f, fahrt: e.target.checked }); }} />

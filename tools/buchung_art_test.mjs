@@ -1,4 +1,4 @@
-// NUR DEV: Dialog "Buchung nachtragen/bearbeiten" mit Art, Taetigkeit, Satz (Anzeige), Fahrt mit KM (Drazen 25.11.2026).
+// NUR DEV: Dialog "Buchung nachtragen/bearbeiten" mit Art (4 Werte), Satz (ueberschreibbar), Fahrt mit KM + Sondersatz im Stammblatt (Drazen 25.11.2026 12:20).
 // Helena (33) an Lidl Neu Bie2 (20) am 22.11.2026 (dort auf DEV ohne Buchung/KM), raeumt selbst auf.
 // Aufruf: CK_TOKEN=$(./venv/bin/python ../tools/dev_token.py <admin-mail>) node buchung_art_test.mjs <ordner>
 import path from 'path';
@@ -15,6 +15,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const sql = (q) => execFileSync('sudo', ['-n', '-u', 'postgres', 'psql', '-d', 'dev_cockpit', '-X', '-tA', '-F', '|', '-c', q], { cwd: '/tmp' }).toString().trim();
 if (sql(`SELECT count(*) FROM time_entries WHERE employee_id=${EMP} AND check_in::date='${TAG}'`) !== '0'
   || sql(`SELECT count(*) FROM km_daily_entries WHERE employee_id=${EMP} AND date='${TAG}'`) !== '0') { console.log('Testtag nicht frei - Abbruch'); process.exit(1); }
+const BASIC = sql(`SELECT hourly_rate_basic FROM employees WHERE id=${EMP}`);
 const START = Number(sql('SELECT coalesce(max(id),0) FROM time_entries')), START_A = Number(sql('SELECT coalesce(max(id),0) FROM audit_log'));
 let fehler = 0;
 const ok = (name, cond, info = '') => { console.log(`  [${cond ? 'OK ' : 'XX '}] ${name}${info ? ' - ' + info : ''}`); if (!cond) fehler++; return cond; };
@@ -35,40 +36,55 @@ try {
   await feld('Objekt').selectOption(String(OBJ));
   await feld('Datum').fill(TAG); await feld('Kommen').fill('09:00'); await feld('Gehen').fill('11:00');
   ok('Art Standard Unterhaltsreinigung', await page.locator('[data-buchung-art]').inputValue() === 'Unterhaltsreinigung');
-  ok('Satz angezeigt: 17,00 €/h · Lohnart 0001', await warteSatz(/17,00 €\/h · Lohnart 0001/), await satzText());
-  ok('keine Taetigkeit bei Unterhalt', await page.locator('[data-buchung-taetigkeit]').count() === 0);
+  const arten = await page.locator('[data-buchung-art] option').allTextContents();
+  ok('Arten wie alte Ansicht', arten.join('|') === 'Unterhaltsreinigung|Grundreinigung|Sonderreinigung|Fensterreinigung', arten.join('|'));
+  ok('Satz vorbelegt: 17,00 €/h · Lohnart 0001', await warteSatz(/17,00 €\/h.*Lohnart 0001/), await satzText());
+  ok('kein Feld Taetigkeit', await page.locator('[data-buchung-taetigkeit]').count() === 0);
   await page.waitForFunction(() => document.querySelector('[data-buchung-fahrt]')?.checked, null, { timeout: 5000 }).catch(() => {});
   ok('Fahrt mit KM AN (Helena ist Fahrerin)', await page.locator('[data-buchung-fahrt]').isChecked());
   await page.locator('[data-buchung-art]').selectOption('Sonderreinigung');
-  ok('Satz wechselt: 20,00 €/h · Lohnart 0030', await warteSatz(/20,00 €\/h · Lohnart 0030/), await satzText());
-  ok('Feld Taetigkeit erscheint', await page.locator('[data-buchung-taetigkeit]').isVisible());
-  await page.locator('[data-buchung-taetigkeit]').fill('Fenster');
+  ok('Satz wechselt: 20,00 €/h · Lohnart 0030', await warteSatz(/20,00 €\/h.*Lohnart 0030/), await satzText());
+  await page.locator('[data-buchung-satz-aendern]').click();
+  ok('Link "ändern" oeffnet Eingabe mit 20,00', await page.locator('[data-buchung-satz-eingabe]').inputValue() === '20,00');
+  await page.locator('[data-buchung-satz-eingabe]').fill('15,50');
   await page.screenshot({ path: path.join(OUT, 'nachtragen_sonder.png') });
   await page.getByRole('button', { name: /^Speichern$/ }).click();
   await page.waitForTimeout(1500);
   const id = sql(`SELECT max(id) FROM time_entries WHERE employee_id=${EMP} AND id>${START}`);
-  const row = sql(`SELECT service_type, hourly_rate, taetigkeit, is_manual_entry FROM time_entries WHERE id=${id || 0}`);
-  ok('gespeichert: Sonderreinigung, 20,00, Fenster', row === 'Sonderreinigung|20.00|Fenster|t', row);
+  const row = sql(`SELECT service_type, hourly_rate, is_manual_entry FROM time_entries WHERE id=${id || 0}`);
+  ok('gespeichert: Sonderreinigung, eigener Satz 15,50', row === 'Sonderreinigung|15.50|t', row);
   ok('KM gebucht', sql(`SELECT count(*) FROM km_daily_entries WHERE time_entry_id=${id || 0}`) === '1');
 
   console.log('Bearbeiten');
   await page.goto(`${BASE}/cockpit/zeiten?eintrag=${id}`);
   await page.waitForSelector('[data-buchung-art]');
   ok('zeigt bestehende Art', await page.locator('[data-buchung-art]').inputValue() === 'Sonderreinigung');
-  ok('zeigt bestehende Taetigkeit', await page.locator('[data-buchung-taetigkeit]').inputValue() === 'Fenster');
+  ok('zeigt eigenen Satz 15,50', await warteSatz(/15,50 €\/h · eigener Satz.*Lohnart 0030/), await satzText());
   ok('zeigt Fahrt mit KM an', await page.locator('[data-buchung-fahrt]').isChecked());
-  ok('zeigt gespeicherten Satz', await warteSatz(/20,00 €\/h · Lohnart 0030/), await satzText());
   await page.screenshot({ path: path.join(OUT, 'bearbeiten_vorher.png') });
+  await page.locator('[data-buchung-art]').selectOption('Grundreinigung');
+  ok('Grundreinigung: 20,00 neu nach Art · 0030', await warteSatz(/20,00 €\/h · neu nach Art.*Lohnart 0030/), await satzText());
   await page.locator('[data-buchung-art]').selectOption('Unterhaltsreinigung');
-  ok('Satz neu nach Art: 17,00 · 0001', await warteSatz(/17,00 €\/h · Lohnart 0001 · neu nach Art/), await satzText());
-  ok('Taetigkeit ausgeblendet', await page.locator('[data-buchung-taetigkeit]').count() === 0);
+  ok('Unterhalt: 17,00 neu nach Art · 0001', await warteSatz(/17,00 €\/h · neu nach Art.*Lohnart 0001/), await satzText());
   await page.locator('[data-buchung-fahrt]').uncheck();
   await page.getByRole('button', { name: /^Speichern$/ }).click();
   await page.waitForTimeout(1500);
-  const row2 = sql(`SELECT service_type, hourly_rate, coalesce(taetigkeit,'-') FROM time_entries WHERE id=${id}`);
-  ok('gespeichert: Unterhalt, 17,00, ohne Taetigkeit', row2 === 'Unterhaltsreinigung|17.00|-', row2);
+  const row2 = sql(`SELECT service_type, hourly_rate FROM time_entries WHERE id=${id}`);
+  ok('gespeichert: Unterhalt, 17,00', row2 === 'Unterhaltsreinigung|17.00', row2);
   ok('KM entfernt', sql(`SELECT count(*) FROM km_daily_entries WHERE time_entry_id=${id}`) === '0');
   ok('Protokoll: Buchung geaendert + KM aus', sql(`SELECT count(*) FROM audit_log WHERE id>${START_A} AND entity_id=${id} AND action IN ('booking_updated','km_entry_changed')`) === '2');
+
+  console.log('Sondersatz beim Mitarbeiter');
+  await page.goto(`${BASE}/cockpit/mitarbeiter/${EMP}`);
+  await page.waitForSelector('[data-sondersatz]');
+  ok('Stammblatt zeigt Sondersatz 20,00 €', /20,00 €/.test(await page.locator('[data-sondersatz]').textContent()), await page.locator('[data-sondersatz]').textContent());
+  await page.locator('[data-sondersatz-aendern]').click();
+  await page.locator('[data-sondersatz-eingabe]').fill('19,50');
+  await page.locator('[data-sondersatz-speichern]').click();
+  await page.waitForFunction(() => /19,50/.test(document.querySelector('[data-sondersatz]')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
+  ok('Sondersatz 19,50 gespeichert und angezeigt', Number(sql(`SELECT hourly_rate_basic FROM employees WHERE id=${EMP}`) )  === 19.5 && /19,50/.test(await page.locator('[data-sondersatz]').textContent()));
+  await page.screenshot({ path: path.join(OUT, 'stammblatt_sondersatz.png') });
+  sql(`UPDATE employees SET hourly_rate_basic=${BASIC} WHERE id=${EMP}`);
 
   console.log('Handy');
   const h = await (await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })).newPage();
@@ -76,8 +92,9 @@ try {
   await h.evaluate((tk) => { localStorage.setItem('token', tk); localStorage.setItem('userRole', 'admin'); }, TOKEN);
   await h.goto(`${BASE}/cockpit/zeiten?eintrag=${id}`);
   await h.waitForSelector('[data-buchung-art]');
-  await h.locator('[data-buchung-art]').selectOption('Sonderreinigung');
-  await h.waitForSelector('[data-buchung-taetigkeit]');
+  await h.locator('[data-buchung-art]').selectOption('Fensterreinigung');
+  await h.locator('[data-buchung-satz-aendern]').click();
+  await h.waitForSelector('[data-buchung-satz-eingabe]');
   const w = await h.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
   ok('Dialog passt aufs Handy (kein Querscrollen)', w);
   await h.screenshot({ path: path.join(OUT, 'handy_dialog.png') });
@@ -87,12 +104,13 @@ try {
   await page.screenshot({ path: path.join(OUT, 'fehler.png') }).catch(() => {});
 } finally {
   await browser.close();
+  sql(`UPDATE employees SET hourly_rate_basic=${BASIC} WHERE id=${EMP}`);
   const ids = sql(`SELECT string_agg(id::text, ',') FROM time_entries WHERE employee_id=${EMP} AND id>${START}`);
   if (ids) {
     sql(`DELETE FROM km_daily_entries WHERE time_entry_id IN (${ids}) OR (employee_id=${EMP} AND date='${TAG}')`);
     sql(`DELETE FROM time_entries WHERE id IN (${ids})`);
-    sql(`DELETE FROM audit_log WHERE id>${START_A} AND employee_id=${EMP}`);
   }
+  sql(`DELETE FROM audit_log WHERE id>${START_A} AND employee_id=${EMP}`);
   console.log(`  aufgeraeumt: ${ids || '-'}`);
 }
 console.log(fehler ? `FEHLER: ${fehler}` : 'ALLES OK');

@@ -3,30 +3,42 @@
 Nichts Neues: Art = time_entries.service_type, Satz = time_entries.hourly_rate, Lohnart ueber service_type
 (Lohnsplit admin._berechne_stunden_split: Fenster-/Sonder-/Grundreinigung -> "sonder", sonst "normal"; Nummern aus
 den Lexware-Lohnarten im Monatsabschluss). KM ueber time_entries.calculate_and_save_km (weiteste Fahrt des Tages).
-Neu ist nur time_entries.taetigkeit (kurzer Text fuer den Zeitnachweis).
+Arten wie in der alten Ansicht/App; Satz je Art vorbelegt, im Dialog ueberschreibbar (Drazen 25.11.2026 12:20).
 """
 from sqlalchemy import text
 
 UNTERHALT = "Unterhaltsreinigung"
 SONDER = "Sonderreinigung"
-SONDER_ARTEN = ("Sonderreinigung", "Fensterreinigung", "Grundreinigung")   # wie der Lohnsplit
+SONDER_ARTEN = ("Grundreinigung", "Sonderreinigung", "Fensterreinigung")   # wie der Lohnsplit
+ARTEN = (UNTERHALT,) + SONDER_ARTEN                                          # Auswahl wie alte Ansicht
+ART_FEHLER = "Art: Unterhalts-, Grund-, Sonder- oder Fensterreinigung"
+SONDERSATZ_STANDARD = 20.0
 
 
 def ist_sonder(service_type):
     return service_type in SONDER_ARTEN
 
 
+def satz_pruefen(v):
+    """Eigener Stundensatz aus dem Dialog ('15,50' oder 15.5) -> float, 1 bis 100 €."""
+    try:
+        f = round(float(str(v).replace(",", ".").strip()), 2)
+    except (TypeError, ValueError):
+        raise ValueError("Stundensatz ist keine Zahl")
+    if not 1 <= f <= 100:
+        raise ValueError("Stundensatz muss zwischen 1 und 100 € liegen")
+    return f
+
+
 def satz(db, employee_id, object_id, service_type):
-    """Stundensatz wie bisher: Sonder = MA-Sondersatz (Stammblatt hourly_rate_basic, Standard 20 €),
-    Fensterreinigung = hourly_rate_window; Unterhalt = Satz der Objekt-Zuweisung (wie beim App-Stempel), sonst MA-Satz."""
+    """Vorbelegung: Grund/Sonder/Fenster = MA-Sondersatz (hourly_rate_basic, Standard 20 €);
+    Unterhalt = Satz der Objekt-Zuweisung (wie beim App-Stempel), sonst MA-Satz."""
     e = db.execute(text("""SELECT hourly_rate, hourly_rate_standard, hourly_rate_window, hourly_rate_basic
                              FROM employees WHERE id = :e"""), {"e": employee_id}).mappings().first()
     if not e:
         raise LookupError("Mitarbeiter nicht gefunden")
-    if service_type == "Fensterreinigung":
-        return float(e["hourly_rate_window"] or 20.0)
     if ist_sonder(service_type):
-        return float(e["hourly_rate_basic"] or 20.0)
+        return float(e["hourly_rate_basic"] or SONDERSATZ_STANDARD)
     a = db.execute(text("""SELECT custom_hourly_rate, custom_service_type FROM employee_object_assignments
                             WHERE employee_id = :e AND object_id = :o AND is_active ORDER BY id LIMIT 1"""),
                    {"e": employee_id, "o": object_id}).mappings().first() if object_id else None

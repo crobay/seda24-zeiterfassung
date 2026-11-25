@@ -74,6 +74,7 @@ export default function Akte() {
                 <dt>{t('ma.telegram')}</dt><dd>{s.telegram ? t('ma.yes') : t('ma.no')}</dd>
                 <dt>{t('ma.since')}</dt><dd>{fmtDate(s.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}</dd>
                 {me?.rechte?.verwalten && s.stundenlohn != null && <><dt>{t('ma.rate')}</dt><dd>{fmtNum(s.stundenlohn, 2)} €</dd></>}
+                {me?.rechte?.verwalten && s.sondersatz != null && <><dt>{t('ma.sondersatz')}</dt><dd><Sondersatz s={s} onDone={reload} /></dd></>}
               </dl>)}</div>
           </section>
           <section className="ck-card"><div className="ck-card-head"><h2><Palmtree size={20} />{t('ma.vacation', { year: data?.urlaub.jahr || '' })}</h2></div>
@@ -95,6 +96,31 @@ export default function Akte() {
       {assign && <AssignDialog emp={s} existing={data.objekte} onClose={() => setAssign(false)} onDone={() => { setAssign(false); reload(); }} />}
     </>
   );
+}
+
+// Sondersatz (employees.hourly_rate_basic) fuer Grund-/Sonder-/Fensterreinigung (Drazen 25.11.2026)
+function Sondersatz({ s, onDone }) {
+  const { toast } = useApp();
+  const [wert, setWert] = useState(null);
+  const ok = wert != null && /^\d{1,3}([.,]\d{1,2})?$/.test(wert.trim());
+  const speichern = async () => {
+    try {
+      const r = await api.put(`/mitarbeiter/${s.id}/sondersatz`, { sondersatz: wert });
+      toast(t('ma.sondersatz_ok', { name: s.name, satz: fmtNum(r.data.sondersatz, 2) })); setWert(null); onDone();
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+  };
+  if (wert == null) return (
+    <span data-sondersatz>{fmtNum(s.sondersatz, 2)} € <button type="button" onClick={() => setWert(fmtNum(s.sondersatz, 2))}
+      style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: 'var(--ck-accent-ink)', textDecoration: 'underline', cursor: 'pointer' }}
+      data-sondersatz-aendern>{t('ma.aendern')}</button>
+      <div className="ck-subtle" style={{ fontSize: '85%' }}>{t('ma.sondersatz_hint')}</div></span>);
+  return (
+    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <input className="ck-input" value={wert} inputMode="decimal" style={{ width: 90 }} autoFocus aria-label={t('ma.sondersatz')}
+        onChange={(e) => setWert(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ok && speichern()} data-sondersatz-eingabe /> €
+      <button className="ck-btn ck-btn-sm ck-btn-primary" disabled={!ok} onClick={speichern} data-sondersatz-speichern>{t('app.save')}</button>
+      <button className="ck-btn ck-btn-sm" onClick={() => setWert(null)}>{t('app.cancel')}</button>
+    </span>);
 }
 
 function Mini({ Icon, label, value, sub }) {
