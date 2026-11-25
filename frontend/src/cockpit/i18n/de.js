@@ -172,7 +172,7 @@ export default {
     empty: 'Im gewählten Zeitraum gibt es keine Buchungen.', sum: '{n} Einträge · {h} Std.', week: '7 Tage', month: 'Monat', locked: 'Dieser Monat ist abgeschlossen. Ändern geht erst nach „Wieder öffnen“ mit Super-PIN im Monatsabschluss.', locked_short: 'Monat abgeschlossen',
     approvals: 'Genehmigungen (klassisch)', edit: 'Buchung bearbeiten', add_for_shift: 'Buchung für diese Schicht anlegen',
     art: 'Art', satz: 'Stundensatz {satz} €/h', lohnart: 'Lohnart {nr}', satz_neu: 'neu nach Art', satz_eigen: 'eigener Satz',
-    satz_aendern: 'ändern', satz_label: 'Stundensatz in €/h', satz_zurueck: 'Vorbelegung', satz_falsch: 'z. B. 15,50', fahrt: 'Fahrt mit KM', fahrt_km: '{km} km laut Entfernungstabelle',
+    satz_aendern: 'ändern', satz_label: 'Stundensatz in €/h', satz_zurueck: 'Vorbelegung', satz_falsch: 'z. B. 15,50', vorbelegt_dienstplan: 'Zeit aus dem Dienstplan', vorbelegt_zuweisung: 'Zeit aus der festen Zuweisung (Vorlage)', vorbelegt_objekt: 'Standardzeit des Objekts', fahrt: 'Fahrt mit KM', fahrt_km: '{km} km laut Entfernungstabelle',
     fahrt_ohne: 'keine Entfernung hinterlegt – es werden 0 km gebucht', fahrt_fahrer: 'Fahrer' },
   ab: { title: 'Monatsabschluss', subtitle: 'Prüfen · Lexware · Lohnabrechnungen · Versand – ein Ablauf statt PC-Skript', steps: 'Schritte',
     proto: 'Lohn-Mails gehen aus {von} (Kopie in „Gesendete Elemente“, Antworten der Mitarbeiter landen dort). Im Testmodus geht alles an die Test-Adresse statt an die Mitarbeiter.',

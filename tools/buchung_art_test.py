@@ -25,6 +25,7 @@ assert sql(f"SELECT is_test FROM employees WHERE id={EMP}") == "t" and sql(f"SEL
 START = int(sql("SELECT coalesce(max(id),0) FROM time_entries")); START_A = int(sql("SELECT coalesce(max(id),0) FROM audit_log"))
 tag = (date.today() - timedelta(days=1)).isoformat()
 basic = float(sql(f"SELECT hourly_rate_basic FROM employees WHERE id={EMP}"))
+TMP_M, TMP_S = [], []
 F = lambda z: {k: z.get(k) for k in ("service_type", "hourly_rate", "fahrt", "km")} if isinstance(z, dict) else z
 try:
     for art in ("Grundreinigung", "Sonderreinigung", "Fensterreinigung"):
@@ -94,11 +95,41 @@ try:
         db.close()
     chk("Zeitnachweis zeigt die Art 'Grundreinigung'", "Grundreinigung</small>" in html)
 
+    print("Vorbelegung Kommen/Gehen beim Nachtragen (Dienstplan -> Zuweisung -> Objekt-Standard)")
+    Z = lambda o, d: call("GET", f"/zeiten-satz?employee_id={EMP}&object_id={o}&datum={d}")[1].get("zeit")
+    z = Z(14, "2026-12-05")
+    chk("Objekt-Standard je Wochentag (Steuerberater Sa 09-15)", z and (z["kommen"], z["gehen"], z["quelle"]) == ("09:00", "15:00", "objekt"), z)
+    z = Z(7, "2026-12-07")
+    chk("Objekt-Zeit (JU_RA Mo 15-18)", z and (z["kommen"], z["gehen"], z["quelle"]) == ("15:00", "18:00", "objekt"), z)
+    TMP_M.append(sql(f"""INSERT INTO master_schedule_entries (employee_id, object_id, weekday, start_time, end_time, planned_hours, is_active, rhythm)
+                         VALUES ({EMP}, 14, 5, '08:00', '12:00', 4, true, 'weekly') RETURNING id""").split()[0])
+    z = Z(14, "2026-12-05")
+    chk("Zuweisung (Vorlage) vor Objekt-Standard", z and (z["kommen"], z["gehen"], z["quelle"]) == ("08:00", "12:00", "zuweisung"), z)
+    TMP_S.append(sql(f"""INSERT INTO schedules (employee_id, object_id, date, start_time, end_time, status)
+                         VALUES ({EMP}, 14, '2026-12-05', '10:00', '11:30', 'normal') RETURNING id""").split()[0])
+    z = Z(14, "2026-12-05")
+    chk("Dienstplan vor Zuweisung (+ Schicht-Id)", z and (z["kommen"], z["gehen"], z["quelle"]) == ("10:00", "11:30", "dienstplan") and str(z.get("schedule_id")) == TMP_S[0], z)
+    sql(f"UPDATE schedules SET status = 'krank' WHERE id = {TMP_S[0]}")
+    z = Z(14, "2026-12-05")
+    chk("Krank-Schicht zaehlt nicht", z and z["quelle"] == "zuweisung", z)
+
+    print("Fahrt mit KM beim Nachtragen")
+    s, r = call("GET", "/zeiten-satz?employee_id=4&object_id=20")
+    chk("Ruzica (D0002) ohne KM-Berechtigung", r.get("km_berechtigt") is False, r.get("km_berechtigt"))
+    s, r = call("GET", f"/zeiten-satz?employee_id={EMP}&object_id={OBJ}")
+    chk("T9999 mit KM-Berechtigung", r.get("km_berechtigt") is True, r.get("km_berechtigt"))
+    s, z = call("POST", "/zeiten", {"employee_id": EMP, "object_id": OBJ, "datum": tag, "kommen": "14:00", "gehen": "15:00"})
+    chk("ohne Angabe: Fahrt mit KM an", s == 200 and sql(f"SELECT count(*) FROM km_daily_entries WHERE time_entry_id={z['id']}") == "1", F(z))
+
     print("Ungueltige Art")
     s, z = call("POST", "/zeiten", {"employee_id": EMP, "object_id": OBJ, "datum": tag, "kommen": "12:00", "gehen": "13:00", "art": "Quatsch"})
     chk("abgelehnt (400)", s == 400, z)
     chk("Spalte taetigkeit gibt es nicht mehr", sql("SELECT count(*) FROM information_schema.columns WHERE table_name='time_entries' AND column_name='taetigkeit'") == "0")
 finally:
+    for i_ in TMP_S:
+        sql(f"DELETE FROM schedules WHERE id={i_}")
+    for i_ in TMP_M:
+        sql(f"DELETE FROM master_schedule_entries WHERE id={i_}")
     ids = sql(f"SELECT string_agg(id::text, ',') FROM time_entries WHERE employee_id={EMP} AND id>{START}")
     if ids:
         sql(f"DELETE FROM km_daily_entries WHERE time_entry_id IN ({ids}) OR (employee_id={EMP} AND date='{tag}')")

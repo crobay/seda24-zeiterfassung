@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Clock3, ArrowUpDown, ArrowUp, ArrowDown, ClipboardCheck, Plus, Pencil, Trash2, AlertTriangle, X, Moon, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Empty, ErrorBox, Skeleton, Dialog, ObjektMarke } from '../core';
@@ -135,18 +135,34 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
     art: ARTEN.includes(eintrag.service_type) ? eintrag.service_type : 'Unterhaltsreinigung', fahrt: !!eintrag.fahrt }
     : { employee_id: '', object_id: '', notes: '', art: 'Unterhaltsreinigung', fahrt: false, ...neu };
   const [f, setF] = useState(init);
-  // Art / Satz / Fahrt mit KM (Drazen 25.11.2026): Satz je Art vorbelegt, ueber "ändern" eigener Satz; Haken vorbelegt wie Fahrer laut Schicht/Zuweisung
+  // Art / Satz / Fahrt mit KM (Drazen 25.11.2026): Satz je Art vorbelegt, ueber "ändern" eigener Satz.
+  // Nachtragen (15:09): Kommen/Gehen aus Dienstplan -> Zuweisung (Vorlage) -> Objekt-Standard, bis man selbst tippt;
+  // "Fahrt mit KM" an fuer alle mit KM-Geld (D0002 aus). Bearbeiten zeigt das Gespeicherte.
   const [satz, setSatz] = useState(null);
   const [fahrtAngefasst, setFahrtAngefasst] = useState(!!eintrag);
+  const zeitAngefasst = useRef(!!eintrag || !!neu?.kommen);   // Ref: Antwort darf eine inzwischen getippte Zeit nicht ueberschreiben
+  const [zeitQuelle, setZeitQuelle] = useState(null);
   const eid = f.employee_id || eintrag?.employee_id;
   useEffect(() => {
     if (!eid) { setSatz(null); return undefined; }
     let aktiv = true;
-    api.get('/zeiten-satz', { params: { employee_id: eid, object_id: f.object_id || undefined, art: f.art, schedule_id: f.schedule_id || undefined } })
-      .then((r) => { if (!aktiv) return; setSatz(r.data); if (!fahrtAngefasst) setF((x) => ({ ...x, fahrt: !!r.data.fahrer && !!f.object_id })); })
+    api.get('/zeiten-satz', { params: { employee_id: eid, object_id: f.object_id || undefined, art: f.art, schedule_id: f.schedule_id || undefined,
+      datum: !eintrag && f.datum ? f.datum : undefined } })
+      .then((r) => {
+        if (!aktiv) return;
+        setSatz(r.data);
+        if (!fahrtAngefasst) setF((x) => ({ ...x, fahrt: !!r.data.km_berechtigt && !!x.object_id }));
+        if (eintrag) return;
+        const z = r.data.zeit;
+        // Schicht-Verknuepfung immer passend zu MA/Objekt/Datum, auch wenn die Zeit selbst getippt wurde
+        setF((x) => ({ ...x, schedule_id: (neu?.schedule_id && String(x.employee_id) === String(neu.employee_id) && String(x.object_id) === String(neu.object_id)
+          && x.datum === neu.datum ? neu.schedule_id : z?.schedule_id) || undefined }));
+        if (!zeitAngefasst.current && z) { setZeitQuelle(z.quelle); setF((x) => ({ ...x, kommen: z.kommen, gehen: z.gehen })); }
+        else if (!zeitAngefasst.current) setZeitQuelle(null);
+      })
       .catch(() => aktiv && setSatz(null));
     return () => { aktiv = false; };
-  }, [eid, f.object_id, f.art]); // eslint-disable-line
+  }, [eid, f.object_id, f.art, f.datum]); // eslint-disable-line
   const [eigen, setEigen] = useState(null);   // null = Vorbelegung, sonst eingegebener Satz (Text)
   const gespeichert = eintrag && f.art === (eintrag.service_type || 'Unterhaltsreinigung') && eintrag.hourly_rate != null;
   const satzAnzeige = gespeichert ? eintrag.hourly_rate : satz?.satz;
@@ -155,7 +171,7 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [confirmDel, setConfirmDel] = useState(false);
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const set = (k) => (e) => { if (k === 'kommen' || k === 'gehen') { zeitAngefasst.current = true; setZeitQuelle(null); } setF({ ...f, [k]: e.target.value }); };
   const nacht = f.kommen && f.gehen && f.gehen <= f.kommen;
   const dauer = (() => {
     if (!f.kommen || !f.gehen) return null;
@@ -214,7 +230,8 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
         <label className="ck-field">{t('zeiten.out')}<input type="time" className="ck-input" value={f.gehen} onChange={set('gehen')} /></label>
       </div>
       {dauer != null && <div className="ck-subtle" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: -6 }}>
-        {nacht && <><Moon size={15} />{t('zeiten.next_day')} · </>}{t('zeiten.duration', { h: fmtNum(dauer, 2) })}</div>}
+        {nacht && <><Moon size={15} />{t('zeiten.next_day')} · </>}{t('zeiten.duration', { h: fmtNum(dauer, 2) })}
+        {zeitQuelle && <span data-buchung-zeitquelle> · {t(`zeiten.vorbelegt_${zeitQuelle}`)}</span>}</div>}
       <label className="ck-field">{t('zeiten.art')}
         <select className="ck-input" value={f.art} onChange={set('art')} data-buchung-art>
           {ARTEN.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>

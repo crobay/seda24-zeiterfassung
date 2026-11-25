@@ -34,7 +34,12 @@ try {
   await page.getByRole('button', { name: /Buchung nachtragen/ }).click();
   await feld('Mitarbeiter').selectOption(String(EMP));
   await feld('Objekt').selectOption(String(OBJ));
+  await feld('Datum').fill('2026-11-23');
+  ok('Kommen/Gehen aus Dienstplan vorbelegt (12:55-16:25)', await page.waitForFunction(() => /Dienstplan/.test(document.querySelector('[data-buchung-zeitquelle]')?.textContent || ''), null, { timeout: 8000 }).then(() => true, () => false)
+    && await feld('Kommen').inputValue() === '12:55' && await feld('Gehen').inputValue() === '16:25', `${await feld('Kommen').inputValue()}-${await feld('Gehen').inputValue()}`);
+  await page.screenshot({ path: path.join(OUT, 'nachtragen_vorbelegt.png') });
   await feld('Datum').fill(TAG); await feld('Kommen').fill('09:00'); await feld('Gehen').fill('11:00');
+  ok('eigene Zeit bleibt, Hinweis weg', await feld('Kommen').inputValue() === '09:00' && await page.locator('[data-buchung-zeitquelle]').count() === 0);
   ok('Art Standard Unterhaltsreinigung', await page.locator('[data-buchung-art]').inputValue() === 'Unterhaltsreinigung');
   const arten = await page.locator('[data-buchung-art] option').allTextContents();
   ok('Arten wie alte Ansicht', arten.join('|') === 'Unterhaltsreinigung|Grundreinigung|Sonderreinigung|Fensterreinigung', arten.join('|'));
@@ -54,6 +59,14 @@ try {
   const row = sql(`SELECT service_type, hourly_rate, is_manual_entry FROM time_entries WHERE id=${id || 0}`);
   ok('gespeichert: Sonderreinigung, eigener Satz 15,50', row === 'Sonderreinigung|15.50|t', row);
   ok('KM gebucht', sql(`SELECT count(*) FROM km_daily_entries WHERE time_entry_id=${id || 0}`) === '1');
+
+  console.log('Ruzica (D0002) ohne KM');
+  await page.getByRole('button', { name: /Buchung nachtragen/ }).click();
+  await feld('Mitarbeiter').selectOption('4');
+  await feld('Objekt').selectOption(String(OBJ));
+  await page.waitForTimeout(1500);
+  ok('Fahrt mit KM bei Ruzica aus', !(await page.locator('[data-buchung-fahrt]').isChecked()));
+  await page.getByRole('button', { name: /^Abbrechen$/ }).click();
 
   console.log('Bearbeiten');
   await page.goto(`${BASE}/cockpit/zeiten?eintrag=${id}`);

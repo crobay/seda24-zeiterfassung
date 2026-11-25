@@ -68,6 +68,46 @@ def fahrer_standard(db, employee_id, object_id, schedule_id=None):
                            {"e": employee_id, "o": object_id}).scalar())
 
 
+def km_berechtigt(db, employee_id):
+    """KM-Geld ja/nein wie im Monatsabschluss: D0002 (Ruzica, E-Dienstwagen) bekommt kein KM-Geld."""
+    from app.services import monatsabschluss as ma
+    pnr = db.execute(text("SELECT personal_nr FROM employees WHERE id = :e"), {"e": employee_id}).scalar()
+    return pnr not in ma.OHNE_KM_ANHANG
+
+
+def _hm(t):
+    return t.strftime("%H:%M") if t else None
+
+
+def standardzeit(db, employee_id, object_id, tag):
+    """Vorbelegung Kommen/Gehen beim Nachtragen (Drazen 25.11.2026 15:09). Quelle wie die klassische Ansicht
+    (admin.get_schedule_for_booking: Dienstplan -> Objekt-Standardzeit je Wochentag -> Objekt-Zeit), dazwischen die
+    feste Zuweisung MA -> Objekt aus der Vorlage (master_schedule_entries). None = nichts hinterlegt."""
+    from app.services.plan_vorlage import rhythmus_passt
+    if not object_id or not tag:
+        return None
+    s = db.execute(text("""SELECT id, start_time, end_time FROM schedules WHERE employee_id = :e AND object_id = :o AND date = :d
+                             AND coalesce(status, 'normal') IN ('normal', 'vertretung') ORDER BY start_time LIMIT 1"""),
+                   {"e": employee_id, "o": object_id, "d": tag}).mappings().first()
+    if s and s["start_time"] and s["end_time"]:
+        return {"kommen": _hm(s["start_time"]), "gehen": _hm(s["end_time"]), "quelle": "dienstplan", "schedule_id": s["id"]}
+    v = db.execute(text("""SELECT start_time, end_time, rhythm, month_week, weekday FROM master_schedule_entries
+                            WHERE employee_id = :e AND object_id = :o AND weekday = :w AND coalesce(is_active, true)
+                            ORDER BY start_time"""), {"e": employee_id, "o": object_id, "w": tag.weekday()}).mappings().all()
+    v = [m for m in v if m["start_time"] and m["end_time"]]
+    if v:
+        m = next((m for m in v if rhythmus_passt(m["rhythm"], m["month_week"], m["weekday"], tag)), v[0])
+        return {"kommen": _hm(m["start_time"]), "gehen": _hm(m["end_time"]), "quelle": "zuweisung"}
+    o = db.execute(text("""SELECT start_time, end_time FROM object_standard_times_v2 WHERE object_id = :o AND weekday = :w
+                            ORDER BY id LIMIT 1"""), {"o": object_id, "w": tag.weekday()}).mappings().first()
+    if o and o["start_time"]:
+        return {"kommen": _hm(o["start_time"]), "gehen": _hm(o["end_time"]) or "17:00", "quelle": "objekt"}
+    o = db.execute(text("SELECT start_time, end_time FROM objects WHERE id = :o"), {"o": object_id}).mappings().first()
+    if o and o["start_time"]:
+        return {"kommen": _hm(o["start_time"]), "gehen": _hm(o["end_time"]) or "17:00", "quelle": "objekt"}
+    return None
+
+
 def km_distanz(db, employee_id, object_id):
     r = db.execute(text("SELECT distance_km FROM km_distances WHERE employee_id = :e AND object_id = :o"),
                    {"e": employee_id, "o": object_id}).scalar() if object_id else None

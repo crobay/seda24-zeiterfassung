@@ -692,14 +692,21 @@ def zeit_aendern(entry_id: int, data: dict, db: Session = Depends(get_db), user=
 
 @router.get("/zeiten-satz")
 def zeiten_satz(employee_id: int, object_id: int = None, art: str = buchung_art.UNTERHALT, schedule_id: int = None,
-                db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
-    """Anzeige im Dialog: Stundensatz + Lohnart zur Art, Vorbelegung "Fahrt mit KM" und Entfernung."""
+                datum: str = None, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Anzeige im Dialog: Stundensatz + Lohnart zur Art, Vorbelegung Kommen/Gehen (mit datum) und "Fahrt mit KM"
+    (an fuer alle mit KM-Geld, D0002 aus), Entfernung."""
+    try:
+        tag = date.fromisoformat(datum) if datum else None
+    except ValueError:
+        raise HTTPException(400, "Datum ungültig")
     try:
         sz = buchung_art.satz(db, employee_id, object_id, art)
     except LookupError as e:
         raise HTTPException(404, str(e))
     return {"satz": sz, "lohnart": buchung_art.lohnart(db, art), "sonder": buchung_art.ist_sonder(art),
             "fahrer": buchung_art.fahrer_standard(db, employee_id, object_id, schedule_id),
+            "km_berechtigt": buchung_art.km_berechtigt(db, employee_id),
+            "zeit": buchung_art.standardzeit(db, employee_id, object_id, tag),
             "km": buchung_art.km_distanz(db, employee_id, object_id)}
 
 
@@ -727,9 +734,9 @@ def zeit_anlegen(data: dict, db: Session = Depends(get_db), user=Depends(verify_
                    {"s": int(data["schedule_id"]), "i": r["id"]})
         db.commit()
     # KM-Geld wie beim Stempeln (gleiche Berechnung wie die App). Haken "Fahrt mit KM" im Dialog; ohne Angabe
-    # wie bisher: Fahrer laut Schicht, sonst laut Zuweisung MA -> Objekt
+    # an fuer alle mit KM-Geld (Drazen 25.11.2026 15:09, D0002 ohne KM)
     eid, oid = int(data["employee_id"]), int(data["object_id"])
-    fahrt = data["fahrt"] if "fahrt" in data else buchung_art.fahrer_standard(db, eid, oid, data.get("schedule_id"))
+    fahrt = data["fahrt"] if "fahrt" in data else buchung_art.km_berechtigt(db, eid)
     if fahrt:
         from app.api.v1.endpoints.time_entries import calculate_and_save_km
         calculate_and_save_km(eid, oid, ci.date(), r["id"], db)
