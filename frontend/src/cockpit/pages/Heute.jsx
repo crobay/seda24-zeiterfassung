@@ -12,7 +12,7 @@ import { MaterialKachel } from './Material';
 
 const greet = () => { const h = new Date().getHours(); return t(h < 11 ? 'greet.morning' : h < 18 ? 'greet.day' : 'greet.evening'); };
 const ATTENTION = ['fehlt', 'offen'];
-const ITEM_ICON = { genehmigung: CalendarCheck2, nachtrag: CalendarCheck2, urlaub: Palmtree, schichtwunsch: ArrowRightLeft, nachricht: MessageSquare, doppelt: CopyX };
+const ITEM_ICON = { genehmigung: CalendarCheck2, nachtrag: CalendarCheck2, urlaub: Palmtree, urlaub_sammel: Palmtree, schichtwunsch: ArrowRightLeft, nachricht: MessageSquare, doppelt: CopyX };
 const monthName = () => new Date().toLocaleDateString('de-DE', { month: 'long' });
 
 export default function Heute() {
@@ -83,6 +83,18 @@ export default function Heute() {
               {offen.map((i) => {
                 const Icon = ITEM_ICON[i.typ] || Inbox;
                 const b = busy === `${i.typ}${i.id}`;
+                if (i.typ === 'urlaub_sammel') return (   // eine Zeile fuer alle offenen Urlaubsantraege
+                  <li key="urlaub_sammel" className="ck-row" data-urlaub-sammel={i.anzahl}>
+                    <div className="ck-kpi-icon" style={{ background: 'var(--ck-accent-soft)', color: 'var(--ck-accent-ink)', flex: 'none' }}><Icon size={18} /></div>
+                    <div className="ck-row-main">
+                      <div className="ck-row-title"><Link to={i.link}>{i.titel}</Link></div>
+                      <div className="ck-row-meta">{i.text}</div>
+                    </div>
+                    <div className="ck-row-actions">
+                      <Link className="ck-btn ck-btn-primary ck-btn-sm" to={i.link} data-urlaub-sammel-link>{t('act.antraege')}<ChevronRight size={16} /></Link>
+                    </div>
+                  </li>
+                );
                 return (
                   <li key={`${i.typ}${i.id}`} className="ck-row">
                     <div className="ck-kpi-icon" style={{ background: 'var(--ck-accent-soft)', color: 'var(--ck-accent-ink)', flex: 'none' }}><Icon size={18} /></div>

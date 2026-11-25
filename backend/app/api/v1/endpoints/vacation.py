@@ -12,6 +12,7 @@ from app.models.models import (
     Schedule, Object, EmployeeObjectAssignment, TimeEntry
 )
 from sqlalchemy import func, extract
+from app.services import urlaubstage as ut
 
 router = APIRouter()
 
@@ -156,7 +157,7 @@ def create_vacation_request(
     if overlap:
         raise HTTPException(status_code=400, detail="Es gibt bereits einen Antrag für diesen Zeitraum")
 
-    working_days = _count_working_days(db, emp.id, start, end)
+    working_days = ut.anzahl(db, emp.id, start, end)
 
     # Resturlaub prüfen
     current_year = start.year
@@ -258,7 +259,7 @@ def calc_working_days(
     emp = _get_employee(db, current_user)
     start = date.fromisoformat(start_date)
     end = date.fromisoformat(end_date)
-    working_days = _count_working_days(db, emp.id, start, end)
+    working_days = ut.anzahl(db, emp.id, start, end)
 
     current_year = start.year
     entitlement = db.query(VacationEntitlement).filter(
@@ -357,16 +358,13 @@ def get_vacation_calendar(
         emp_requests = [r for r in requests_list if r.employee_id == emp.id]
         days = []
         for r in emp_requests:
-            d = r.start_date
-            while d <= r.end_date:
-                if d.weekday() < 5:  # Mo-Fr
-                    days.append({
-                        "date": d.isoformat(),
-                        "status": r.status,
-                        "type": getattr(r, 'type', 'urlaub') or 'urlaub',
-                        "request_id": r.id,
-                    })
-                d += timedelta(days=1)
+            for d in ut.tage(db, emp.id, r.start_date, r.end_date, r.id):   # gleiche Tage wie gezaehlt
+                days.append({
+                    "date": d.isoformat(),
+                    "status": r.status,
+                    "type": getattr(r, 'type', 'urlaub') or 'urlaub',
+                    "request_id": r.id,
+                })
         result.append({
             "employee_id": emp.id,
             "name": f"{emp.first_name} {emp.last_name}",
@@ -395,12 +393,13 @@ def process_vacation_request(
     new_end = data.get("end_date")
     old_start = req.start_date
     old_end = req.end_date
+    old_wd = req.working_days or 0
     if new_start:
         req.start_date = date.fromisoformat(new_start)
     if new_end:
         req.end_date = date.fromisoformat(new_end)
     if new_start or new_end:
-        req.working_days = _count_working_days(db, req.employee_id, req.start_date, req.end_date)
+        req.working_days = ut.anzahl(db, req.employee_id, req.start_date, req.end_date, req.id)
 
     emp = db.query(Employee).filter(Employee.id == req.employee_id).first()
     emp_name = f"{emp.first_name} {emp.last_name}" if emp else "?"
@@ -422,7 +421,7 @@ def process_vacation_request(
                     VacationEntitlement.year == old_start.year,
                 ).first()
                 if entitlement:
-                    entitlement.days_taken = max(0, (entitlement.days_taken or 0) - _count_working_days(db, req.employee_id, old_start, old_end))
+                    entitlement.days_taken = max(0, (entitlement.days_taken or 0) - old_wd)   # was damals abgezogen wurde
                     entitlement.days_remaining = (entitlement.days_entitled or 30) - entitlement.days_taken
             _create_vacation_schedules(db, req, emp)
             if req_type == 'urlaub':
@@ -459,6 +458,7 @@ def process_vacation_request(
     if new_status not in ("approved", "rejected", "shifted", "cancelled"):
         raise HTTPException(status_code=400, detail="Status muss 'approved', 'rejected', 'shifted' oder 'cancelled' sein")
 
+    alter_status = req.status
     req.status = new_status
     req.decided_at = datetime.now()
     req.decided_by = admin.id
@@ -498,7 +498,7 @@ def process_vacation_request(
                 VacationEntitlement.employee_id == req.employee_id,
                 VacationEntitlement.year == current_year,
             ).first()
-            if entitlement and req.status == 'approved':
+            if entitlement and alter_status == 'approved':   # vorher stand hier req.status (schon 'cancelled') -> nie zurueckgegeben
                 entitlement.days_taken = max(0, (entitlement.days_taken or 0) - req.working_days)
                 entitlement.days_remaining = (entitlement.days_entitled or 30) - entitlement.days_taken
         if emp and emp.telegram_chat_id:
@@ -507,7 +507,7 @@ def process_vacation_request(
 
     elif new_status == 'shifted':
         # Verschiebung: alte Schedules zuruecksetzen, neue erstellen
-        if req.status == 'approved':
+        if alter_status == 'approved':
             _revert_vacation_schedules(db, req)
             # Urlaubstage zurueckgeben
             current_year = req.start_date.year
@@ -611,14 +611,8 @@ def update_vacation_entitlement(
     emp_name = f"{emp.first_name} {emp.last_name}" if emp else str(employee_id)
 
     if not entitlement:
-        entitlement = VacationEntitlement(
-            employee_id=employee_id,
-            year=year_val,
-            days_entitled=float(days_entitled),
-            days_taken=0,
-            days_remaining=float(days_entitled),
-        )
-        db.add(entitlement)
+        # bereits genehmigte Antraege des Jahres werden sofort abgezogen (Drazen 25.11.2026)
+        entitlement = ut.konto_neu(db, employee_id, year_val, anspruch=float(days_entitled))
         from app.services.booking_service import log_audit
         log_audit(db, admin.id, employee_id, 'vacation_entitlement_updated',
             entity_type='vacation_entitlement',
@@ -628,6 +622,7 @@ def update_vacation_entitlement(
         old_entitled = entitlement.days_entitled or 0
         entitlement.days_entitled = float(days_entitled)
         entitlement.days_remaining = float(days_entitled) - (entitlement.days_taken or 0)
+        entitlement.days_carried = 0   # Anspruch gesetzt = Gesamtanspruch, ein frueherer Uebertrag steckt nicht mehr getrennt drin
         from app.services.booking_service import log_audit
         log_audit(db, admin.id, employee_id, 'vacation_entitlement_updated',
             entity_type='vacation_entitlement',
@@ -736,11 +731,7 @@ def recalculate_vacation_rates(
         ).first()
 
         if not ent:
-            ent = VacationEntitlement(
-                employee_id=emp.id, year=year,
-                days_entitled=0, days_taken=0, days_remaining=0,
-            )
-            db.add(ent)
+            ent = ut.konto_neu(db, emp.id, year)   # Anspruch wie Vorjahr, genehmigte Antraege abgezogen
 
         old_rate = ent.vacation_rate
         ent.vacation_rate = calc['vacation_rate']
@@ -962,7 +953,7 @@ def admin_create_request(
     if not emp:
         raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden")
 
-    working_days = _count_working_days(db, emp.id, start, end)
+    working_days = ut.anzahl(db, emp.id, start, end)
 
     # Bei Urlaub: Resturlaub pruefen (Warnung statt Blockade)
     exceeds = False
@@ -987,8 +978,9 @@ def admin_create_request(
     db.add(req)
     db.flush()
 
-    # Schedules + TimeEntries erstellen
+    # Schedules + TimeEntries erstellen (setzt req.working_days auf die angelegten Urlaubstage)
     _create_vacation_schedules(db, req, emp)
+    working_days = req.working_days
 
     # Urlaubskonto nur bei echtem Urlaub belasten
     if req_type == 'urlaub':
@@ -1052,18 +1044,14 @@ def carry_over_vacation(
         ).first()
 
         if not current:
-            current = VacationEntitlement(
-                employee_id=emp.id,
-                year=to_year,
-                days_entitled=30 + carry_days,
-                days_taken=0,
-                days_remaining=30 + carry_days,
-            )
-            db.add(current)
-        else:
-            # Uebertrag zum Anspruch addieren (nur wenn noch nicht uebertragen)
-            current.days_entitled = (current.days_entitled or 30) + carry_days
-            current.days_remaining = current.days_entitled - (current.days_taken or 0)
+            # Anspruch wie Vorjahr (ohne dessen Uebertrag), genehmigte Antraege des Jahres sofort abgezogen
+            current = ut.konto_neu(db, emp.id, to_year, anspruch=ut.anspruch_vorjahr(db, emp.id, to_year) or 0)
+            db.flush()
+        if (current.days_carried or 0) > 0:
+            continue   # schon uebertragen - nicht doppelt
+        current.days_carried = carry_days
+        current.days_entitled = (current.days_entitled or 0) + carry_days
+        current.days_remaining = current.days_entitled - (current.days_taken or 0)
 
         carried += 1
 
@@ -1089,22 +1077,24 @@ def _revert_vacation_schedules(db: Session, req: VacationRequest):
         else:
             # Wurde nur fuer Urlaub erstellt - loeschen
             db.delete(s)
+    # Urlaubsbuchungen mit noch offenem Satz (-1, Urlaubsbeginn nicht erreicht) gehoeren nur zu diesem Antrag -> weg.
+    # Bereits bewertete Urlaubstage (Satz gesetzt) bleiben, sie koennen schon abgerechnet sein.
+    db.query(TimeEntry).filter(
+        TimeEntry.employee_id == req.employee_id,
+        TimeEntry.object_id == 999,
+        TimeEntry.hourly_rate == -1,
+        TimeEntry.notes.like(f"%Urlaubsantrag #{req.id} %"),
+    ).delete(synchronize_session=False)
 
 
 def _create_vacation_schedules(db: Session, req: VacationRequest, emp: Employee):
-    """Erstellt Schedule-Einträge mit status='urlaub' UND TimeEntries mit fixem Urlaubssatz."""
+    """Erstellt Schedule-Einträge mit status='urlaub' UND TimeEntries mit fixem Urlaubssatz.
+    Nur an den Urlaubstagen nach services/urlaubstage.py (Tage, an denen der MA arbeiten wuerde, nie an Feiertagen);
+    req.working_days wird auf genau diese Anzahl gesetzt."""
     from datetime import time as time_cls
 
-    # Finde die normalen Arbeitstage des MA
-    past_schedules = db.query(Schedule.weekday).filter(
-        Schedule.employee_id == emp.id,
-        Schedule.status.in_(['normal', 'vertretung']),
-    ).distinct().all()
-
-    if past_schedules:
-        working_weekdays = set(wd[0] for wd in past_schedules)
-    else:
-        working_weekdays = {0, 1, 2, 3, 4}
+    urlaubstage = ut.tage(db, emp.id, req.start_date, req.end_date, req.id)
+    req.working_days = float(len(urlaubstage))
 
     # Finde ein typisches Objekt für diesen MA
     typical_schedule = db.query(Schedule).filter(
@@ -1124,13 +1114,12 @@ def _create_vacation_schedules(db: Session, req: VacationRequest, emp: Employee)
     # als Altwert vorkommt; kein bestehender Urlaubstag hat einen negativen Satz.
     PROVISIONAL_RATE = -1.0
 
-    # Existierende Schedules im Zeitraum auf 'urlaub' setzen
+    # Existierende Schichten an den Urlaubstagen auf 'urlaub' setzen (Feiertags-Schichten bleiben unberuehrt)
     existing = db.query(Schedule).filter(
         Schedule.employee_id == emp.id,
-        Schedule.date >= req.start_date,
-        Schedule.date <= req.end_date,
+        Schedule.date.in_(urlaubstage),
         Schedule.status.in_(['normal', 'vertretung']),
-    ).all()
+    ).all() if urlaubstage else []
 
     updated_dates = set()
     for s in existing:
@@ -1141,25 +1130,21 @@ def _create_vacation_schedules(db: Session, req: VacationRequest, emp: Employee)
     # Urlaubs-Tage sammeln
     req_type_for_status = getattr(req, 'type', 'urlaub') or 'urlaub'
     schedule_status = 'abwesend' if req_type_for_status == 'abwesenheit' else 'urlaub'
-    vacation_dates = []
-    current = req.start_date
-    while current <= req.end_date:
-        if current.weekday() in working_weekdays:
-            vacation_dates.append(current)
-            if current not in updated_dates:
-                vacation_schedule = Schedule(
-                    employee_id=emp.id,
-                    object_id=object_id,
-                    weekday=current.weekday(),
-                    date=current,
-                    start_time=None,
-                    end_time=None,
-                    planned_hours=0,
-                    status=schedule_status,
-                    notes=f"{'Abwesenheit' if schedule_status == 'abwesend' else 'Urlaubsantrag'} #{req.id}",
-                )
-                db.add(vacation_schedule)
-        current += timedelta(days=1)
+    vacation_dates = list(urlaubstage)
+    for current in vacation_dates:
+        if current not in updated_dates:
+            vacation_schedule = Schedule(
+                employee_id=emp.id,
+                object_id=object_id,
+                weekday=current.weekday(),
+                date=current,
+                start_time=None,
+                end_time=None,
+                planned_hours=0,
+                status=schedule_status,
+                notes=f"{'Abwesenheit' if schedule_status == 'abwesend' else 'Urlaubsantrag'} #{req.id}",
+            )
+            db.add(vacation_schedule)
 
     # TimeEntries erstellen
     req_type = getattr(req, 'type', 'urlaub') or 'urlaub'

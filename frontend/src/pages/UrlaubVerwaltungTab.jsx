@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Calendar, Check, X, Clock, Edit2, ArrowRight, Ban, RefreshCw, Calculator, Plus, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 
+// Link aus dem Cockpit "Zu erledigen": ?status=pending -> nur offene Antraege, alle Jahre
+const nurOffen = () => new URLSearchParams(window.location.search).get('status') === 'pending';
+
 const UrlaubVerwaltungTab = () => {
   const [requests, setRequests] = useState([]);
   const [overview, setOverview] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState(() => (nurOffen() ? 'pending' : ''));
   const [activeView, setActiveView] = useState('requests');
   const [year, setYear] = useState(new Date().getFullYear());
   const [toast, setToast] = useState(null);
@@ -24,7 +27,7 @@ const UrlaubVerwaltungTab = () => {
 
   // Neue Filter-States
   const [filterEmployee, setFilterEmployee] = useState('');
-  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const [filterYear, setFilterYear] = useState(() => (nurOffen() ? '' : new Date().getFullYear()));
   const [filterMonths, setFilterMonths] = useState([]);
   const [sortDir, setSortDir] = useState('asc');
 

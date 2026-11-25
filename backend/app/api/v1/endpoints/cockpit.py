@@ -198,16 +198,17 @@ def _offene_punkte(db, obj, emp):
                               f"{float(r['requested_hours'] or 0):.2f} h".replace(".", ",", 1) if r["date"] else (r["notes"] or ""),
                       "notiz": r["notes"], "seit": r["created_at"].isoformat() if r["created_at"] else None,
                       "aktionen": ["genehmigen", "ablehnen"]})
-    for r in _q(db, f"""
-        SELECT v.id, v.employee_id, v.start_date, v.end_date, v.working_days, v.type, v.requested_at,
-               e.first_name || ' ' || e.last_name AS name
+    # Offene Urlaubsantraege nur als eine Sammelzeile mit Link zur Antragsliste (Drazen 25.11.2026 20:25)
+    u = _q(db, f"""
+        SELECT count(*) AS n, min(v.requested_at) AS seit
           FROM vacation_requests v JOIN employees e ON e.id = v.employee_id
-         WHERE v.status = 'pending' AND {_flt('v.employee_id', emp)} ORDER BY v.requested_at""", **p):
-        items.append({"typ": "urlaub", "id": r["id"], "titel": "Urlaubsantrag", "name": r["name"],
-                      "employee_id": r["employee_id"],
-                      "text": f"{r['start_date']:%d.%m.}–{r['end_date']:%d.%m.%Y}, {r['working_days'] or 0:g} Arbeitstage",
-                      "seit": r["requested_at"].isoformat() if r["requested_at"] else None,
-                      "aktionen": ["genehmigen", "ablehnen"]})
+         WHERE v.status = 'pending' AND {_flt('v.employee_id', emp)}""", **p)[0]
+    if u["n"]:
+        items.append({"typ": "urlaub_sammel", "id": 0, "titel": f"Urlaubsanträge ({u['n']})", "anzahl": u["n"],
+                      "name": f"Urlaubsanträge ({u['n']})", "employee_id": None,
+                      "text": "1 offener Antrag" if u["n"] == 1 else f"{u['n']} offene Anträge",
+                      "link": "/cockpit/einstellungen?tab=urlaub&status=pending",
+                      "seit": u["seit"].isoformat() if u["seit"] else None, "aktionen": []})
     for r in _q(db, f"""
         SELECT r.id, r.employee_id, r.request_type, r.requested_date, r.reason, r.created_at,
                e.first_name || ' ' || e.last_name AS name

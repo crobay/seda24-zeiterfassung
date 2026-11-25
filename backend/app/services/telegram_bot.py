@@ -524,10 +524,10 @@ async def handle_vacation_dates(update: Update, context: ContextTypes.DEFAULT_TY
     employee_id = _vacation_pending[chat_id]['employee_id']
     db = SessionLocal()
     try:
-        from app.api.v1.endpoints.vacation import _count_working_days
+        from app.services import urlaubstage as ut
         from app.models.models import VacationEntitlement
 
-        working_days = _count_working_days(db, employee_id, start, end)
+        working_days = ut.anzahl(db, employee_id, start, end)   # Tage wie im Dienstplan/Vorlage, ohne Feiertage
 
         entitlement = db.query(VacationEntitlement).filter(
             VacationEntitlement.employee_id == employee_id,

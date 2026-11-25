@@ -836,12 +836,8 @@ def update_vacation_rates_weekly():
             ).first()
 
             if not ent:
-                ent = VacationEntitlement(
-                    employee_id=emp.id, year=current_year,
-                    days_entitled=0, days_taken=0, days_remaining=0,
-                    vacation_rate=new_rate,
-                )
-                db.add(ent)
+                from app.services import urlaubstage as ut   # Anspruch wie Vorjahr, genehmigte Antraege abgezogen
+                ent = ut.konto_neu(db, emp.id, current_year, vacation_rate=new_rate)
             else:
                 ent.vacation_rate = new_rate
 

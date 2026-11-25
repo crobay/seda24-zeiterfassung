@@ -303,6 +303,7 @@ class VacationEntitlement(Base):
     days_taken = Column(Float, default=0)
     days_remaining = Column(Float, default=0)
     vacation_rate = Column(Float, default=15.50)
+    days_carried = Column(Float, default=0)   # davon Uebertrag aus dem Vorjahr (steckt in days_entitled)
 
     employee = relationship("Employee")
 
