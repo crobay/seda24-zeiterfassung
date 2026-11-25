@@ -185,6 +185,16 @@ def init_scheduler():
             max_instances=1,
         )
 
+    # Job 18: Upload-PC Lohnabrechnungen meldet sich nicht (stuendlich 07-21 Uhr, services/lohn_upload_pc.py)
+    if features.an("ABSCHLUSS"):
+        scheduler.add_job(
+            lohn_upload_pc_pruefen,
+            CronTrigger(hour='7-21', minute=5),
+            id='lohn_upload_pc_pruefen',
+            replace_existing=True,
+            max_instances=1,
+        )
+
     # Job 17: Materialmeldungen - offen seit ueber 24 Std. -> Telegram-Erinnerung jeden Morgen 08:00 (bis erledigt)
     if features.an("MATERIAL"):
         scheduler.add_job(
@@ -1394,6 +1404,21 @@ def remind_plan_next_week():
         logger.info(f"Dienstplan-Erinnerung: {r}")
     except Exception as e:
         logger.error(f"Fehler in remind_plan_next_week: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def lohn_upload_pc_pruefen():
+    """Stuendlich 07-21 Uhr: Upload-PC (seda24_lohn_upload.ps1) zu lange still -> Telegram (hoechstens 1x je 24 Std.)."""
+    from app.services.lohn_upload_pc import stille_pruefen
+    db = SessionLocal()
+    try:
+        msg = stille_pruefen(db)
+        if msg:
+            logger.info(f"Upload-PC still gemeldet: {msg}")
+    except Exception as e:
+        logger.error(f"Fehler in lohn_upload_pc_pruefen: {e}")
         db.rollback()
     finally:
         db.close()

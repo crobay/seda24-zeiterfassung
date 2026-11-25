@@ -736,6 +736,9 @@ def lohnabrechnungen_aufnehmen(db, y, m, pdfs, user_id, quelle="Cockpit"):
                   details=f"Monatsabschluss {m:02d}/{y}: {neu} Lohnabrechnung(en) aufgenommen ({quelle})"
                           + "".join(f"; {q['datei']}: {q['status']}" for q in quittung if q.get("status") != "gespeichert"))
     db.commit()
+    if neu:
+        from app.services.lohn_upload_pc import komplett_melden
+        komplett_melden(db, y, m)          # Telegram "x von y da", sobald der Monat vollstaendig ist
     return quittung
 
 
@@ -761,6 +764,8 @@ def dokument_zuordnen(db, y, m, dok_id, employee_id, user_id):
     db.execute(text("""UPDATE monatsabschluss_dokument SET employee_id = :e, zuordnung = 'von Hand'
                        WHERE id = :i AND monat = :k AND art = 'lohnabrechnung'"""), {"e": employee_id, "i": dok_id, "k": monat_key(y, m)})
     db.commit()
+    from app.services.lohn_upload_pc import komplett_melden
+    komplett_melden(db, y, m)
     return dokumente(db, y, m)
 
 

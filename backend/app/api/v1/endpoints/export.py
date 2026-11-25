@@ -127,6 +127,8 @@ def report_error(request: Request, payload: dict = Body(...), db: Session = Depe
     _check(request, db, 'Fehlermeldung')
     msg = str(payload.get('text', ''))[:500] or 'ohne Text'
     pc = str(payload.get('rechner', 'PC'))[:40]
+    if msg.startswith('Lohnabrechnung-Upload: '):   # aeltere seda24_lohn_upload.ps1 melden hier
+        return _lohn_fehler(request, db, pc, msg[len('Lohnabrechnung-Upload: '):])
     _audit(db, request, 'export_fehler', f'Fehler beim Abruf nach Q: ({pc}): {msg}')
     from app.services.telegram_bot import notify_admin
     notify_admin(f"⚠️ Zeiterfassungs-Export nach Q: fehlgeschlagen ({pc}): {msg}", category='sonstiges')
@@ -157,10 +159,36 @@ def _monat_ok(monat: str):
     return y, m
 
 
+def _lohn_fehler(request: Request, db: Session, pc: str, msg: str):
+    from app.services import lohn_upload_pc as lp
+    gesendet = lp.fehler(db, pc, msg)
+    _audit(db, request, 'lohnabrechnung_upload_fehler',
+           f"Upload-PC {pc}: {msg}" + ('' if gesendet else ' (Telegram unterdrueckt: gleicher Fehler in den letzten 6 Std.)'))
+    return {'ok': True, 'telegram': gesendet}
+
+
+# Lebenszeichen und Fehler des PC-Skripts (Drazen 26.11.2026 00:41, services/lohn_upload_pc.py)
+@router.post('/lohn-pc/lebenszeichen')
+def lohn_pc_lebenszeichen(request: Request, payload: dict = Body(default={}), db: Session = Depends(get_db)):
+    _check(request, db, 'Lebenszeichen Upload-PC')
+    from app.services import lohn_upload_pc as lp
+    ordner = payload.get('ordner') if isinstance(payload.get('ordner'), dict) else {}
+    lp.gemeldet(db, str(payload.get('rechner') or request.headers.get('x-rechner') or 'PC'), ordner, payload.get('version'))
+    return {'ok': True}
+
+
+@router.post('/lohn-pc/fehler')
+def lohn_pc_fehler(request: Request, payload: dict = Body(...), db: Session = Depends(get_db)):
+    _check(request, db, 'Fehlermeldung Upload-PC')
+    return _lohn_fehler(request, db, str(payload.get('rechner', 'PC'))[:40], str(payload.get('text', ''))[:500] or 'ohne Text')
+
+
 @router.get('/lohnabrechnungen/{monat}')
 def lohn_stand(monat: str, request: Request, db: Session = Depends(get_db)):
     """Fuer das PC-Skript: welche Pruefsummen hat der Server schon, wie viele Lohnabrechnungen fehlen noch."""
     _check(request, db, f'Lohnabrechnungen {monat[:7]}')
+    from app.services import lohn_upload_pc as lp
+    lp.gemeldet(db, request.headers.get('x-rechner', 'PC'))
     y, m = _monat_ok(monat)
     from app.services import monatsabschluss as ma
     ma.tabellen(db)
@@ -179,6 +207,8 @@ async def lohn_upload(monat: str, request: Request, db: Session = Depends(get_db
     name = os.path.basename(unquote(request.headers.get('x-dateiname', '')))[:150]
     soll = request.headers.get('x-sha256', '').lower().strip()
     pc = request.headers.get('x-rechner', 'PC')[:40]
+    from app.services import lohn_upload_pc as lp
+    lp.gemeldet(db, pc)
     if not re.fullmatch(r'[^/\\]+\.pdf', name, re.I) or not re.fullmatch(r'[0-9a-f]{64}', soll):
         raise HTTPException(status_code=400, detail='Header X-Dateiname (.pdf) und X-SHA256 noetig')
     body = b''

@@ -309,6 +309,7 @@ function Hochladen({ monat, data, zu, onDone, toast, reload }) {
           {st.komplett && <CheckCircle2 size={14} />} {t('ab.up_stand', { n: st.da, m: st.erwartet })}</span>}</div>
       <p className="ck-subtle" style={{ marginTop: 0 }}>{t('ab.up_hint')}{' '}
         <a href="/downloads/seda24_lohn_upload.ps1" download>{t('ab.up_skript')}</a></p>
+      <UploadPc pc={data?.upload_pc} />
       {!zu && <div className={`ab-drop${zieh ? ' is-over' : ''}`} data-up-drop role="button" tabIndex={0}
         onClick={() => wahl.current?.click()} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); wahl.current?.click(); } }}
         onDragOver={(e) => { e.preventDefault(); setZieh(true); }} onDragLeave={() => setZieh(false)}
@@ -340,6 +341,29 @@ function Hochladen({ monat, data, zu, onDone, toast, reload }) {
       </div>}
       <div className="ab-foot"><button className="ck-btn ck-btn-primary" disabled={!docs.length} onClick={onDone}>{t('ab.next')}<ArrowRight size={16} /></button></div>
     </section>);
+}
+
+// Lebenszeichen des Upload-PCs (Drazen 26.11.): zuletzt gemeldet, was er in den Lexware-Ordnern sieht, letzter Fehler
+function UploadPc({ pc }) {
+  if (!pc) return null;
+  const wann = (s) => {
+    const d = new Date(s);
+    const heute = new Date().toDateString() === d.toDateString();
+    return `${heute ? t('ab.pc_heute') : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+  };
+  const ordner = Object.entries(pc.ordner || {}).map(([k, v]) => `${k.slice(5)}/${k.slice(0, 4)}: ${v}`).join(' · ');
+  const fehler = pc.letzter_fehler && Date.now() - new Date(pc.letzter_fehler.am) < 86400000 ? pc.letzter_fehler : null;
+  return (
+    <div className={`ck-callout${pc.ueberfaellig || !pc.zuletzt ? '' : ' tone-ok'}`} data-upload-pc={pc.ueberfaellig ? 'still' : pc.zuletzt ? 'ok' : 'nie'}
+      style={{ marginBottom: 12 }}>
+      {pc.ueberfaellig || !pc.zuletzt ? <AlertTriangle size={18} style={{ flex: 'none' }} /> : <CheckCircle2 size={18} style={{ flex: 'none' }} />}
+      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+        {pc.zuletzt ? <b>{t('ab.pc_zuletzt', { pc: pc.rechner || 'PC', wann: wann(pc.zuletzt) })}</b> : <b>{t('ab.pc_nie')}</b>}
+        {pc.ueberfaellig && <> – {t('ab.pc_still', { h: Math.floor(pc.still_std), g: pc.grenze_std })}</>}
+        {ordner && <><br /><span className="ck-subtle">{t('ab.pc_ordner')}: {ordner}</span></>}
+        {fehler && <><br /><span data-upload-pc-fehler>{t('ab.pc_fehler', { wann: wann(fehler.am), text: fehler.text })}</span></>}
+      </span>
+    </div>);
 }
 
 // ---------- Schritt 4: Vorschau je MA ----------

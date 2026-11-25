@@ -53,7 +53,13 @@ def uebersicht(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin
     p = ma.pruefliste(db, y, m)
     return {"monat": monat, "status": z["status"], "pruefliste": p, "lohnarten": ma.lohnarten(db),
             "erzeugt_am": z["erzeugt_am"] and z["erzeugt_am"].isoformat(timespec="minutes"), **ma.dokumente(db, y, m),
-            "protokoll": ma.protokoll(db, y, m), "lohnablage": _ablage(db, monat), "superpin": _superpin(db, user)}
+            "protokoll": ma.protokoll(db, y, m), "lohnablage": _ablage(db, monat), "superpin": _superpin(db, user),
+            "upload_pc": _upload_pc(db)}
+
+
+def _upload_pc(db):
+    from app.services import lohn_upload_pc as lp
+    return lp.status(db)
 
 
 def _superpin(db, user):

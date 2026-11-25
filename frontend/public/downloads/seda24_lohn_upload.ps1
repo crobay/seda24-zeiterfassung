@@ -9,7 +9,11 @@ Ueberwacht den Lexware-Ausgabeordner
 - Pruefsumme (SHA-256) geht mit; der Server prueft sie, speichert verschluesselt, ordnet nach PersNr/Name zu und
   schickt eine Quittung zurueck (steht im Protokoll). Was der Server schon hat, wird nicht noch einmal geschickt.
 - Eine Datei wird erst hochgeladen, wenn sie 1 Minute nicht mehr veraendert wurde (Lexware schreibt fertig).
-- Windows-Aufgabe "SEDA24 Lohnabrechnungen Upload": alle 10 Minuten und 2 Minuten nach der Anmeldung.
+- Windows-Aufgabe "SEDA24 Lohnabrechnungen Upload": stuendlich 07-22 Uhr, verpasste Laeufe werden nachgeholt, und
+  2 Minuten nach der Anmeldung. Start ohne Fenster (conhost.exe --headless; geht das nicht, PowerShell versteckt).
+- Jeder Lauf meldet sich beim Server (Lebenszeichen, Anzeige im Monatsabschluss Schritt 3). Faellt eine Datei durch,
+  laufen die anderen weiter; Fehler gehen gesammelt an den Server (Telegram, gleicher Fehler hoechstens 1x in 6 Std.).
+  Ist der Server nicht erreichbar, erscheint hoechstens einmal am Tag ein Hinweisfenster (Drazen 26.11.2026).
 
 Einrichten (einmalig, als der Benutzer mit Laufwerk X: - keine Admin-Rechte noetig):
   powershell -ExecutionPolicy Bypass -File "<Pfad>\seda24_lohn_upload.ps1" -Install
@@ -36,7 +40,9 @@ $KeyFile   = Join-Path $AppDir 'schluessel.dat'           # gemeinsam mit seda24
 $CfgFile   = Join-Path $AppDir 'lohn_upload.cfg'          # Server <TAB> Ordner-Muster <TAB> fester Monat <TAB> Dateifilter
 $LogFile   = Join-Path $AppDir 'lohn_upload.log'
 $StandFile = Join-Path $AppDir 'lohn_upload_stand.txt'    # je Datei: Pfad <TAB> SHA-256 der hochgeladenen Version
+$HinweisFile = Join-Path $AppDir 'lohn_upload_hinweis.txt'   # Datum des letzten Hinweisfensters (hoechstens 1x am Tag)
 $TaskName  = 'SEDA24 Lohnabrechnungen Upload'
+$Version   = '2026-11-26'
 $StandardOrdner = 'X:\OneDrive - Seda GmbH\4 Buchhaltung\2 Lohnbuchhaltung\Lohnabrechnungen\Seda_Consulting_GmbH_{Jahr}_{Monat}\Lohnabrechnung'
 $UnterOrdner = 'Seda_Consulting_GmbH_{Jahr}_{Monat}\Lohnabrechnung'   # unter -Basis (Ordner wie bei Lexware: ..._2026_Oktober)
 # Datei bleibt ASCII (PowerShell 5.1 liest .ps1 ohne BOM als ANSI): Umlaut als Zeichencode
@@ -82,15 +88,30 @@ function Save-Stand($S) {
     $S.Keys | Sort-Object | ForEach-Object { "$_`t$($S[$_])" } | Set-Content -LiteralPath $StandFile -Encoding UTF8
 }
 
+function Send-Json([string]$Uri, $Daten) {
+    $body = $Daten | ConvertTo-Json -Depth 4
+    Invoke-RestMethod -Method Post -Uri $Uri -Headers @{ 'X-Export-Key' = (Get-ExportKey); 'X-Rechner' = $env:COMPUTERNAME } `
+        -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 30 | Out-Null
+}
+
+# Fehler an den Server (Telegram, dort entprellt). Server nicht erreichbar -> Hinweisfenster, hoechstens einmal am Tag.
 function Send-Fehler([string]$Text, $Cfg) {
     Write-Log "FEHLER: $Text"
     try {
-        $body = @{ text = "Lohnabrechnung-Upload: $Text"; rechner = $env:COMPUTERNAME } | ConvertTo-Json
-        Invoke-RestMethod -Method Post -Uri "$($Cfg.Server)/api/v1/export/zeiterfassung/fehler" -Headers @{ 'X-Export-Key' = (Get-ExportKey) } `
-            -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 30 | Out-Null
+        try { Send-Json "$($Cfg.Server)/api/v1/export/lohn-pc/fehler" @{ text = $Text; rechner = $env:COMPUTERNAME } }
+        catch {
+            if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) {   # Server noch ohne lohn-pc
+                Send-Json "$($Cfg.Server)/api/v1/export/zeiterfassung/fehler" @{ text = "Lohnabrechnung-Upload: $Text"; rechner = $env:COMPUTERNAME }
+            } else { throw }
+        }
     } catch {
-        $msg = "SEDA24 Lohnabrechnungen konnten nicht hochgeladen werden:`n`n$Text`n`nProtokoll: $LogFile"
-        (New-Object -ComObject WScript.Shell).Popup($msg, 0, 'SEDA24 Lohnabrechnungen', 48) | Out-Null
+        Write-Log "Server nicht erreichbar fuer die Fehlermeldung: $($_.Exception.Message)"
+        $heute = (Get-Date).ToString('yyyy-MM-dd')
+        $zuletzt = if (Test-Path -LiteralPath $HinweisFile) { (Get-Content -LiteralPath $HinweisFile | Select-Object -First 1) } else { '' }
+        if ($zuletzt -eq $heute) { Write-Log 'Hinweisfenster heute schon gezeigt'; return }
+        Set-Content -LiteralPath $HinweisFile -Value $heute
+        $msg = "SEDA24 Lohnabrechnungen konnten nicht hochgeladen werden:`n`n$Text`n`nProtokoll: $LogFile`n`n(Dieser Hinweis kommt hoechstens einmal am Tag.)"
+        (New-Object -ComObject WScript.Shell).Popup($msg, 3000, 'SEDA24 Lohnabrechnungen', 48) | Out-Null
     }
 }
 
@@ -143,36 +164,75 @@ function Invoke-Upload {
     $stand = Get-Stand
     $erster = (Get-Date -Day 1).Date
     $neu = 0
+    $fehler = @()
     $tage = if ($cfg.Monat) { @([datetime]::ParseExact($cfg.Monat + '-01', 'yyyy-MM-dd', $null)) } else { @($erster.AddMonths(-1), $erster) }
+    $liste = @()
+    $gesehen = [ordered]@{}
     foreach ($tag in $tage) {
         $monat = $tag.ToString('yyyy-MM')
         $ordner = Get-MonatsOrdner $cfg.Ordner $tag
-        if (-not $ordner) { continue }
+        if (-not $ordner) { $gesehen[$monat] = 'Ordner fehlt'; continue }
         $dateien = @(Get-ChildItem -LiteralPath $ordner -Filter $cfg.Filter -File)
-        if (-not $dateien.Count) { continue }
+        $gesehen[$monat] = "$($dateien.Count) Dateien"
+        if ($dateien.Count) { $liste += , @($monat, $dateien) }
+    }
+    # Lebenszeichen bei jedem Lauf, auch wenn es nichts hochzuladen gibt (Server nicht erreichbar -> Fehler unten)
+    try { Send-Json "$($cfg.Server)/api/v1/export/lohn-pc/lebenszeichen" @{ rechner = $env:COMPUTERNAME; version = $Version; ordner = $gesehen } }
+    catch { if (-not ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404)) { throw } }   # Server noch ohne lohn-pc
+    foreach ($eintrag in $liste) {
+        $monat = $eintrag[0]; $dateien = $eintrag[1]
         $url = "$($cfg.Server)/api/v1/export/lohnabrechnungen/$monat"
-        $srv = Invoke-RestMethod -Uri $url -Headers @{ 'X-Export-Key' = $key } -TimeoutSec 60
+        try { $srv = Invoke-RestMethod -Uri $url -Headers @{ 'X-Export-Key' = $key; 'X-Rechner' = $env:COMPUTERNAME } -TimeoutSec 60 }
+        catch { $fehler += "Stand $monat`: $($_.Exception.Message)"; continue }
         if ($srv.gesperrt) { continue }   # Monat abgeschlossen: nichts mehr hochladen
+        $neuMonat = 0
         foreach ($f in $dateien) {
             if ($f.LastWriteTime -gt (Get-Date).AddMinutes(-1)) { Write-Log "$($f.Name): wird noch geschrieben, spaeter"; continue }
             $dm = Get-DateiMonat $f.Name
             if ($dm -and $dm -ne $monat) { if ($Jetzt) { Write-Log "$($f.Name): Dateiname sagt $dm, Ordner $monat - uebersprungen" }; continue }
-            $sha = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLower()
-            if ($stand[$f.FullName] -eq $sha -or @($srv.sha256) -contains $sha) { $stand[$f.FullName] = $sha; continue }
-            $h = @{ 'X-Export-Key' = $key; 'X-Dateiname' = [uri]::EscapeDataString($f.Name); 'X-SHA256' = $sha; 'X-Rechner' = $env:COMPUTERNAME }
-            $r = Invoke-RestMethod -Method Post -Uri $url -Headers $h -InFile $f.FullName -ContentType 'application/pdf' -TimeoutSec 120
-            if ($r.quittung.sha256 -ne $sha) { throw "Quittung passt nicht zu $($f.Name)" }
-            $wer = (@($r.quittung.teile) | ForEach-Object { if ($_.name) { $_.name } else { 'NICHT ZUGEORDNET' } }) -join ', '
-            Write-Log "hochgeladen $monat`: $($f.Name) ($($r.quittung.status)) -> $wer"
-            $stand[$f.FullName] = $sha
-            Save-Stand $stand
-            $neu++
-            $srv = @{ sha256 = @($srv.sha256) + $sha; erwartet = $r.stand.erwartet; da = $r.stand.da; nicht_zugeordnet = $r.stand.nicht_zugeordnet }
+            try {   # eine Datei faellt durch -> die anderen laufen weiter, Fehler gesammelt am Ende
+                $sha = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLower()
+                if ($stand[$f.FullName] -eq $sha -or @($srv.sha256) -contains $sha) { $stand[$f.FullName] = $sha; continue }
+                $h = @{ 'X-Export-Key' = $key; 'X-Dateiname' = [uri]::EscapeDataString($f.Name); 'X-SHA256' = $sha; 'X-Rechner' = $env:COMPUTERNAME }
+                $r = Invoke-RestMethod -Method Post -Uri $url -Headers $h -InFile $f.FullName -ContentType 'application/pdf' -TimeoutSec 120
+                if ($r.quittung.sha256 -ne $sha) { throw "Quittung passt nicht" }
+                $wer = (@($r.quittung.teile) | ForEach-Object { if ($_.name) { $_.name } else { 'NICHT ZUGEORDNET' } }) -join ', '
+                Write-Log "hochgeladen $monat`: $($f.Name) ($($r.quittung.status)) -> $wer"
+                $stand[$f.FullName] = $sha
+                Save-Stand $stand
+                $neu++; $neuMonat++
+                $srv = @{ sha256 = @($srv.sha256) + $sha; erwartet = $r.stand.erwartet; da = $r.stand.da; nicht_zugeordnet = $r.stand.nicht_zugeordnet }
+            } catch {
+                $fehler += "$($f.Name): $($_.Exception.Message)"
+                Write-Log "FEHLER $($f.Name): $($_.Exception.Message) - naechster Lauf versucht es wieder"
+            }
         }
-        if ($neu) { Write-Log "Stand $monat`: $($srv.da) von $($srv.erwartet) Lohnabrechnungen da, $($srv.nicht_zugeordnet) ohne Zuordnung" }
+        if ($neuMonat) { Write-Log "Stand $monat`: $($srv.da) von $($srv.erwartet) Lohnabrechnungen da, $($srv.nicht_zugeordnet) ohne Zuordnung" }
     }
     Save-Stand $stand
-    if ($Jetzt -and -not $neu) { Write-Log 'nichts Neues' }
+    if ($Jetzt -and -not $neu -and -not $fehler.Count) { Write-Log 'nichts Neues' }
+    if ($fehler.Count) {
+        $text = "nicht alles hochgeladen ($($fehler.Count) Fehler): " + (($fehler | Select-Object -First 5) -join ' | ')
+        if ($fehler.Count -gt 5) { $text += " | ... und $($fehler.Count - 5) weitere" }
+        Send-Fehler $text $cfg
+    }
+}
+
+# Start ohne Fenster: conhost.exe --headless (Windows 10 ab 2019 / Windows 11). Einmal ausprobieren, sonst PowerShell versteckt.
+function Test-Headless {
+    if (-not $env:SystemRoot) { return $null }
+    $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+    if (-not (Test-Path -LiteralPath $conhost)) { return $null }
+    $probe = Join-Path $AppDir 'headless_test.txt'
+    Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+    $cmd = "Set-Content -LiteralPath '$($probe.Replace("'", "''"))' -Value ok"
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
+    try { Start-Process -FilePath $conhost -ArgumentList "--headless powershell.exe -NoProfile -EncodedCommand $enc" -WindowStyle Hidden | Out-Null }
+    catch { return $null }
+    for ($i = 0; $i -lt 30 -and -not (Test-Path -LiteralPath $probe); $i++) { Start-Sleep -Milliseconds 500 }
+    $ok = Test-Path -LiteralPath $probe
+    Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+    if ($ok) { $conhost } else { $null }
 }
 
 function Install-Aufgabe {
@@ -199,24 +259,30 @@ function Install-Aufgabe {
     $tage = if ($cfg.Monat) { @([datetime]::ParseExact($cfg.Monat + '-01', 'yyyy-MM-dd', $null)) } else { @($erster.AddMonths(-1), $erster) }
     foreach ($tag in $tage) {
         $monat = $tag.ToString('yyyy-MM')
-        $st = Invoke-RestMethod -Uri "$($cfg.Server)/api/v1/export/lohnabrechnungen/$monat" -Headers @{ 'X-Export-Key' = (Get-ExportKey) } -TimeoutSec 60
+        $st = Invoke-RestMethod -Uri "$($cfg.Server)/api/v1/export/lohnabrechnungen/$monat" -Headers @{ 'X-Export-Key' = (Get-ExportKey); 'X-Rechner' = $env:COMPUTERNAME } -TimeoutSec 60
         $o = Get-MonatsOrdner $cfg.Ordner $tag
         Write-Log "Server $($cfg.Server) erreichbar, Schluessel ok ($monat`: $($st.da) von $($st.erwartet) da)  Ordner: $(if ($o) { $o } else { 'noch nicht vorhanden' })"
     }
     $user = [Security.SecurityElement]::Escape([Security.Principal.WindowsIdentity]::GetCurrent().Name)
-    $arg = [Security.SecurityElement]::Escape("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"")
+    $ps = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
+    $conhost = Test-Headless
+    if ($conhost) { $cmd = $conhost; $arg = "--headless powershell.exe $ps"; $wie = 'ohne Fenster (conhost --headless)' }
+    else { $cmd = 'powershell.exe'; $arg = $ps; $wie = 'PowerShell versteckt (conhost --headless geht hier nicht, kurzes Aufblitzen moeglich)' }
+    $cmd = [Security.SecurityElement]::Escape($cmd)
+    $arg = [Security.SecurityElement]::Escape($arg)
     $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Laedt neue Lohnabrechnungen aus dem Lexware-Ausgabeordner an den SEDA24-Monatsabschluss hoch (alle 10 Minuten und nach der Anmeldung).</Description>
+    <Description>Laedt neue Lohnabrechnungen aus dem Lexware-Ausgabeordner an den SEDA24-Monatsabschluss hoch (stuendlich 07-22 Uhr, verpasste Laeufe nachholen, und nach der Anmeldung).</Description>
   </RegistrationInfo>
   <Triggers>
-    <TimeTrigger>
-      <StartBoundary>2026-11-01T00:00:00</StartBoundary>
+    <CalendarTrigger>
+      <Repetition><Interval>PT1H</Interval><Duration>PT15H1M</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
+      <StartBoundary>2026-11-01T07:00:00</StartBoundary>
       <Enabled>true</Enabled>
-      <Repetition><Interval>PT10M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
-    </TimeTrigger>
+      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
+    </CalendarTrigger>
     <LogonTrigger>
       <Enabled>true</Enabled>
       <UserId>$user</UserId>
@@ -240,20 +306,20 @@ function Install-Aufgabe {
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>powershell.exe</Command>
+      <Command>$cmd</Command>
       <Arguments>$arg</Arguments>
     </Exec>
   </Actions>
 </Task>
 "@
     Register-ScheduledTask -TaskName $TaskName -Xml $xml -Force | Out-Null
-    Write-Log "Aufgabe '$TaskName' eingerichtet (alle 10 Minuten und 2 Min nach Anmeldung)"
+    Write-Log "Aufgabe '$TaskName' eingerichtet (stuendlich 07-22 Uhr, verpasste Laeufe nachholen, 2 Min nach Anmeldung), Start $wie"
 }
 
 try {
     if ($Uninstall) {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $CfgFile, $StandFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $CfgFile, $StandFile, $HinweisFile -Force -ErrorAction SilentlyContinue
         Write-Log "Aufgabe '$TaskName' entfernt (Export-Schluessel bleibt)"
         return
     }
