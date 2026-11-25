@@ -128,8 +128,25 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
   const { toast } = useApp();
   const { data: aus } = useApi('/auswahl');
   const init = eintrag ? { employee_id: eintrag.employee_id, object_id: eintrag.object_id || '', datum: eintrag.gehen_datum && eintrag.hinweis.includes('Gehen vor Kommen') ? eintrag.gehen_datum : eintrag.datum,
-    kommen: eintrag.kommen, gehen: eintrag.gehen || '', notes: eintrag.notes || '' } : { employee_id: '', object_id: '', notes: '', ...neu };
+    kommen: eintrag.kommen, gehen: eintrag.gehen || '', notes: eintrag.notes || '',
+    art: eintrag.service_type || 'Unterhaltsreinigung', taetigkeit: eintrag.taetigkeit || '', fahrt: !!eintrag.fahrt }
+    : { employee_id: '', object_id: '', notes: '', art: 'Unterhaltsreinigung', taetigkeit: '', fahrt: false, ...neu };
   const [f, setF] = useState(init);
+  // Art / Satz / Fahrt mit KM (Drazen 25.11.2026): Satz und Lohnart nur Anzeige, Haken vorbelegt wie Fahrer laut Schicht/Zuweisung
+  const [satz, setSatz] = useState(null);
+  const [fahrtAngefasst, setFahrtAngefasst] = useState(!!eintrag);
+  const eid = f.employee_id || eintrag?.employee_id;
+  useEffect(() => {
+    if (!eid) { setSatz(null); return undefined; }
+    let aktiv = true;
+    api.get('/zeiten-satz', { params: { employee_id: eid, object_id: f.object_id || undefined, art: f.art, schedule_id: f.schedule_id || undefined } })
+      .then((r) => { if (!aktiv) return; setSatz(r.data); if (!fahrtAngefasst) setF((x) => ({ ...x, fahrt: !!r.data.fahrer && !!f.object_id })); })
+      .catch(() => aktiv && setSatz(null));
+    return () => { aktiv = false; };
+  }, [eid, f.object_id, f.art]); // eslint-disable-line
+  const sonder = ['Sonderreinigung', 'Fensterreinigung', 'Grundreinigung'].includes(f.art);
+  const artOptionen = ['Unterhaltsreinigung', 'Sonderreinigung', ...(eintrag?.service_type && !['Unterhaltsreinigung', 'Sonderreinigung'].includes(eintrag.service_type) ? [eintrag.service_type] : [])];
+  const satzAnzeige = eintrag && f.art === eintrag.service_type && eintrag.hourly_rate != null ? eintrag.hourly_rate : satz?.satz;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [confirmDel, setConfirmDel] = useState(false);
@@ -147,11 +164,13 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
     setBusy(true); setErr('');
     try {
       if (eintrag) {
-        const before = { datum: eintrag.datum, kommen: eintrag.kommen, gehen: eintrag.gehen, object_id: eintrag.object_id, notes: eintrag.notes };
-        await api.put(`/zeiten/${eintrag.id}`, { datum: f.datum, kommen: f.kommen, gehen: f.gehen, object_id: f.object_id ? Number(f.object_id) : undefined, notes: f.notes });
+        const before = { datum: eintrag.datum, kommen: eintrag.kommen, gehen: eintrag.gehen, object_id: eintrag.object_id, notes: eintrag.notes,
+          art: eintrag.service_type || 'Unterhaltsreinigung', taetigkeit: eintrag.taetigkeit || '', fahrt: !!eintrag.fahrt };
+        await api.put(`/zeiten/${eintrag.id}`, { datum: f.datum, kommen: f.kommen, gehen: f.gehen, object_id: f.object_id ? Number(f.object_id) : undefined, notes: f.notes,
+          art: f.art, taetigkeit: sonder ? f.taetigkeit : '', fahrt: !!f.fahrt });
         toast(t('zeiten.saved', { name: eintrag.name }), before.gehen && !fixed ? { undo: async () => { await api.put(`/zeiten/${eintrag.id}`, before); onDone(); } } : {});
       } else {
-        const r = await api.post('/zeiten', { ...f, employee_id: Number(f.employee_id), object_id: Number(f.object_id) });
+        const r = await api.post('/zeiten', { ...f, taetigkeit: sonder ? f.taetigkeit : '', fahrt: !!f.fahrt, employee_id: Number(f.employee_id), object_id: Number(f.object_id) });
         toast(t('zeiten.created', { name: r.data.name }), { undo: async () => { await api.delete(`/zeiten/${r.data.id}`); onDone(); } });
       }
       onDone();
@@ -163,7 +182,8 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
     try {
       const r = await api.delete(`/zeiten/${eintrag.id}`);
       const a = r.data.alt;
-      toast(t('zeiten.deleted', { name: eintrag.name }), a.gehen ? { undo: async () => { await api.post('/zeiten', { employee_id: a.employee_id, object_id: a.object_id, datum: a.datum, kommen: a.kommen, gehen: a.gehen, notes: a.notes, schedule_id: a.schedule_id }); onDone(); } } : {});
+      toast(t('zeiten.deleted', { name: eintrag.name }), a.gehen ? { undo: async () => { await api.post('/zeiten', { employee_id: a.employee_id, object_id: a.object_id, datum: a.datum, kommen: a.kommen, gehen: a.gehen, notes: a.notes, schedule_id: a.schedule_id,
+        art: a.service_type, taetigkeit: a.taetigkeit || '', fahrt: !!a.fahrt }); onDone(); } } : {});
       onDone();
     } catch (e) { setErr(apiError(e)); setBusy(false); }
   };
@@ -190,6 +210,23 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
       </div>
       {dauer != null && <div className="ck-subtle" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: -6 }}>
         {nacht && <><Moon size={15} />{t('zeiten.next_day')} · </>}{t('zeiten.duration', { h: fmtNum(dauer, 2) })}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: sonder ? '1fr 1fr' : '1fr', gap: 12 }}>
+        <label className="ck-field">{t('zeiten.art')}
+          <select className="ck-input" value={f.art} onChange={set('art')} data-buchung-art>
+            {artOptionen.map((a) => <option key={a} value={a}>{a === 'Unterhaltsreinigung' ? t('zeiten.art_u') : a === 'Sonderreinigung' ? t('zeiten.art_s') : a}</option>)}</select></label>
+        {sonder && <label className="ck-field">{t('zeiten.taetigkeit')}
+          <input className="ck-input" value={f.taetigkeit} maxLength={60} placeholder={t('zeiten.taetigkeit_ph')} onChange={set('taetigkeit')} data-buchung-taetigkeit /></label>}
+      </div>
+      {satzAnzeige != null && <div className="ck-subtle" style={{ marginTop: -6 }} data-buchung-satz>
+        {t('zeiten.satz', { satz: fmtNum(satzAnzeige, 2) })}{satz?.lohnart && <> · {t('zeiten.lohnart', { nr: satz.lohnart })}</>}
+        {eintrag && f.art !== eintrag.service_type && <> · {t('zeiten.satz_neu')}</>}</div>}
+      <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontWeight: 500 }}>
+        <input type="checkbox" checked={!!f.fahrt} disabled={!f.object_id} style={{ width: 18, height: 18 }} data-buchung-fahrt
+          onChange={(e) => { setFahrtAngefasst(true); setF({ ...f, fahrt: e.target.checked }); }} />
+        {t('zeiten.fahrt')}
+        {f.fahrt && satz && <span className="ck-subtle" style={{ fontWeight: 400 }}>· {satz.km ? t('zeiten.fahrt_km', { km: fmtNum(satz.km, 1) }) : t('zeiten.fahrt_ohne')}</span>}
+        {satz?.fahrer && <span className="ck-subtle" style={{ fontWeight: 400 }}>· {t('zeiten.fahrt_fahrer')}</span>}
+      </label>
       <label className="ck-field">{t('zeiten.note')}<input className="ck-input" value={f.notes} onChange={set('notes')} /></label>
       {err && <div className="ck-callout"><AlertTriangle size={18} />{err}</div>}
     </Dialog>

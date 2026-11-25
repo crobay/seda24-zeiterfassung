@@ -112,6 +112,7 @@ def _booking_snap(e):
         "stunden": e.billed_hours,
         "stundensatz": float(e.hourly_rate) if e.hourly_rate is not None else None,
         "reinigungsart": e.service_type,
+        "taetigkeit": getattr(e, "taetigkeit", None),
         "notiz": e.notes,
     }
 
@@ -2246,6 +2247,8 @@ def update_booking(booking_id: int, data: dict, db: Session = Depends(get_db), a
         entry.object_id = data['object_id']
     if 'service_type' in data:
         entry.service_type = data['service_type']
+    if 'taetigkeit' in data:
+        entry.taetigkeit = data['taetigkeit']
     if 'notes' in data:
         entry.notes = data['notes']
     if 'employee_id' in data:
@@ -2450,6 +2453,7 @@ def create_manual_booking(data: dict, db: Session = Depends(get_db), admin = Dep
         hourly_rate=hourly_rate,
         service_type=service_type,
         notes=data.get('notes', ''),
+        taetigkeit=data.get('taetigkeit') or None,
         is_manual_entry=True
     )
 

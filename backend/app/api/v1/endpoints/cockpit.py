@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.api.v1.endpoints.admin import verify_admin_or_objektleiter
-from app.services import ol_scope, verspaetet
+from app.services import ol_scope, verspaetet, buchung_art
 from app.services.booking_service import log_audit
 
 router = APIRouter()
@@ -548,12 +548,15 @@ def _zeile(r):
                    (r["notes"] or "").split(" - ")[0][:40] if r["notes"] else ("App" if r["is_manual_entry"] is False else "Manuell"),
             "quelle": r.get("quelle"),
             "verspaetet": verspaetet.hinweise(r),
+            "hourly_rate": float(r["hourly_rate"]) if r.get("hourly_rate") is not None else None, "taetigkeit": r.get("taetigkeit"),
+            "fahrt": r.get("km") is not None, "km": float(r["km"]) if r.get("km") is not None else None,
             "hinweis": ", ".join(hint)}
 
 
 _ZEIT_SELECT = f"""
         SELECT t.id, t.check_in, t.check_out, t.billed_hours, t.notes, t.is_manual_entry, t.object_id, t.service_type, t.schedule_id,
-               t.quelle, t.kommen_handy, t.kommen_eingang, t.gehen_handy, t.gehen_eingang, o.name AS objekt, e.first_name || ' ' || e.last_name AS name, e.personal_nr, t.employee_id,
+               t.quelle, t.kommen_handy, t.kommen_eingang, t.gehen_handy, t.gehen_eingang, t.hourly_rate, t.taetigkeit,
+               (SELECT k.distance_km FROM km_daily_entries k WHERE k.time_entry_id = t.id ORDER BY k.id LIMIT 1) AS km, o.name AS objekt, e.first_name || ' ' || e.last_name AS name, e.personal_nr, t.employee_id,
                (SELECT coalesce(sum(extract(epoch FROM b.end_time - b.start_time)),0) FROM break_entries b
                  WHERE b.time_entry_id = t.id AND b.end_time IS NOT NULL) AS brk
           FROM time_entries t JOIN employees e ON e.id = t.employee_id LEFT JOIN objects o ON o.id = t.object_id"""
@@ -635,8 +638,43 @@ def zeit_aendern(entry_id: int, data: dict, db: Session = Depends(get_db), user=
     for k in ("object_id", "notes", "employee_id"):
         if k in data and data[k] not in (None, ""):
             body[k] = data[k]
-    update_booking(entry_id, body, db=db, admin=user)
+    alt = _q(db, "SELECT employee_id, object_id, service_type, taetigkeit FROM time_entries WHERE id = :i", i=entry_id)
+    if not alt:
+        raise HTTPException(404, "Buchung nicht gefunden")
+    alt = alt[0]
+    # Art (Drazen 25.11.2026): nur bei Wechsel neuer Satz - ein bewusst gesetzter Satz bleibt sonst stehen
+    art = data.get("art")
+    if art and art != alt["service_type"]:
+        if art not in (buchung_art.UNTERHALT,) + buchung_art.SONDER_ARTEN:
+            raise HTTPException(400, "Art: Unterhaltsreinigung oder Sonderreinigung")
+        body["service_type"] = art
+        body["hourly_rate"] = buchung_art.satz(db, int(body.get("employee_id") or alt["employee_id"]),
+                                               int(body.get("object_id") or alt["object_id"] or 0) or None, art)
+    neue_art = body.get("service_type", alt["service_type"])
+    if "taetigkeit" in data or "service_type" in body:
+        tt = (data.get("taetigkeit") or "").strip()[:60] if buchung_art.ist_sonder(neue_art) else ""
+        if (tt or None) != alt["taetigkeit"]:
+            body["taetigkeit"] = tt or None
+    update_booking(entry_id, body, db=db, admin=user)   # protokolliert alt/neu inkl. Taetigkeit
+    if "fahrt" in data:
+        try:
+            buchung_art.km_setzen(db, entry_id, bool(data["fahrt"]), user.id)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     return zeit(entry_id, db=db, user=user)
+
+
+@router.get("/zeiten-satz")
+def zeiten_satz(employee_id: int, object_id: int = None, art: str = buchung_art.UNTERHALT, schedule_id: int = None,
+                db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Anzeige im Dialog: Stundensatz + Lohnart zur Art, Vorbelegung "Fahrt mit KM" und Entfernung."""
+    try:
+        sz = buchung_art.satz(db, employee_id, object_id, art)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    return {"satz": sz, "lohnart": buchung_art.lohnart(db, art), "sonder": buchung_art.ist_sonder(art),
+            "fahrer": buchung_art.fahrer_standard(db, employee_id, object_id, schedule_id),
+            "km": buchung_art.km_distanz(db, employee_id, object_id)}
 
 
 @router.post("/zeiten")
@@ -645,23 +683,25 @@ def zeit_anlegen(data: dict, db: Session = Depends(get_db), user=Depends(verify_
     ci, co = _pruefe_zeiten(data)
     if not data.get("employee_id") or not data.get("object_id"):
         raise HTTPException(400, "Mitarbeiter und Objekt angeben")
+    art = data.get("art") or data.get("service_type") or buchung_art.UNTERHALT
+    if art not in (buchung_art.UNTERHALT,) + buchung_art.SONDER_ARTEN:
+        raise HTTPException(400, "Art: Unterhaltsreinigung oder Sonderreinigung")
     r = create_manual_booking({"employee_id": int(data["employee_id"]), "object_id": int(data["object_id"]),
                                "check_in": ci.isoformat(), "check_out": co.isoformat(),
                                "check_in_time": ci.strftime("%H:%M"), "check_out_time": co.strftime("%H:%M"),
-                               "service_type": data.get("service_type") or "Unterhaltsreinigung",
+                               "service_type": art, "hourly_rate": buchung_art.satz(db, int(data["employee_id"]), int(data["object_id"]), art),
+                               "taetigkeit": (data.get("taetigkeit") or "").strip()[:60] if buchung_art.ist_sonder(art) else None,
                                "notes": data.get("notes") or "Im Cockpit nachgetragen"}, db=db, admin=user)
+
     if data.get("schedule_id"):
         db.execute(text("UPDATE time_entries SET schedule_id = :s WHERE id = :i AND schedule_id IS NULL"),
                    {"s": int(data["schedule_id"]), "i": r["id"]})
         db.commit()
-    # KM-Geld wie beim Stempeln: Fahrer laut Schicht, sonst laut Zuweisung MA -> Objekt (gleiche Berechnung wie die App)
+    # KM-Geld wie beim Stempeln (gleiche Berechnung wie die App). Haken "Fahrt mit KM" im Dialog; ohne Angabe
+    # wie bisher: Fahrer laut Schicht, sonst laut Zuweisung MA -> Objekt
     eid, oid = int(data["employee_id"]), int(data["object_id"])
-    if data.get("schedule_id"):
-        f = _q(db, "SELECT coalesce(is_driver, false) AS f FROM schedules WHERE id = :s", s=int(data["schedule_id"]))
-    else:
-        f = _q(db, """SELECT coalesce(bool_or(is_driver), false) AS f FROM employee_object_assignments
-                      WHERE employee_id = :e AND object_id = :o AND coalesce(is_active, true)""", e=eid, o=oid)
-    if f and f[0]["f"]:
+    fahrt = data["fahrt"] if "fahrt" in data else buchung_art.fahrer_standard(db, eid, oid, data.get("schedule_id"))
+    if fahrt:
         from app.api.v1.endpoints.time_entries import calculate_and_save_km
         calculate_and_save_km(eid, oid, ci.date(), r["id"], db)
         db.commit()

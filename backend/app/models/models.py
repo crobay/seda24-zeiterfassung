@@ -138,6 +138,7 @@ class TimeEntry(Base):
     kommen_eingang = Column(DateTime, nullable=True)
     gehen_handy = Column(DateTime, nullable=True)
     gehen_eingang = Column(DateTime, nullable=True)
+    taetigkeit = Column(String(60), nullable=True)  # Sonderreinigung: Taetigkeit fuer den Zeitnachweis (migrations/taetigkeit.sql)
     created_at = Column(DateTime, default=datetime.now)
 
     employee = relationship("Employee", back_populates="time_entries")
