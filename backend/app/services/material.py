@@ -415,8 +415,8 @@ def mail_einstellungen_speichern(db, werte, user_id):
             neu[k] = v
     if "absender" in werte:
         v = str(werte["absender"] or "").strip().lower()
-        if not MAIL_RE.fullmatch(v) or not v.endswith(ABSENDER_DOMAIN):
-            raise ValueError(f"Absender: eine Adresse {ABSENDER_DOMAIN}")
+        if not MAIL_RE.fullmatch(v) or not v.endswith((ABSENDER_DOMAIN, "@seda24.de")):
+            raise ValueError(f"Absender: eine Adresse {ABSENDER_DOMAIN} oder @seda24.de")
         if v == "lohn@seda.de":
             raise ValueError("Material-Mails nicht über lohn@seda.de – bitte eigenen Absender (z. B. info@seda.de)")
         neu["absender"] = v

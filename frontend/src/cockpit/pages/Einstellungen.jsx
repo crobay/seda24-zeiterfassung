@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Palette, Building2, Car, Search } from 'lucide-react';
+import { Palette, Building2, Car, Search, Mail } from 'lucide-react';
 import { api, apiError, t, useApi, useApp, SkeletonRows, Empty, Status, brandStyle, contrast } from '../core';
 import { KmEingabe } from './Objekte';
 import { LohnGrenzen, istAdmin } from './GfKarten';
@@ -11,12 +11,12 @@ const MitarbeiterObjekteTab = lazy(() => import('../../pages/MitarbeiterObjekteT
 const PushVerwaltungTab = lazy(() => import('../../pages/PushVerwaltungTab'));
 const AuditLogTab = lazy(() => import('../../pages/AuditLogTab'));
 const BRAND_KEYS = ['firma', 'produkt', 'logo_url', 'akzent', 'cta', 'cta_text', 'leiste', 'leiste_text', 'schrift_css', 'schrift_titel', 'schrift_text'];
-const TABS = ['brand', 'km', 'grenzen', 'urlaub', 'krank', 'assign', 'telegram', 'audit'];
+const TABS = ['brand', 'km', 'grenzen', 'mail', 'urlaub', 'krank', 'assign', 'telegram', 'audit'];
 
 export default function Einstellungen() {
   const { brand, setBrand, toast, me } = useApp();
   const [params, setParams] = useSearchParams();
-  const tabs = TABS.filter((k) => k !== 'grenzen' || istAdmin(me));   // Lohn-Grenzen nur Admin
+  const tabs = TABS.filter((k) => !['grenzen', 'mail'].includes(k) || istAdmin(me));   // Lohn-Grenzen + Mailversand nur Admin
   const tab = tabs.includes(params.get('tab')) ? params.get('tab') : 'brand';
   const setTab = (k) => setParams({ tab: k }, { replace: true });
   const [f, setF] = useState(brand || {});
@@ -86,7 +86,7 @@ export default function Einstellungen() {
             </div>
           </section>
         </div>
-      ) : tab === 'km' ? <KmStrecken /> : tab === 'grenzen' ? <LohnGrenzen /> : (
+      ) : tab === 'km' ? <KmStrecken /> : tab === 'grenzen' ? <LohnGrenzen /> : tab === 'mail' ? <MailVersand /> : (
         <section className="ck-card"><div className="ck-card-head"><h2>{t(`set.${tab}`)}</h2><span className="ck-tag">{t('app.classic')}</span></div>
           <div className="ck-embed"><Suspense fallback={<SkeletonRows n={6} />}>
             {tab === 'urlaub' && <UrlaubVerwaltungTab />}
@@ -133,4 +133,52 @@ function KrankEinbettung() {
   const { data } = useApi('/auswahl');
   if (!data) return <SkeletonRows n={4} />;
   return <KrankmeldungTab employees={data.mitarbeiter} />;
+}
+
+
+// E-Mail-Versand (Microsoft 365) - derselbe Zugang wie im Monatsabschluss Schritt 5, hier unabhaengig davon (Drazen 25.11.2026).
+// Mandant/Client-ID vorbelegt (keine Geheimnisse), Geheimnis nur schreiben: leer lassen = gespeichertes bleibt.
+function MailVersand() {
+  const { toast } = useApp();
+  const { data, loading, reload } = useApi('/abschluss/einstellungen/mailversand');
+  const [z, setZ] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [test, setTest] = useState(null);
+  useEffect(() => { if (data && !z) setZ({ tenant: data.zugang.tenant, client_id: data.zugang.client_id, secret: '' }); }, [data]); // eslint-disable-line
+  if (loading || !data || !z) return <section className="ck-card"><SkeletonRows n={5} /></section>;
+  const st = data.status, zg = data.zugang;
+  const guid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test((v || '').trim());
+  const ok = guid(z.tenant) && guid(z.client_id) && (z.secret.trim() || zg.secret_gesetzt);
+  const speichern = async () => {
+    setBusy(true);
+    try { await api.put('/abschluss/einstellungen/microsoft', z); setZ({ ...z, secret: '' }); setTest(null); toast(t('mail.saved')); reload(); }
+    catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setBusy(false);
+  };
+  const pruefen = async () => { setTest({ text: t('app.loading') }); try { setTest((await api.post('/abschluss/einstellungen/microsoft/test')).data); } catch (e) { setTest({ ok: false, text: apiError(e) }); } };
+  return (
+    <section className="ck-card" data-mailversand>
+      <div className="ck-card-head"><h2><Mail size={20} />{t('mail.title')}</h2>
+        {st.konfiguriert ? <Status s="aktiv" label={t('mail.ok')} /> : <Status s="offen" label={zg.secret_gesetzt ? t('mail.unvollstaendig') : t('mail.secret_fehlt')} />}</div>
+      <div className="ck-dialog-body">
+        <p className="ck-subtle" style={{ margin: 0 }}>{t('mail.sub')}</p>
+        <label className="ck-field">{t('ab.ms_tenant')}<input className="ck-input" autoComplete="off" spellCheck={false} value={z.tenant} onChange={(e) => setZ({ ...z, tenant: e.target.value })} data-mail-tenant /></label>
+        <label className="ck-field">{t('ab.ms_client')}<input className="ck-input" autoComplete="off" spellCheck={false} value={z.client_id} onChange={(e) => setZ({ ...z, client_id: e.target.value })} data-mail-client /></label>
+        <label className="ck-field">{t('ab.ms_secret')}<input className="ck-input" type="password" autoComplete="new-password" value={z.secret}
+          placeholder={zg.secret_gesetzt ? t('mail.secret_da') : ''} onChange={(e) => setZ({ ...z, secret: e.target.value })} data-mail-secret /></label>
+        <p className="ck-subtle" style={{ margin: 0 }}>{t('ab.ms_hint')}{st.zugang_am ? ` ${t('mail.am', { am: st.zugang_am })}` : ''}</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="ck-btn ck-btn-primary" disabled={busy || !ok} onClick={speichern} data-mail-speichern>{t('app.save')}</button>
+          <button className="ck-btn" disabled={!st.konfiguriert} onClick={pruefen} data-mail-test>{t('ab.ms_test')}</button>
+        </div>
+        {test && <div className={test.ok ? '' : 'ck-callout'} data-mail-ergebnis>{test.ok ? '✓ ' : ''}{test.text}</div>}
+        <h3 style={{ fontSize: 16, margin: '8px 0 0' }}>{t('mail.absender')}</h3>
+        <ul className="ck-list">{data.absender.map((a) => (
+          <li key={a.zweck} className="ck-row" data-mail-absender={a.adresse}><div className="ck-row-main">
+            <div className="ck-row-title">{a.zweck}</div>
+            <div className="ck-row-meta">„{a.name}“ &lt;{a.adresse}&gt; · {a.testmodus ? t('mail.testmodus', { an: a.test_an }) : t('mail.echt')}</div></div></li>))}</ul>
+        <p className="ck-subtle" style={{ margin: 0 }}>{t('mail.gruppe')}</p>
+      </div>
+    </section>
+  );
 }

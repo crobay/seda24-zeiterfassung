@@ -60,13 +60,19 @@ def absender_von(einst=None):
 GUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 
 
-def zugang_speichern(db, werte: dict, user_id):
-    """Nur schreiben, nie zuruecklesen: Tenant-ID, Client-ID, Geheimnis (Wert). Datei 0600, Audit ohne Werte."""
+def zugang_speichern(db, werte: dict, user_id, ohne_geheimnis=False):
+    """Nur schreiben, nie zuruecklesen: Tenant-ID, Client-ID, Geheimnis (Wert). Datei 0600, Audit ohne Werte.
+    Geheimnis leer = das schon gespeicherte bleibt (Einstellungen, Drazen 25.11.2026); ohne_geheimnis=True nur fuers
+    Vorbelegen von Mandant/Client (dann ist der Versand noch nicht eingerichtet)."""
     from app.services.booking_service import log_audit
     t, c, g = (str(werte.get(k) or "").strip() for k in ("tenant", "client_id", "secret"))
     if not GUID_RE.fullmatch(t) or not GUID_RE.fullmatch(c):
         raise ValueError("Verzeichnis-ID (Tenant) und Anwendungs-ID (Client) sind je eine GUID (xxxxxxxx-xxxx-…)")
-    if len(g) < 20 or GUID_RE.fullmatch(g):
+    if not g and not ohne_geheimnis:
+        g = _datei().get("secret", "")
+        if not g:
+            raise ValueError("Geheimer Clientschlüssel fehlt – bitte den WERT eintragen")
+    elif g and (len(g) < 20 or GUID_RE.fullmatch(g)):
         raise ValueError("Geheimnis: den WERT des geheimen Clientschlüssels eintragen, nicht die Geheimnis-ID")
     os.makedirs(os.path.dirname(SECRET_FILE), mode=0o700, exist_ok=True)
     tmp = SECRET_FILE + ".tmp"
@@ -75,9 +81,18 @@ def zugang_speichern(db, werte: dict, user_id):
         json.dump({"tenant": t, "client_id": c, "secret": g, "am": time.strftime("%Y-%m-%d %H:%M")}, f)
     os.replace(tmp, SECRET_FILE)
     log_audit(db, user_id, None, "lohnversand_zugang", entity_type="einstellung",
-              details=f"Microsoft-Zugang für den Lohnversand eingetragen (Anwendungs-ID …{c[-4:]})")
+              details=f"Microsoft-Zugang für den Mailversand eingetragen (Anwendungs-ID …{c[-4:]}, "
+                      + ("Geheimnis gespeichert)" if g else "ohne Geheimnis – Mandant/Client vorbelegt)"))
     db.commit()
     return status_versand(db)
+
+
+def zugang_anzeige():
+    """Fuer Cockpit › Einstellungen (nur Admin): Mandant und Client-ID sind keine Geheimnisse und werden vorbelegt;
+    vom Geheimnis nur, ob es gesetzt ist."""
+    c = config()
+    return {"tenant": c["tenant"], "client_id": c["client_id"], "secret_gesetzt": bool(c["secret"]),
+            "aus_env": bool(os.getenv("LOHNMAIL_GRAPH_CLIENT_SECRET", ""))}
 
 
 def verbindung_testen():

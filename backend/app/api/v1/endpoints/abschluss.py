@@ -182,6 +182,16 @@ def microsoft_zugang(data: dict, db: Session = Depends(get_db), user=Depends(nur
     return _fehler(lambda: lv.zugang_speichern(db, data, user.id))
 
 
+@router.get("/einstellungen/mailversand")
+def mailversand(db: Session = Depends(get_db), user=Depends(nur_admin)):
+    """Cockpit › Einstellungen › E-Mail-Versand (Microsoft 365), unabhaengig vom Monatsabschluss."""
+    from app.services import lohnversand as lv, material as mt
+    lohn, mat = lv.einstellungen(db), mt.mail_einstellungen(db)
+    return {"status": lv.status_versand(db), "zugang": lv.zugang_anzeige(),
+            "absender": [{"zweck": "Lohnabrechnungen", "name": lohn["absender_name"], "adresse": lohn["absender"], "testmodus": lohn["testmodus"], "test_an": lohn["test_an"]},
+                         {"zweck": "Material / Objektbetreuung", "name": mat["absender_name"], "adresse": mat["absender"], "testmodus": mat["testmodus"], "test_an": mat["test_an"]}]}
+
+
 @router.post("/einstellungen/microsoft/test")
 def microsoft_test(db: Session = Depends(get_db), user=Depends(nur_admin)):
     from app.services import lohnversand as lv
