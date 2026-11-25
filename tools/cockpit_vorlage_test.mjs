@@ -72,7 +72,7 @@ const dialogWerte = async (page) => {
   await d.waitFor({ timeout: 5000 });
   await page.waitForFunction(() => document.querySelectorAll('[role=dialog] select option').length > 4, null, { timeout: 8000 });
   return { ma: await d.locator('select').nth(0).inputValue(), obj: await d.locator('select').nth(1).inputValue(),
-    datum: await d.locator('input[type=date]').inputValue(), b: await d.locator('input[type=time]').nth(0).inputValue(), e: await d.locator('input[type=time]').nth(1).inputValue() };
+    datum: await d.locator('input[type=date]').inputValue(), b: await d.locator('[data-zeit]').nth(0).inputValue(), e: await d.locator('[data-zeit]').nth(1).inputValue() };
 };
 
 try {

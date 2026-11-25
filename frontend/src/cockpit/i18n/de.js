@@ -1,6 +1,6 @@
 // Alle Texte des Cockpits. Weitere Sprachen: gleiche Schluessel in en.js usw.
 export default {
-  app: { subtitle: 'Cockpit', search: 'Suchen oder springen …', searchShort: 'Suchen', theme_dark: 'Dunkel', theme_light: 'Hell',
+  app: { zeit_falsch: 'ungültig', zeit_hilfe: 'z. B. 14, 930, 1430, 14,5 oder 14:30', subtitle: 'Cockpit', search: 'Suchen oder springen …', searchShort: 'Suchen', theme_dark: 'Dunkel', theme_light: 'Hell',
     classic: 'Klassische Ansicht', stempeln: 'Meine Zeiten / Stempeln', logout: 'Abmelden', loading: 'Lädt …', retry: 'Erneut versuchen',
     error: 'Das hat nicht geklappt', close: 'Schließen', back: 'Zurück', save: 'Speichern', cancel: 'Abbrechen', undo: 'Rückgängig',
     role_admin: 'Administration', role_objektleiter: 'Objektleitung', more: 'Mehr' },

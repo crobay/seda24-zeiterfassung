@@ -248,6 +248,8 @@
 .ck-field { display: flex; flex-direction: column; gap: 6px; font-weight: 550; font-size: 15px; }
 .ck-input { height: 42px; padding: 0 12px; border-radius: var(--ck-r); border: 1px solid var(--ck-border-strong); background: var(--ck-surface); font-size: 16px; width: 100%; }
 .ck-input:focus { outline: 3px solid var(--ck-focus); border-color: var(--ck-accent); }
+.ck-input.ck-input-fehler { border-color: #dc2626; background: #fef2f2; color: #991b1b; }
+.ck-zeit-fehler { display: block; color: #dc2626; font-size: 13px; font-weight: 500; margin-top: 2px; }
 .ck-callout { display: flex; gap: var(--ck-s3); padding: var(--ck-s3) var(--ck-s4); border-radius: var(--ck-r); background: var(--ck-warn-soft); color: var(--ck-warn); font-weight: 550; }
 .ck-callout.c-info { background: var(--ck-ok-soft); color: var(--ck-ok); }
 

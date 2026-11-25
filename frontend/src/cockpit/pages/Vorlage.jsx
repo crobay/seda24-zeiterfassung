@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, useDraggable, useDroppable } from '@dnd-kit/core';
 import { Plus, Trash2, AlertTriangle, Copy, MoveRight, Car, Hand, CalendarCog, CalendarPlus, Import, Repeat } from 'lucide-react';
-import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Dialog, Status, Empty, ObjektMarke } from '../core';
+import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Dialog, Zeitfeld, zeitOk, Status, Empty, ObjektMarke } from '../core';
 import { zielErkennung, useCopyModifier } from './Dienstplan';
 
 const TAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -166,7 +166,7 @@ function VorlageDialog({ e, neu, aus, onClose, onDone }) {
       {e && (confirmDel ? <button className="ck-btn" style={{ marginRight: 'auto', color: 'var(--ck-warn)', borderColor: 'var(--ck-warn)' }} disabled={busy} onClick={del}><Trash2 size={16} />{t('zeiten.delete_confirm')}</button>
         : <button className="ck-btn ck-btn-ghost" style={{ marginRight: 'auto' }} onClick={() => setConfirmDel(true)}><Trash2 size={16} />{t('zeiten.delete')}</button>)}
       <button className="ck-btn" onClick={onClose}>{t('app.cancel')}</button>
-      <button className="ck-btn ck-btn-primary" disabled={busy || !f.employee_id || !f.object_id || !f.beginn || !f.ende} onClick={save}>{t('app.save')}</button></>}>
+      <button className="ck-btn ck-btn-primary" disabled={busy || !f.employee_id || !f.object_id || !zeitOk(f.beginn) || !zeitOk(f.ende)} onClick={save}>{t('app.save')}</button></>}>
       <label className="ck-field">{t('zeiten.name')}
         <select className="ck-input" value={f.employee_id} onChange={set('employee_id')} autoFocus={!e}>
           <option value="">{t('ma.choose')}</option>{(aus?.mitarbeiter || []).map((m) => <option key={m.id} value={m.id}>{m.name} · {m.personal_nr}</option>)}</select></label>
@@ -176,8 +176,8 @@ function VorlageDialog({ e, neu, aus, onClose, onDone }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr', gap: 12 }}>
         <label className="ck-field">{t('vorlage.weekday')}
           <select className="ck-input" value={f.wochentag} onChange={set('wochentag')}>{TAGE.map((d, i) => <option key={d} value={i}>{d}</option>)}</select></label>
-        <label className="ck-field">{t('dienstplan.from')}<input type="time" className="ck-input" value={f.beginn} onChange={set('beginn')} /></label>
-        <label className="ck-field">{t('dienstplan.to')}<input type="time" className="ck-input" value={f.ende} onChange={set('ende')} /></label>
+        <label className="ck-field">{t('dienstplan.from')}<Zeitfeld value={f.beginn} onChange={set('beginn')} data-zeit="beginn" /></label>
+        <label className="ck-field">{t('dienstplan.to')}<Zeitfeld value={f.ende} onChange={set('ende')} data-zeit="ende" /></label>
       </div>
       <div className="ck-two-inputs">
         <label className="ck-field">{t('vorlage.rhythm')}

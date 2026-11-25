@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useSearchParams } from 'react-router-dom';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, useDraggable, useDroppable, pointerWithin, rectIntersection } from '@dnd-kit/core';
 import { ChevronLeft, ChevronRight, Car, Pencil, Plus, Trash2, AlertTriangle, Palmtree, Thermometer, Copy, CopyPlus, MoveRight, Undo2, X, CalendarRange, Users, Rows3, Hand, CalendarPlus, CircleDashed, UserPlus, Search, CheckCircle2, RotateCcw, Scale, Pin } from 'lucide-react';
-import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Skeleton, Dialog, Status, ObjektMarke } from '../core';
+import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Skeleton, Dialog, Zeitfeld, zeitOk, Status, ObjektMarke } from '../core';
 
 const ScheduleTab = lazy(() => import('../../components/ScheduleTab'));
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -468,7 +468,7 @@ export function SchichtDialog({ id, neu, onClose, onDone, onDuplizieren, onZiel 
       {id && orig && onZiel && <button className="ck-btn" onClick={() => onZiel({ ...orig, objekt: orig.objekt })}><MoveRight size={16} />{t('dnd.menu')}</button>}
       {id && orig && onDuplizieren && <button className="ck-btn" onClick={() => onDuplizieren(orig)}><Copy size={16} />{t('kopie.duplicate')}</button>}
       <button className="ck-btn" onClick={onClose}>{t('app.cancel')}</button>
-      <button className="ck-btn ck-btn-primary" disabled={busy || !f || !f.employee_id || !f.object_id || !f.datum || !f.beginn || !f.ende} onClick={save}>{t('app.save')}</button></>}>
+      <button className="ck-btn ck-btn-primary" disabled={busy || !f || !f.employee_id || !f.object_id || !f.datum || !zeitOk(f.beginn) || !zeitOk(f.ende)} onClick={save}>{t('app.save')}</button></>}>
       {!f ? <SkeletonRows n={3} /> : (<>
         <label className="ck-field">{t('zeiten.name')}
           <select className="ck-input" value={f.employee_id} onChange={set('employee_id')} autoFocus={!id}>
@@ -478,8 +478,8 @@ export function SchichtDialog({ id, neu, onClose, onDone, onDuplizieren, onZiel 
             <option value="">{t('ma.choose')}</option>{(aus?.objekte || []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
         <div className="ck-dzeit">
           <label className="ck-field">{t('zeiten.date')}<input type="date" className="ck-input" value={f.datum} onChange={set('datum')} /></label>
-          <label className="ck-field">{t('dienstplan.from')}<input type="time" className="ck-input" value={f.beginn} onChange={set('beginn')} /></label>
-          <label className="ck-field">{t('dienstplan.to')}<input type="time" className="ck-input" value={f.ende} onChange={set('ende')} /></label>
+          <label className="ck-field">{t('dienstplan.from')}<Zeitfeld value={f.beginn} onChange={set('beginn')} data-zeit="beginn" /></label>
+          <label className="ck-field">{t('dienstplan.to')}<Zeitfeld value={f.ende} onChange={set('ende')} data-zeit="ende" /></label>
         </div>
         <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontWeight: 500 }}>
           <input type="checkbox" checked={!!f.fahrer} onChange={set('fahrer')} style={{ width: 20, height: 20 }} />{t('ma.assign_driver')}</label>

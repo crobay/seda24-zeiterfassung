@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Clock3, ArrowUpDown, ArrowUp, ArrowDown, ClipboardCheck, Plus, Pencil, Trash2, AlertTriangle, X, Moon, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
-import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Empty, ErrorBox, Skeleton, Dialog, ObjektMarke } from '../core';
+import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Empty, ErrorBox, Skeleton, Dialog, Zeitfeld, zeitOk, ObjektMarke } from '../core';
 
 const GenehmigungenTab = lazy(() => import('../../pages/GenehmigungenTab'));
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -172,9 +172,9 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
   const [err, setErr] = useState('');
   const [confirmDel, setConfirmDel] = useState(false);
   const set = (k) => (e) => { if (k === 'kommen' || k === 'gehen') { zeitAngefasst.current = true; setZeitQuelle(null); } setF({ ...f, [k]: e.target.value }); };
-  const nacht = f.kommen && f.gehen && f.gehen <= f.kommen;
+  const nacht = zeitOk(f.kommen) && zeitOk(f.gehen) && f.gehen <= f.kommen;
   const dauer = (() => {
-    if (!f.kommen || !f.gehen) return null;
+    if (!zeitOk(f.kommen) || !zeitOk(f.gehen)) return null;
     const [a, b] = [f.kommen, f.gehen].map((x) => { const [h, m] = x.split(':').map(Number); return h * 60 + m; });
     return ((b - a + 1440) % 1440 || 1440) / 60;
   })();
@@ -214,7 +214,7 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
       {eintrag && !gesperrt && (confirmDel ? <button className="ck-btn" style={{ marginRight: 'auto', color: 'var(--ck-warn)', borderColor: 'var(--ck-warn)' }} disabled={busy} onClick={del}><Trash2 size={16} />{t('zeiten.delete_confirm')}</button>
         : <button className="ck-btn ck-btn-ghost" style={{ marginRight: 'auto' }} onClick={() => setConfirmDel(true)}><Trash2 size={16} />{t('zeiten.delete')}</button>)}
       <button className="ck-btn" onClick={onClose}>{t('app.cancel')}</button>
-      <button className="ck-btn ck-btn-primary" disabled={gesperrt || busy || !eigenOk || !f.datum || !f.kommen || !f.gehen || (!eintrag && (!f.employee_id || !f.object_id))} onClick={save}>{t('app.save')}</button></>}>
+      <button className="ck-btn ck-btn-primary" disabled={gesperrt || busy || !eigenOk || !f.datum || !zeitOk(f.kommen) || !zeitOk(f.gehen) || (!eintrag && (!f.employee_id || !f.object_id))} onClick={save}>{t('app.save')}</button></>}>
       {gesperrt && <div className="ck-callout" data-gesperrt><Lock size={20} style={{ flex: 'none' }} />{t('zeiten.locked')}</div>}
       {fixed && <div className="ck-callout"><AlertTriangle size={20} style={{ flex: 'none' }} />{t('zeiten.fix_hint', { kommen: fmtDate(eintrag.datum), gehen: fmtDate(eintrag.gehen_datum) })}</div>}
       {!eintrag && (
@@ -226,8 +226,8 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
           <option value="">{t('ma.choose')}</option>{(aus?.objekte || []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr', gap: 12 }}>
         <label className="ck-field">{t('zeiten.date')}<input type="date" className="ck-input" value={f.datum} onChange={set('datum')} /></label>
-        <label className="ck-field">{t('zeiten.in')}<input type="time" className="ck-input" value={f.kommen} onChange={set('kommen')} /></label>
-        <label className="ck-field">{t('zeiten.out')}<input type="time" className="ck-input" value={f.gehen} onChange={set('gehen')} /></label>
+        <label className="ck-field">{t('zeiten.in')}<Zeitfeld value={f.kommen} onChange={set('kommen')} data-zeit="kommen" /></label>
+        <label className="ck-field">{t('zeiten.out')}<Zeitfeld value={f.gehen} onChange={set('gehen')} data-zeit="gehen" /></label>
       </div>
       {dauer != null && <div className="ck-subtle" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: -6 }}>
         {nacht && <><Moon size={15} />{t('zeiten.next_day')} · </>}{t('zeiten.duration', { h: fmtNum(dauer, 2) })}
@@ -240,7 +240,7 @@ export function BuchungDialog({ eintrag, neu, onClose, onDone }) {
           {satzAnzeige != null && t('zeiten.satz', { satz: fmtNum(satzAnzeige, 2) })}
           {eigenerSatz && <> · {t('zeiten.satz_eigen')}</>}
           {eintrag && !gespeichert && <> · {t('zeiten.satz_neu')}</>}
-          <button type="button" style={LINK} onClick={() => setEigen(satzAnzeige != null ? fmtNum(satzAnzeige, 2) : '')} data-buchung-satz-aendern>{t('zeiten.satz_aendern')}</button>
+          {satzAnzeige != null && <button type="button" style={LINK} onClick={() => setEigen(fmtNum(satzAnzeige, 2))} data-buchung-satz-aendern>{t('zeiten.satz_aendern')}</button>}
         </> : <>
           <input className="ck-input" value={eigen} inputMode="decimal" style={{ width: 96 }} autoFocus aria-label={t('zeiten.satz_label')}
             onChange={(e) => setEigen(e.target.value)} data-buchung-satz-eingabe /> €/h

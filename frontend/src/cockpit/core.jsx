@@ -218,4 +218,39 @@ export function Dialog({ title, children, onClose, footer }) {
   );
   return ziel ? createPortal(inhalt, ziel) : inhalt;
 }
+/* ---------- Zeitfeld mit Schnelleingabe (Drazen 25.11.2026) ----------
+   "14" -> 14:00, "8" -> 08:00, "930" -> 09:30, "1430" -> 14:30, "14,5"/"14.5" -> 14:30 (Dezimalstunden, 1 Stelle),
+   "14.30" -> 14:30, "14:3" -> 14:30. Ungueltiges (25, 1460) -> null. */
+export function zeitParse(s) {
+  const x = String(s ?? '').trim().replace(/\s+/g, '');
+  let r, h, m;
+  if ((r = /^(\d{1,2})[:.,]?$/.exec(x))) { h = +r[1]; m = 0; }
+  else if (/^\d{3,4}$/.test(x)) { h = +x.slice(0, -2); m = +x.slice(-2); }
+  else if ((r = /^(\d{1,2}):(\d{1,2})$/.exec(x))) { h = +r[1]; m = r[2].length === 1 ? +r[2] * 10 : +r[2]; }
+  else if ((r = /^(\d{1,2})[.,](\d{1,2})$/.exec(x))) { h = +r[1]; m = r[2].length === 1 ? +r[2] * 6 : +r[2]; }
+  else return null;
+  if (h > 23 || m > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+export const zeitOk = (v) => /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(v || '');
+// onChange bekommt ein Event-aehnliches Objekt ({target: {value}}): gueltig -> "HH:MM", sonst der getippte Text
+// (dann zeitOk() false -> Speichern gesperrt). Beim Verlassen/Enter wird die Anzeige auf HH:MM gesetzt.
+export function Zeitfeld({ value, onChange, className = '', ...rest }) {
+  const anzeige = (v) => (zeitOk(v) ? v.slice(0, 5) : v || '');
+  const [txt, setTxt] = useState(anzeige(value));
+  const [fokus, setFokus] = useState(false);
+  useEffect(() => { if (!fokus) setTxt(anzeige(value)); }, [value]); // eslint-disable-line
+  const melde = (v) => onChange && onChange({ target: { value: v, type: 'text' } });
+  const fertig = () => { const p = zeitParse(txt); if (p) { setTxt(p); if (p !== anzeige(value)) melde(p); } };
+  const fehler = !fokus && txt.trim() !== '' && !zeitParse(txt);
+  return (<>
+    <input type="text" inputMode="decimal" autoComplete="off" maxLength={5} placeholder="hh:mm" title={t('app.zeit_hilfe')} {...rest}
+      className={`ck-input${fehler ? ' ck-input-fehler' : ''} ${className}`} value={txt} aria-invalid={fehler || undefined}
+      onFocus={(e) => { setFokus(true); e.target.select(); }}
+      onBlur={() => { setFokus(false); fertig(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fertig(); } }}
+      onChange={(e) => { setTxt(e.target.value); melde(zeitParse(e.target.value) || e.target.value); }} />
+    {fehler && <span className="ck-zeit-fehler" title={t('app.zeit_hilfe')} data-zeit-fehler>{t('app.zeit_falsch')}</span>}
+  </>);
+}
 export const initials = (name = '') => name.split(' ').filter(Boolean).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
