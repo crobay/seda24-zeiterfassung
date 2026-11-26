@@ -626,3 +626,33 @@
 .ab-vor tr.is-bad .ck-status { background: #fee2e2; color: #991b1b; }
 .ck.ck-dark .ab-vor tr.is-ok .ck-status { background: rgba(34,197,94,.2); color: #86efac; }
 .ck.ck-dark .ab-vor tr.is-bad .ck-status { background: rgba(239,68,68,.2); color: #fca5a5; }
+
+/* Anwesend-Blatt (Drazen 26.11.2026): Handy Blatt von unten, PC mittig */
+button.ck-kpi { font: inherit; color: inherit; width: 100%; }
+.ck-sheet-overlay { align-items: center; padding: var(--ck-s4); }
+.ck-sheet { width: 100%; max-width: 560px; max-height: 86vh; display: flex; flex-direction: column; background: var(--ck-surface);
+  border-radius: var(--ck-r-lg); box-shadow: var(--ck-shadow-lg); border: 1px solid var(--ck-border); overflow: hidden; animation: ck-pop .18s var(--ck-ease); }
+.ck-sheet .ck-card-head { gap: var(--ck-s2); flex-wrap: wrap; }
+.ck-sheet-grip { display: none; }
+.ck-sheet-body { overflow: auto; padding: 0 var(--ck-s5) var(--ck-s5); overscroll-behavior: contain; }
+.ck-anw-gruppe h3 { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 650; margin: var(--ck-s4) 0 var(--ck-s2); }
+.ck-anw-gruppe.g-da h3 { color: var(--ck-ok); }
+.ck-anw-gruppe.g-fehlt h3 { color: var(--ck-warn); }
+.ck-anw-leer { font-size: 14px; padding: 4px 0 2px; }
+.ck-anw-zeile { display: flex; align-items: center; gap: var(--ck-s3); padding: 10px 0; border-top: 1px solid var(--ck-border); min-width: 0; }
+.ck-anw-zeile .ck-row-main { flex: 1; min-width: 0; }
+.ck-anw-zeile .ck-row-meta { overflow-wrap: anywhere; }
+.ck-anw-info { white-space: nowrap; font-weight: 600; font-size: 14px; }
+.g-fehlt .ck-anw-info { color: var(--ck-warn); }
+.ck-anw-offline { display: flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 13px; color: var(--ck-text-2); }
+.ck-anw-zeile .ck-btn { flex-shrink: 0; }
+@media (max-width: 900px) {
+  .ck-sheet-overlay { align-items: flex-end; padding: 0; }
+  .ck-sheet { max-width: none; max-height: 88vh; border-radius: 18px 18px 0 0; border-bottom: 0; animation: ck-sheet-in .22s var(--ck-ease);
+    padding-bottom: env(safe-area-inset-bottom); }
+  .ck-sheet-grip { display: block; width: 40px; height: 4px; border-radius: 4px; background: var(--ck-border-strong); margin: 8px auto 0; }
+  .ck-sheet-body { padding: 0 var(--ck-s4) var(--ck-s5); }
+  .ck-anw-zeile { flex-wrap: wrap; }
+  .ck-anw-zeile .ck-row-main { flex-basis: 55%; }
+}
+@keyframes ck-sheet-in { from { transform: translateY(100%); } }

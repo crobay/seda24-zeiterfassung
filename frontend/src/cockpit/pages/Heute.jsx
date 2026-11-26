@@ -5,7 +5,9 @@ import {
   UserCheck, UserX, ListChecks, Timer, Inbox, CalendarCheck2, PartyPopper, Check, X, MessageSquare, Palmtree, Thermometer,
   Building2, CalendarRange, AlertTriangle, ChevronRight, FileCheck2, CheckCircle2, Car, TrendingUp, TrendingDown, Minus,
   Activity, LogIn, LogOut, Bot, Pencil, ArrowRightLeft, Clock, CircleCheckBig, Moon as MoonIcon, CalendarClock, CircleDashed, BellRing,
+  Phone, WifiOff,
 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { api, apiError, t, fmtNum, fmtDate, useApi, useApp, Status, SkeletonRows, Skeleton, Empty, ErrorBox, Dialog, ObjektMarke } from '../core';
 import { MinijobKarte, MargeKarte, MehrzeitKarte } from './GfKarten';
 import { MaterialKachel } from './Material';
@@ -22,6 +24,7 @@ export default function Heute() {
   const objs = useApi('/objekte');
   const [busy, setBusy] = useState(null);
   const [dialog, setDialog] = useState(null);
+  const [blatt, setBlatt] = useState(false);
   const [hidden, setHidden] = useState(() => new Set());
   const data = heute.data;
   const reloadAll = () => { heute.reload(); ls.reload(); };
@@ -64,7 +67,9 @@ export default function Heute() {
       </div>
 
       <div className="ck-kpis">
-        <Kpi tone="ok" Icon={UserCheck} label={t('heute.kpi_present')} value={k?.anwesend} sub={k && t('heute.kpi_present_sub', { n: k.geplant })} href="#schichten" />
+        <Kpi tone="ok" Icon={UserCheck} label={t('heute.kpi_present')} value={k?.anwesend}
+          sub={k && t('heute.kpi_present_sub', { da: k.anwesend, fertig: k.fertig ?? 0, fehlt: k.fehlt, n: k.geplant })}
+          onClick={() => setBlatt(true)} data-anwesend-kachel />
         <Kpi tone="warn" alert={k?.fehlt > 0} Icon={UserX} label={t('heute.kpi_missing')} value={k?.fehlt}
           sub={k && (k.fehlt ? t('heute.kpi_missing_sub') : t('heute.kpi_missing_none'))} href="#schichten" />
         <Kpi tone="accent" Icon={ListChecks} label={t('heute.kpi_open')} value={k ? offen.length : undefined} sub={t('heute.kpi_open_sub')} href="#todo" />
@@ -165,19 +170,81 @@ export default function Heute() {
         <Feed feed={ls.data?.feed} className="span-5 m8" />
       </div>
 
+      {blatt && data && <AnwesendBlatt data={data} onClose={() => setBlatt(false)} onReload={heute.reload} />}
       {dialog && <ActionDialog {...dialog} busy={!!busy} onClose={() => setDialog(null)} onRun={(text) => run(dialog.item, dialog.aktion, text)} />}
     </>
   );
 }
 
-function Kpi({ tone, Icon, label, value, sub, href, to, alert }) {
+function Kpi({ tone, Icon, label, value, sub, href, to, alert, onClick, ...rest }) {
   const inner = (<>
     <div className="ck-kpi-label"><span className="ck-kpi-icon"><Icon size={18} /></span>{label}</div>
     <div className="ck-kpi-value ck-num">{value === undefined || value === null ? <Skeleton w={64} h={34} /> : value}</div>
     <div className="ck-kpi-sub">{sub ?? <Skeleton w="60%" h={13} />}</div>
   </>);
   const cls = `ck-card ck-kpi tone-${tone}${alert ? ' is-alert' : ''}`;
+  if (onClick) return <button type="button" className={cls} onClick={onClick} aria-haspopup="dialog" {...rest}>{inner}</button>;
   return to ? <Link className={cls} to={to}>{inner}</Link> : <a className={cls} href={href}>{inner}</a>;
+}
+
+/* Anwesend-Blatt (Drazen 26.11.2026 18:21, fuer Rosi/Objektleitung): ein Tipp auf "Anwesend" zeigt, wer da ist, wer fehlt,
+   wer fertig ist und wer noch kommt. Handy: Blatt von unten, PC: mittig. */
+const ANW_GRUPPEN = [
+  { key: 'da', st: ['da'], Icon: UserCheck },
+  { key: 'fehlt', st: ['fehlt', 'offen'], Icon: UserX },
+  { key: 'fertig', st: ['fertig'], Icon: CircleCheckBig },
+  { key: 'kommt', st: ['kommt', 'geplant', 'auto'], Icon: CalendarClock },
+];
+function AnwesendBlatt({ data, onClose, onReload }) {
+  useEffect(() => {
+    const k = (e) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k);
+    const alt = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', k); document.body.style.overflow = alt; };
+  }, [onClose]);
+  const ohne = (data.ohne_schicht || []).map((o) => ({ ...o, ohne: true, kommen: o.seit, schicht_id: `o${o.eintrag_id}` }));
+  const alle = [...(data.schichten || []), ...ohne];
+  const ziel = document.querySelector('.ck') || document.body;
+  return createPortal(
+    <div className="ck-overlay ck-sheet-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()} data-anwesend-blatt>
+      <div className="ck-sheet" role="dialog" aria-modal="true" aria-labelledby="anw-h">
+        <div className="ck-sheet-grip" aria-hidden="true" />
+        <div className="ck-card-head"><h2 id="anw-h"><UserCheck size={20} />{t('anw.title')}</h2>
+          <span className="ck-subtle ck-num">{t('anw.stand', { zeit: data.uhrzeit })}</span>
+          <button type="button" className="ck-btn ck-btn-sm" onClick={onReload} style={{ marginLeft: 'auto' }}>{t('anw.reload')}</button>
+          <button type="button" className="ck-btn ck-btn-sm" onClick={onClose} aria-label={t('app.close')} data-anwesend-zu><X size={16} /></button></div>
+        <div className="ck-sheet-body">
+          {ANW_GRUPPEN.map((g) => {
+            const liste = alle.filter((r) => g.st.includes(r.status));
+            return (
+              <section key={g.key} className={`ck-anw-gruppe g-${g.key}`} data-anw-gruppe={g.key}>
+                <h3><g.Icon size={17} />{t(`anw.${g.key}`)} <span className="ck-tag ck-num">{liste.length}</span></h3>
+                {liste.length === 0 ? <div className="ck-subtle ck-anw-leer">{t(`anw.leer_${g.key}`)}</div> : (
+                  <ul className="ck-list">{liste.map((r) => <AnwZeile key={r.schicht_id} r={r} gruppe={g.key} onClose={onClose} />)}</ul>)}
+              </section>);
+          })}
+        </div>
+      </div>
+    </div>, ziel);
+}
+function AnwZeile({ r, gruppe, onClose }) {
+  let info;
+  if (gruppe === 'da') info = t('anw.seit', { zeit: r.kommen });
+  else if (gruppe === 'fertig') info = `${r.kommen}–${r.gehen}`;
+  else if (gruppe === 'fehlt') info = r.status === 'offen' ? r.status_text : r.fehlt_min != null ? t('anw.fehlt_seit', { min: r.fehlt_min }) : r.status_text;
+  else info = r.status === 'kommt' ? t('anw.um', { zeit: r.beginn }) : r.status_text;
+  return (
+    <li className="ck-anw-zeile" data-anw-ma={r.personal_nr}>
+      <div className="ck-row-main">
+        <div className="ck-row-title"><Link to={`/cockpit/mitarbeiter/${r.employee_id}`} onClick={onClose}>{r.name}</Link></div>
+        <div className="ck-row-meta">{r.objekt || '–'}{r.beginn && !r.ohne ? ` · ${t('anw.plan')} ${r.beginn}–${r.ende}` : ''}{r.ohne ? ` · ${t('anw.ohne_schicht')}` : ''}</div>
+        {r.evtl_offline && <div className="ck-anw-offline" data-anw-offline><WifiOff size={14} />{t('anw.offline', { zeit: r.letzte_meldung })}</div>}
+      </div>
+      <span className="ck-anw-info ck-num">{info}</span>
+      {gruppe === 'fehlt' && (r.telefon
+        ? <a className="ck-btn ck-btn-sm ck-btn-primary" href={`tel:${r.telefon.replace(/[^0-9+]/g, '')}`} data-anw-anrufen><Phone size={15} />{t('anw.anrufen')}</a>
+        : <Link className="ck-btn ck-btn-sm" to={`/cockpit/mitarbeiter/${r.employee_id}`} onClick={onClose} title={t('anw.keine_nummer_hint')} data-anw-keine-nummer><Phone size={15} />{t('anw.keine_nummer')}</Link>)}
+    </li>);
 }
 
 function ShiftRow({ s }) {

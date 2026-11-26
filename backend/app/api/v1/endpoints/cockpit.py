@@ -3,6 +3,7 @@
 Admin und Objektleitung haben dieselben Rechte; einzige Ausnahme: Kunden-Umsaetze nur Admin
 (ol_scope.can_see_revenue). Aktionen (Genehmigen, Ablehnen, ...) rufen die bestehende Logik auf.
 """
+import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 
@@ -87,7 +88,7 @@ def heute(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleit
 
     shifts = _q(db, f"""
         SELECT s.id, s.employee_id, s.object_id, s.start_time, s.end_time, s.status, o.name AS objekt,
-               e.first_name || ' ' || e.last_name AS name, e.personal_nr,
+               e.first_name || ' ' || e.last_name AS name, e.personal_nr, to_jsonb(e)->>'telefon' AS telefon,
                coalesce(a.tracking_category, u.category, 'C') AS kat
           FROM schedules s
           JOIN employees e ON e.id = s.employee_id JOIN users u ON u.id = e.user_id
@@ -140,10 +141,16 @@ def heute(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleit
                 else f"Fehlt – seit {mins} min"
         else:
             status, text_ = "kommt", f"Kommt um {_hm(s['start_time'])}"
+        # "seit x Min." nur waehrend der Schicht und nur fuer Stempler (A: Auto-Buchung, nach Ende: "nicht gestempelt")
+        fehlt_min = int((now - start).total_seconds() // 60) \
+            if status == "fehlt" and kat == "C" and start and now > start and (not end or now <= end) else None
         rows.append({"schicht_id": s["id"], "employee_id": s["employee_id"], "name": s["name"],
                      "personal_nr": s["personal_nr"], "objekt": s["objekt"], "object_id": s["object_id"],
                      "beginn": _hm(s["start_time"]), "ende": _hm(s["end_time"]), "kategorie": kat,
-                     "status": status, "status_text": text_, "eintrag_id": t["id"] if t else None})
+                     "status": status, "status_text": text_, "eintrag_id": t["id"] if t else None,
+                     "kommen": _hm(t["check_in"]) if t else None, "gehen": _hm(t["check_out"]) if t else None,
+                     "fehlt_min": fehlt_min, "telefon": (s["telefon"] or "").strip() or None})
+    _offline_hinweis(db, [r for r in rows if r["status"] == "fehlt"])
 
     ohne_schicht = [{"employee_id": t["employee_id"], "name": t["name"], "personal_nr": t["personal_nr"],
                      "objekt": t["objekt"], "seit": _hm(t["check_in"]), "eintrag_id": t["id"],
@@ -173,6 +180,8 @@ def heute(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleit
     kennzahlen = {
         "anwesend": sum(1 for r in rows if r["status"] == "da") + sum(1 for r in ohne_schicht if r["status"] == "da"),
         "geplant": len(rows),
+        "fertig": sum(1 for r in rows if r["status"] == "fertig"),
+        "kommt": sum(1 for r in rows if r["status"] in ("kommt", "geplant", "auto")),
         "fehlt": sum(1 for r in rows if r["status"] in ("fehlt", "offen")),
         "zu_genehmigen": len(offen),
         "stunden_monat": round(sum(_net_hours(t["check_in"], t["check_out"], t["billed_hours"], t["brk"]) for t in mon), 1),
@@ -181,6 +190,30 @@ def heute(db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleit
     return {"datum": today.isoformat(), "uhrzeit": now.strftime("%H:%M"), "kennzahlen": kennzahlen, "schichten": rows,
             "ohne_schicht": ohne_schicht, "abwesend": [dict(a) for a in abwesend],
             "offen": offen}
+
+
+OFFLINE_SEK = 120   # Stempel kam mehr als 2 Min. nach der Handyzeit an = ohne Netz gestempelt (wie Bie2-Protokoll [OFFLINE])
+
+
+def _offline_hinweis(db, rows):
+    """Anwesend-Blatt (Drazen 26.11.2026 18:21): Bei "Fehlt" pruefen, ob die letzte Handymeldung (letzter Kommen-/Gehen-
+    Stempel mit Handyzeit) ohne Netz kam - dann evtl. offline gestempelt, der Stempel kommt spaeter nach."""
+    ids = sorted({r["employee_id"] for r in rows})
+    if not ids:
+        return
+    letzte = {r["employee_id"]: r for r in _q(db, """
+        SELECT DISTINCT ON (employee_id) employee_id, handy, eingang FROM (
+            SELECT employee_id, kommen_handy AS handy, kommen_eingang AS eingang FROM time_entries
+             WHERE employee_id = ANY(:ids) AND kommen_handy IS NOT NULL AND kommen_eingang IS NOT NULL
+            UNION ALL
+            SELECT employee_id, gehen_handy, gehen_eingang FROM time_entries
+             WHERE employee_id = ANY(:ids) AND gehen_handy IS NOT NULL AND gehen_eingang IS NOT NULL) x
+         ORDER BY employee_id, handy DESC""", ids=ids)}
+    for r in rows:
+        m = letzte.get(r["employee_id"])
+        off = bool(m and (m["eingang"] - m["handy"]).total_seconds() > OFFLINE_SEK)
+        r["evtl_offline"] = off
+        r["letzte_meldung"] = m["handy"].strftime("%d.%m. %H:%M") if off else None
 
 
 def _offene_punkte(db, obj, emp):
@@ -382,7 +415,8 @@ def akte(employee_id: int, db: Session = Depends(get_db), user=Depends(verify_ad
              "email": e["email"], "adresse": e["address"], "kategorie": e["category"], "rolle": e["rolle"],
              "stempelart": {"A": "Automatisch", "B": "Knopf", "C": "Auto-Stempel"}.get(e["tracking_mode"], e["tracking_mode"]),
              "aktiv": bool(e["is_active"]), "beschaeftigung": e["employment_type"],
-             "telegram": bool(e["telegram_chat_id"]), "seit": e["created_at"].date().isoformat() if e["created_at"] else None}
+             "telegram": bool(e["telegram_chat_id"]), "seit": e["created_at"].date().isoformat() if e["created_at"] else None,
+             "telefon": e.get("telefon"), "telefon_feld": "telefon" in e}
     if ol_scope.is_manager(user):
         stamm["stundenlohn"] = e["hourly_rate"]
         stamm["sondersatz"] = float(e["hourly_rate_basic"]) if e["hourly_rate_basic"] is not None else buchung_art.SONDERSATZ_STANDARD
@@ -454,6 +488,35 @@ def sondersatz_setzen(employee_id: int, data: dict, db: Session = Depends(get_db
                   details=f"Sondersatz {alt if alt is not None else '-'} -> {neu:.2f} € im Cockpit geaendert")
         db.commit()
     return {"sondersatz": neu}
+
+
+TELEFON_RE = re.compile(r"^\+?[0-9 /()-]{6,30}$")
+
+
+@router.put("/mitarbeiter/{employee_id}/telefon")
+def telefon_setzen(employee_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Handynummer fuer den Anrufen-Knopf im Anwesend-Blatt (Drazen 26.11.2026 18:21). Leer = entfernen."""
+    ol_scope.require_employee(db, user, employee_id)
+    if not ol_scope.is_manager(user):
+        raise HTTPException(403, "Nur Administration oder Objektleitung")
+    neu = " ".join(str(data.get("telefon") or "").split()) or None
+    if neu and not TELEFON_RE.match(neu):
+        raise HTTPException(400, "Bitte eine Telefonnummer eingeben (Ziffern, + / - Leerzeichen)")
+    try:
+        alt = _q(db, "SELECT telefon FROM employees WHERE id = :i", i=employee_id)
+    except Exception:
+        db.rollback()
+        raise HTTPException(409, "Feld Handynummer fehlt in der Datenbank (Migration mitarbeiter_telefon.sql)")
+    if not alt:
+        raise HTTPException(404, "Mitarbeiter nicht gefunden")
+    alt = alt[0]["telefon"]
+    if alt != neu:
+        db.execute(text("UPDATE employees SET telefon = :t WHERE id = :i"), {"t": neu, "i": employee_id})
+        log_audit(db, user.id, employee_id, "employee_updated", entity_type="employee", entity_id=employee_id,
+                  old_value={"telefon": alt}, new_value={"telefon": neu},
+                  details=f"Handynummer {'geaendert' if alt and neu else 'eingetragen' if neu else 'entfernt'} im Cockpit")
+        db.commit()
+    return {"telefon": neu}
 
 
 @router.post("/mitarbeiter/{employee_id}/objekte")

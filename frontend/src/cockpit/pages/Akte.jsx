@@ -75,6 +75,7 @@ export default function Akte() {
                 <dt>{t('ma.since')}</dt><dd>{fmtDate(s.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}</dd>
                 {me?.rechte?.verwalten && s.stundenlohn != null && <><dt>{t('ma.rate')}</dt><dd>{fmtNum(s.stundenlohn, 2)} €</dd></>}
                 {me?.rechte?.verwalten && s.sondersatz != null && <><dt>{t('ma.sondersatz')}</dt><dd><Sondersatz s={s} onDone={reload} /></dd></>}
+                {me?.rechte?.verwalten && s.telefon_feld && <><dt>{t('ma.telefon')}</dt><dd><Telefon s={s} onDone={reload} /></dd></>}
               </dl>)}</div>
           </section>
           <section className="ck-card"><div className="ck-card-head"><h2><Palmtree size={20} />{t('ma.vacation', { year: data?.urlaub.jahr || '' })}</h2></div>
@@ -119,6 +120,31 @@ function Sondersatz({ s, onDone }) {
       <input className="ck-input" value={wert} inputMode="decimal" style={{ width: 90 }} autoFocus aria-label={t('ma.sondersatz')}
         onChange={(e) => setWert(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ok && speichern()} data-sondersatz-eingabe /> €
       <button className="ck-btn ck-btn-sm ck-btn-primary" disabled={!ok} onClick={speichern} data-sondersatz-speichern>{t('app.save')}</button>
+      <button className="ck-btn ck-btn-sm" onClick={() => setWert(null)}>{t('app.cancel')}</button>
+    </span>);
+}
+
+// Handynummer fuer den Anrufen-Knopf im Anwesend-Blatt (Drazen 26.11.2026 18:21)
+function Telefon({ s, onDone }) {
+  const { toast } = useApp();
+  const [wert, setWert] = useState(null);
+  const ok = wert != null && (wert.trim() === '' || /^\+?[0-9 /()-]{6,30}$/.test(wert.trim()));
+  const speichern = async () => {
+    try {
+      const r = await api.put(`/mitarbeiter/${s.id}/telefon`, { telefon: wert });
+      toast(r.data.telefon ? t('ma.telefon_ok', { name: s.name }) : t('ma.telefon_weg', { name: s.name })); setWert(null); onDone();
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+  };
+  if (wert == null) return (
+    <span data-telefon>{s.telefon ? <a href={`tel:${s.telefon.replace(/[^0-9+]/g, '')}`}>{s.telefon}</a> : '–'} <button type="button" onClick={() => setWert(s.telefon || '')}
+      style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: 'var(--ck-accent-ink)', textDecoration: 'underline', cursor: 'pointer' }}
+      data-telefon-aendern>{s.telefon ? t('ma.aendern') : t('ma.eintragen')}</button>
+      <div className="ck-subtle" style={{ fontSize: '85%' }}>{t('ma.telefon_hint')}</div></span>);
+  return (
+    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <input className="ck-input" value={wert} type="tel" inputMode="tel" style={{ width: 180 }} autoFocus aria-label={t('ma.telefon')}
+        onChange={(e) => setWert(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ok && speichern()} data-telefon-eingabe />
+      <button className="ck-btn ck-btn-sm ck-btn-primary" disabled={!ok} onClick={speichern} data-telefon-speichern>{t('app.save')}</button>
       <button className="ck-btn ck-btn-sm" onClick={() => setWert(null)}>{t('app.cancel')}</button>
     </span>);
 }
