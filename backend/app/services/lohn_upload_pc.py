@@ -5,7 +5,8 @@
   Fehlermeldung zaehlen). Der Server merkt sich Zeit, Rechner und was das Skript in den Lexware-Ordnern gesehen hat.
   Anzeige im Monatsabschluss, Schritt 3.
 - Stille: Telegram, wenn sich der PC 24 Std. nicht gemeldet hat (nur Stunden an Werktagen zaehlen); zwischen Exporttag
-  des Vormonats und dessen Abschluss schon nach 3 Std. (nur Werktage 07-22 Uhr, so lange laeuft das Skript).
+  des Vormonats und dessen Abschluss schon nach 3 Std. (nur Werktage 07-22 Uhr ab Exporttag 07:00), aber nur vom 1. bis
+  15. - nur dann laeuft das Skript stuendlich, sonst einmal taeglich um 12 Uhr (Drazen 26.11.2026 07:45).
   Hoechstens eine Erinnerung je 24 Std., erst wenn sich der PC schon einmal gemeldet hat.
 - Fehler: Telegram "Lohnabrechnung-Upload fehlgeschlagen", gleicher Text hoechstens einmal in 6 Std. (Protokoll immer).
 - Vollstaendig: Telegram "📄 Lohnabrechnungen <Monat>: x von y da", einmal je Monat.
@@ -23,7 +24,8 @@ from app.services.export_termine import exporttag, ist_werktag, vormonat
 logger = logging.getLogger(__name__)
 KEY = "lohn_upload_pc"
 STILL_STD = 24            # Werktagsstunden ohne Meldung
-STILL_STD_PHASE = 3       # Betriebsstunden (Werktag 07-22) zwischen Exporttag und Abschluss
+STILL_STD_PHASE = 3       # Betriebsstunden (Werktag 07-22) zwischen Exporttag und Abschluss, nur Tag 1-15
+STUENDLICH_BIS = 15       # Skript laeuft vom 1. bis 15. stuendlich, sonst taeglich 12 Uhr
 BETRIEB = (time(7, 0), time(22, 0))
 FEHLER_PAUSE = timedelta(hours=6)
 ERINNERUNG_PAUSE = timedelta(hours=24)
@@ -112,8 +114,13 @@ def status(db, jetzt=None) -> dict:
     z = lesen(db)
     zuletzt = _dt(z.get("zuletzt"))
     phase = lohnphase(db, jetzt.date())
-    grenze, nur_betrieb = (STILL_STD_PHASE, True) if phase else (STILL_STD, False)
-    still = betriebsstunden(zuletzt, jetzt, nur_betrieb) if zuletzt else None
+    if phase and jetzt.day <= STUENDLICH_BIS:
+        grenze, nur_betrieb = STILL_STD_PHASE, True
+        # vor dem Exporttag lief das Skript nur taeglich um 12 Uhr -> Stille zaehlt erst ab Exporttag 07:00
+        von = max(zuletzt, datetime.combine(exporttag(phase), BETRIEB[0])) if zuletzt else None
+    else:
+        grenze, nur_betrieb, von = STILL_STD, False, zuletzt
+    still = betriebsstunden(von, jetzt, nur_betrieb) if von else None
     return {"zuletzt": z.get("zuletzt"), "rechner": z.get("rechner"), "ordner": z.get("ordner") or {},
             "version": z.get("version"), "letzter_fehler": z.get("letzter_fehler"),
             "phase": phase, "grenze_std": grenze, "nur_betrieb": nur_betrieb,

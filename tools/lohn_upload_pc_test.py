@@ -59,6 +59,27 @@ try:
     m = lp.stille_pruefen(db, D(2026, 11, 9, 20, 5))
     ok("Mo 09.11. 20:05 (24 Werktagsstd.) -> Telegram", m and "über 24 Std. an Werktagen" in m, m)
 
+    print("== Zeitplan 1.-15. stuendlich, sonst taeglich 12 Uhr (Drazen 26.11. 07:45)")
+    leeren()
+    lp.gemeldet(db, "TESTPC", jetzt=D(2026, 11, 30, 12))          # Mo 30.11. 12:00, letzter Tageslauf
+    ok("Di 01.12. 07:05 (Exporttag) -> still, Stille zaehlt erst ab 07:00", lp.stille_pruefen(db, D(2026, 12, 1, 7, 5)) is None)
+    s = lp.status(db, D(2026, 12, 1, 9, 59))
+    ok("Di 01.12. 09:59 -> 2,98 Std., nicht ueberfaellig", not s["ueberfaellig"] and s["grenze_std"] == 3, s)
+    m = lp.stille_pruefen(db, D(2026, 12, 1, 10, 5))
+    ok("Di 01.12. 10:05 -> Telegram (3 Std. ab Exporttag)", m and "November 2026" in m, m)
+    leeren()
+    lp.gemeldet(db, "TESTPC", jetzt=D(2026, 12, 15, 22))          # Di 15.12. 22:00, letzter Stundenlauf
+    s = lp.status(db, D(2026, 12, 16, 11, 5))
+    ok("Mi 16.12. (November noch offen) -> 24-Std.-Regel statt 3 Std.", s["phase"] == "2026-11" and s["grenze_std"] == 24 and not s["ueberfaellig"], s)
+    ok("Mi 16.12. 11:05 -> keine Telegram", lp.stille_pruefen(db, D(2026, 12, 16, 11, 5)) is None)
+    leeren()
+    lp.gemeldet(db, "TESTPC", jetzt=D(2026, 11, 23, 12))          # Mo 23.11. 12:00
+    ok("Tageslauf: Di 24.11. 11:59 -> still", lp.stille_pruefen(db, D(2026, 11, 24, 11, 59)) is None)
+    lp.gemeldet(db, "TESTPC", jetzt=D(2026, 11, 27, 12))          # Fr 27.11. 12:00
+    ok("Tageslauf Fr 12:00 -> Mo 30.11. 11:05: 23 Werktagsstd. -> still", lp.stille_pruefen(db, D(2026, 11, 30, 11, 5)) is None)
+    m = lp.stille_pruefen(db, D(2026, 11, 30, 12, 5))
+    ok("Mo 30.11. 12:05 ohne Tageslauf -> Telegram (24 Werktagsstd.)", m and "über 24 Std. an Werktagen" in m, m)
+
     print("== Fehler entprellen (6 Std.)")
     leeren(); gesendet.clear()
     ok("Fehler A -> Telegram", lp.fehler(db, "TESTPC", "Datei X: 503", jetzt=D(2026, 11, 26, 8)))

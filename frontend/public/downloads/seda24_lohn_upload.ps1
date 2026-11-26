@@ -9,8 +9,9 @@ Ueberwacht den Lexware-Ausgabeordner
 - Pruefsumme (SHA-256) geht mit; der Server prueft sie, speichert verschluesselt, ordnet nach PersNr/Name zu und
   schickt eine Quittung zurueck (steht im Protokoll). Was der Server schon hat, wird nicht noch einmal geschickt.
 - Eine Datei wird erst hochgeladen, wenn sie 1 Minute nicht mehr veraendert wurde (Lexware schreibt fertig).
-- Windows-Aufgabe "SEDA24 Lohnabrechnungen Upload": stuendlich 07-22 Uhr, verpasste Laeufe werden nachgeholt, und
-  2 Minuten nach der Anmeldung. Start ohne Fenster (conhost.exe --headless; geht das nicht, PowerShell versteckt).
+- Windows-Aufgabe "SEDA24 Lohnabrechnungen Upload": vom 1. bis 15. jedes Monats stuendlich 07-22 Uhr, an allen
+  anderen Tagen einmal um 12 Uhr (Lebenszeichen); verpasste Laeufe werden nachgeholt, und 2 Minuten nach der
+  Anmeldung (Drazen 26.11.2026 07:45). Start ohne Fenster (conhost.exe --headless; geht das nicht, PowerShell versteckt).
 - Jeder Lauf meldet sich beim Server (Lebenszeichen, Anzeige im Monatsabschluss Schritt 3). Faellt eine Datei durch,
   laufen die anderen weiter; Fehler gehen gesammelt an den Server (Telegram, gleicher Fehler hoechstens 1x in 6 Std.).
   Ist der Server nicht erreichbar, erscheint hoechstens einmal am Tag ein Hinweisfenster (Drazen 26.11.2026).
@@ -42,7 +43,7 @@ $LogFile   = Join-Path $AppDir 'lohn_upload.log'
 $StandFile = Join-Path $AppDir 'lohn_upload_stand.txt'    # je Datei: Pfad <TAB> SHA-256 der hochgeladenen Version
 $HinweisFile = Join-Path $AppDir 'lohn_upload_hinweis.txt'   # Datum des letzten Hinweisfensters (hoechstens 1x am Tag)
 $TaskName  = 'SEDA24 Lohnabrechnungen Upload'
-$Version   = '2026-11-26'
+$Version   = '2026-11-26b'
 $StandardOrdner = 'X:\OneDrive - Seda GmbH\4 Buchhaltung\2 Lohnbuchhaltung\Lohnabrechnungen\Seda_Consulting_GmbH_{Jahr}_{Monat}\Lohnabrechnung'
 $UnterOrdner = 'Seda_Consulting_GmbH_{Jahr}_{Monat}\Lohnabrechnung'   # unter -Basis (Ordner wie bei Lexware: ..._2026_Oktober)
 # Datei bleibt ASCII (PowerShell 5.1 liest .ps1 ohne BOM als ANSI): Umlaut als Zeichencode
@@ -270,16 +271,23 @@ function Install-Aufgabe {
     else { $cmd = 'powershell.exe'; $arg = $ps; $wie = 'PowerShell versteckt (conhost --headless geht hier nicht, kurzes Aufblitzen moeglich)' }
     $cmd = [Security.SecurityElement]::Escape($cmd)
     $arg = [Security.SecurityElement]::Escape($arg)
+    $tage = -join (1..15 | ForEach-Object { "<Day>$_</Day>" })
+    $monate = -join ('January','February','March','April','May','June','July','August','September','October','November','December' | ForEach-Object { "<$_ />" })
     $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Laedt neue Lohnabrechnungen aus dem Lexware-Ausgabeordner an den SEDA24-Monatsabschluss hoch (stuendlich 07-22 Uhr, verpasste Laeufe nachholen, und nach der Anmeldung).</Description>
+    <Description>Laedt neue Lohnabrechnungen aus dem Lexware-Ausgabeordner an den SEDA24-Monatsabschluss hoch (1.-15. stuendlich 07-22 Uhr, sonst taeglich 12 Uhr, verpasste Laeufe nachholen, und nach der Anmeldung).</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
       <Repetition><Interval>PT1H</Interval><Duration>PT15H1M</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
       <StartBoundary>2026-11-01T07:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByMonth><DaysOfMonth>$tage</DaysOfMonth><Months>$monate</Months></ScheduleByMonth>
+    </CalendarTrigger>
+    <CalendarTrigger>
+      <StartBoundary>2026-11-01T12:00:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
     </CalendarTrigger>
@@ -313,7 +321,7 @@ function Install-Aufgabe {
 </Task>
 "@
     Register-ScheduledTask -TaskName $TaskName -Xml $xml -Force | Out-Null
-    Write-Log "Aufgabe '$TaskName' eingerichtet (stuendlich 07-22 Uhr, verpasste Laeufe nachholen, 2 Min nach Anmeldung), Start $wie"
+    Write-Log "Aufgabe '$TaskName' eingerichtet (1.-15. stuendlich 07-22 Uhr, sonst taeglich 12 Uhr, verpasste Laeufe nachholen, 2 Min nach Anmeldung), Start $wie"
 }
 
 try {

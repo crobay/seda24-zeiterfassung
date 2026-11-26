@@ -1,6 +1,6 @@
 # Lohnabrechnungen automatisch ins Cockpit – Upload-Skript installieren
 
-*Für Drazen, Stand 26.11.2026. Dauer etwa 5 Minuten. Rechner: **SEDA2026**, derselbe Windows-Benutzer wie beim Zeiterfassungs-Export.*
+*Für Drazen, Stand 26.11.2026 (Zeitplan 07:45). Dauer etwa 5 Minuten. Rechner: **SEDA2026**, derselbe Windows-Benutzer wie beim Zeiterfassungs-Export.*
 
 **So funktioniert es:**
 - Das Skript **`seda24_lohn_upload.ps1`** überwacht den Lexware-Ausgabeordner. Jede neue oder geänderte `Lohnabrechnung_*.pdf` lädt es per HTTPS in den Monatsabschluss des Cockpits.
@@ -8,7 +8,7 @@
 - Eine Datei wird erst hochgeladen, wenn Lexware sie 1 Minute lang nicht mehr verändert hat.
 - Jede Datei geht mit einer Prüfsumme (SHA-256) an den Server. Der Server prüft sie, speichert die Datei **verschlüsselt** und ordnet sie über Personalnummer bzw. Name zu. Sammel-PDFs teilt er je Mitarbeiter auf.
 - Was der Server schon hat, wird nicht noch einmal geschickt. Ein abgeschlossener Monat nimmt nichts mehr an.
-- Eine Windows-Aufgabe startet das Skript **stündlich von 07 bis 22 Uhr** und 2 Minuten nach der Anmeldung. War der Laptop aus, holt Windows den verpassten Lauf nach.
+- Eine Windows-Aufgabe startet das Skript **vom 1. bis 15. jedes Monats stündlich von 07 bis 22 Uhr**, an allen anderen Tagen **einmal um 12 Uhr** (Lebenszeichen), dazu 2 Minuten nach der Anmeldung. War der Laptop aus, holt Windows den verpassten Lauf nach.
 - Das Skript startet **ohne Fenster** (`conhost.exe --headless`). Kann Windows das nicht, läuft PowerShell versteckt, und das Fenster kann kurz aufblitzen. Was gilt, steht beim Einrichten in der Ausgabe.
 - Admin-Rechte brauchst du dafür nicht.
 
@@ -23,7 +23,7 @@
 | Immer | Cockpit › Monatsabschluss › Schritt 3 | Upload-PC SEDA2026 zuletzt gemeldet: heute 09:00 · was im Lexware-Ordner liegt · letzter Fehler |
 
 - **„Meldet sich nicht“** kommt nach 24 Std. ohne Meldung. Es zählen nur Werktage, das Wochenende zählt also nicht.
-- Vom Exporttag (1. Werktag des Monats) bis zum Abschluss des Vormonats kommt die Meldung schon nach **3 Std.** Dabei zählt nur die Zeit an Werktagen von 07 bis 22 Uhr.
+- Vom Exporttag (1. Werktag des Monats) bis zum Abschluss des Vormonats kommt die Meldung schon nach **3 Std.**, aber nur bis zum 15. (solange das Skript stündlich läuft). Dabei zählt nur die Zeit an Werktagen von 07 bis 22 Uhr ab Exporttag 07:00.
 - Fällt eine Datei durch, laufen die anderen trotzdem weiter. Die fehlerhafte Datei versucht das Skript beim nächsten Lauf wieder.
 
 ---
@@ -54,7 +54,7 @@ Erwartete Ausgabe, ungefähr:
 Ordner: X:\...\Lohnabrechnungen\Seda_Consulting_GmbH_{Jahr}_{Monat}\Lohnabrechnung  Dateien: Lohnabrechnung_*.pdf
 Server https://app.seda.de erreichbar, Schluessel ok (2026-10: 0 von 12 da)  Ordner: X:\...\Seda_Consulting_GmbH_2026_Oktober\Lohnabrechnung
 Server https://app.seda.de erreichbar, Schluessel ok (2026-11: 0 von 12 da)  Ordner: noch nicht vorhanden
-Aufgabe 'SEDA24 Lohnabrechnungen Upload' eingerichtet (stuendlich 07-22 Uhr, verpasste Laeufe nachholen, 2 Min nach Anmeldung), Start ohne Fenster (conhost --headless)
+Aufgabe 'SEDA24 Lohnabrechnungen Upload' eingerichtet (1.-15. stuendlich 07-22 Uhr, sonst taeglich 12 Uhr, verpasste Laeufe nachholen, 2 Min nach Anmeldung), Start ohne Fenster (conhost --headless)
 hochgeladen 2026-10: Lohnabrechnung_2026_Oktober_D0001_... (gespeichert) -> Drazen Sertic
 ...
 Stand 2026-10: 12 von 12 Lohnabrechnungen da, 0 ohne Zuordnung
@@ -70,7 +70,7 @@ Danach kannst du die Datei in `Downloads` löschen. Das Skript liegt jetzt in `%
 
 ## Sofort hochladen (-Jetzt)
 
-Nach einem neuen Lexware-Lauf musst du nicht auf die nächste volle Stunde warten:
+Nach einem neuen Lexware-Lauf musst du nicht auf den nächsten Lauf warten (volle Stunde bzw. nach dem 15. erst 12 Uhr am nächsten Tag):
 ```powershell
 powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\SEDA24-Export\seda24_lohn_upload.ps1" -Jetzt
 ```
