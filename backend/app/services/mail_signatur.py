@@ -30,9 +30,9 @@ def text(titel, mail):
         + "\n\n" + DISCLAIMER
 
 
-# Drazen 28.11.2026 08:29, wortlich; @@TITEL@@ / @@MAIL@@ werden ersetzt (Tel-Link korrigiert auf tel:+4972251804970)
+# Drazen 28.11.2026 08:29, wortlich (08:35: Strich als border-left, feste Breite 442 px wie Original); @@TITEL@@ / @@MAIL@@ werden ersetzt (Tel-Link korrigiert auf tel:+4972251804970)
 SIGNATUR_HTML = (
-    '<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;"><tr><td style="background-color:#2d5277;width:3px;padding:0;"></td><td style="padding:0 0 0 10px;">'
+    '<table cellpadding="0" cellspacing="0" border="0" width="442" style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;width:442px;"><tr><td style="border-left:3px solid #2d5277;padding:0 0 0 10px;">'
     '<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;">'
     '<tr><td style="padding:0 0 8px 0;"><img src="@@CDN@@logo2024_10_27_18_20_29.png" width="117" height="36" alt="SEDA24" border="0" style="display:block;"></td></tr>'
     '<tr><td style="font-size:18px;line-height:20px;font-weight:700;color:#2d5277;">@@TITEL@@</td></tr>'
@@ -43,7 +43,7 @@ SIGNATUR_HTML = (
     '<tr><td style="padding:0 10px 4px 0;width:24px;vertical-align:middle;"><img src="@@CDN@@w2024_10_27_18_20_29.png" width="24" height="24" alt="" border="0" style="display:block;"></td><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 4px 0;vertical-align:middle;"><a href="https://www.seda24.de" style="color:#000001;text-decoration:none;">www.seda24.de</a></td></tr>'
     '<tr><td style="padding:0 10px 6px 0;width:24px;vertical-align:middle;"><img src="@@CDN@@gm2024_10_27_18_20_29.png" width="24" height="24" alt="" border="0" style="display:block;"></td><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 6px 0;vertical-align:middle;"><a href="https://maps.app.goo.gl/YCviBt3UEaC8TAQZ8" style="color:#000001;text-decoration:none;">Zeppelinstr. 42<br>76571 Gaggenau</a></td></tr>'
     '<tr><td style="padding:0 10px 8px 0;width:24px;vertical-align:middle;"><img src="@@CDN@@law2024_10_26_17_53_55.png" width="16" height="16" alt="" border="0" style="display:block;"></td><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 8px 0;vertical-align:middle;">Amtsgericht Mannheim<br>HRB: 739405</td></tr></table>'
-    '</td></tr><tr><td colspan="2" style="font-size:8px;line-height:10px;color:#afafaf;padding:10px 0 0 0;max-width:440px;">@@DISCLAIMER@@</td></tr></table>'
+    '</td></tr><tr><td colspan="1" style="font-size:8px;line-height:10px;color:#afafaf;padding:10px 0 0 0;max-width:440px;">@@DISCLAIMER@@</td></tr></table>'
 ).replace("@@CDN@@", "https://cdn.emailacademy.com/user/17187e6d04791d2e5725ca8e4f31900966ab9130d1e80060569bcfb3e1e023d9/")
 
 
