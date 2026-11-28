@@ -370,7 +370,10 @@ def dienstplan(start: str = Query(None), db: Session = Depends(get_db), user=Dep
             "fahrer": bool(r["is_driver"]), "object_id": r["object_id"], **_fix_info(r, vl)})
     for lu in pv.luecken(db, d0, d0 + timedelta(days=6), obj):
         tage[(date.fromisoformat(lu["datum"]) - d0).days].setdefault("luecken", []).append(lu)
-    return {"start": d0.isoformat(), "tage": tage, "plan": pv.wochen_status(db, d0, obj)}
+    # Objektfarben wie in der klassischen Wochenansicht: alle Objekte nach id, Index in deren Farbliste (Drazen 28.11.2026)
+    farben = [{"id": r["id"], "name": r["name"], "i": i, "aktiv": bool(r["aktiv"])}
+              for i, r in enumerate(_q(db, "SELECT id, name, coalesce(is_active, true) AND NOT coalesce(is_test, false) AS aktiv FROM objects ORDER BY id"))]
+    return {"start": d0.isoformat(), "tage": tage, "plan": pv.wochen_status(db, d0, obj), "farben": farben}
 
 
 # Wer nicht die Rolle Mitarbeiter hat (z. B. Objektleitung), erscheint in der Mitarbeiter-Liste, sobald er/sie
@@ -751,6 +754,24 @@ def zeit_aendern(entry_id: int, data: dict, db: Session = Depends(get_db), user=
             buchung_art.km_setzen(db, entry_id, bool(data["fahrt"]), user.id)
         except ValueError as e:
             raise HTTPException(400, str(e))
+    return zeit(entry_id, db=db, user=user)
+
+
+@router.put("/zeiten/{entry_id}/satz")
+def zeit_satz(entry_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Nur den Stundensatz einer Buchung aendern (Cockpit > Zeiten, Spalte "Satz", Drazen 28.11.2026 08:46).
+    Protokoll alt/neu ueber update_booking; abgeschlossener Monat -> 423 (DB-Sperre, Oeffnen nur mit Super-PIN)."""
+    from app.api.v1.endpoints.admin import update_booking
+    alt = _q(db, "SELECT object_id, hourly_rate FROM time_entries WHERE id = :i", i=entry_id)
+    if not alt:
+        raise HTTPException(404, "Buchung nicht gefunden")
+    if alt[0]["object_id"] in (OBJ_URLAUB, OBJ_KRANK) or (alt[0]["hourly_rate"] is not None and float(alt[0]["hourly_rate"]) < 0):
+        raise HTTPException(400, "Bei Urlaub/Krank wird der Satz nicht hier geändert")
+    try:
+        satz = buchung_art.satz_pruefen(data.get("stundensatz"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    update_booking(entry_id, {"hourly_rate": satz}, db=db, admin=user)
     return zeit(entry_id, db=db, user=user)
 
 

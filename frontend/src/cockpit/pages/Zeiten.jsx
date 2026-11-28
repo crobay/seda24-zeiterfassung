@@ -14,7 +14,7 @@ const VerspKurz = ({ r, art }) => {
 // Art wie alte Ansicht/App (gleiche gespeicherte Werte); Grund/Sonder/Fenster = Lohnart Sonder
 const ARTEN = ['Unterhaltsreinigung', 'Grundreinigung', 'Sonderreinigung', 'Fensterreinigung'];
 const LINK = { background: 'none', border: 0, padding: 0, font: 'inherit', color: 'var(--ck-accent-ink)', textDecoration: 'underline', textUnderlineOffset: 3, cursor: 'pointer' };
-const COLS = [['datum', 'zeiten.date'], ['name', 'zeiten.name'], ['objekt', 'zeiten.object'], ['kommen', 'zeiten.in'], ['gehen', 'zeiten.out'], ['stunden', 'zeiten.hours'], ['weg', 'zeiten.way'], ['hinweis', 'zeiten.hint']];
+const COLS = [['datum', 'zeiten.date'], ['name', 'zeiten.name'], ['objekt', 'zeiten.object'], ['kommen', 'zeiten.in'], ['gehen', 'zeiten.out'], ['stunden', 'zeiten.hours'], ['hourly_rate', 'zeiten.rate'], ['weg', 'zeiten.way'], ['hinweis', 'zeiten.hint']];
 
 export default function Zeiten() {
   const { me, toast } = useApp();
@@ -113,6 +113,7 @@ export default function Zeiten() {
                     <td className="ck-num">{r.kommen}<VerspKurz r={r} art="kommen" /></td>
                     <td className="ck-num">{r.gehen ? <>{r.gehen}{r.gehen_datum && r.gehen_datum !== r.datum && <span className="ck-subtle"> ({fmtDate(r.gehen_datum)})</span>}<VerspKurz r={r} art="gehen" /></> : <Status s="da" label={t('status.da')} />}</td>
                     <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(r.stunden, 2)}</td>
+                    <SatzZelle r={r} onDone={reload} />
                     <td className="ck-subtle">{r.weg}</td>
                     <td>{r.hinweis && <Status s="fehlt" label={r.hinweis} />}</td>
                     <td>{r.fehlt ? <Plus size={15} className="ck-muted" aria-hidden="true" /> : r.gesperrt ? <Lock size={15} className="ck-muted" aria-label={t('zeiten.locked_short')} /> : <Pencil size={15} className="ck-muted" aria-hidden="true" />}</td>
@@ -125,6 +126,47 @@ export default function Zeiten() {
       {edit && <BuchungDialog eintrag={edit.eintrag} neu={edit.neu} onClose={closeEdit} onDone={() => { closeEdit(); reload(); }} />}
     </>
   );
+}
+
+// Spalte "Satz" (Drazen 28.11.2026 08:46): Klick -> direkt aendern, Enter speichert, Esc/Verlassen bricht ab.
+// Protokoll alt/neu (Server). Gesperrter Monat: nur nach Oeffnen mit Super-PIN im Monatsabschluss (Server 423).
+// Lohn: Grund/Sonder/Fenster rechnen mit dem Satz der Buchung, Unterhalt mit dem Stundenlohn aus dem Stammblatt.
+const SONDER = ['Grundreinigung', 'Sonderreinigung', 'Fensterreinigung'];
+function SatzZelle({ r, onDone }) {
+  const { toast } = useApp();
+  const [wert, setWert] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const fest = r.fehlt || r.object_id === 999 || r.object_id === 19 || (r.hourly_rate != null && r.hourly_rate < 0);
+  const unterhalt = !SONDER.includes(r.service_type);
+  const ok = wert != null && /^\d{1,3}([.,]\d{1,2})?$/.test(wert.trim());
+  const stop = (e) => e.stopPropagation();
+  const speichern = async () => {
+    if (!ok || busy) return;
+    setBusy(true);
+    try {
+      const alt = r.hourly_rate;
+      const n = (await api.put(`/zeiten/${r.id}/satz`, { stundensatz: wert.trim() })).data;
+      setWert(null);
+      toast(t('zeiten.rate_saved', { name: r.name, alt: alt != null ? fmtNum(alt, 2) : '–', neu: fmtNum(n.hourly_rate, 2) }),
+        alt != null ? { undo: async () => { await api.put(`/zeiten/${r.id}/satz`, { stundensatz: alt }); onDone(); } } : {});
+      onDone();
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setBusy(false);
+  };
+  const anzeige = r.hourly_rate != null && r.hourly_rate >= 0 ? `${fmtNum(r.hourly_rate, 2)} €` : '–';
+  if (fest) return <td className="ck-num ck-subtle" style={{ textAlign: 'right' }} data-satz={r.id}>{r.fehlt ? '' : anzeige}</td>;
+  if (wert == null) return (
+    <td className="ck-num" style={{ textAlign: 'right', whiteSpace: 'nowrap' }} data-satz={r.id}>
+      <button type="button" className="ck-satz-btn" onClick={(e) => { stop(e); if (r.gesperrt) { toast(t('zeiten.rate_locked'), { tone: 'warn' }); return; } setWert(r.hourly_rate != null ? fmtNum(r.hourly_rate, 2) : ''); }}
+        onKeyDown={stop} title={r.gesperrt ? t('zeiten.rate_locked') : unterhalt ? t('zeiten.rate_hint_normal') : t('zeiten.rate_hint')} aria-label={`${t('zeiten.rate')} ${anzeige}`} data-satz-knopf>
+        {r.gesperrt && <Lock size={12} style={{ marginRight: 3, verticalAlign: '-1px' }} />}{anzeige}</button></td>);
+  return (
+    <td className="ck-num" style={{ textAlign: 'right' }} onClick={stop} data-satz={r.id}>
+      <input className="ck-input ck-satz-input" value={wert} inputMode="decimal" autoFocus disabled={busy} aria-label={t('zeiten.rate_label')} data-satz-eingabe
+        aria-invalid={!ok} onChange={(e) => setWert(e.target.value)} onBlur={() => !busy && setWert(null)}
+        onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') speichern(); if (e.key === 'Escape') setWert(null); }} />
+      {unterhalt && <div className="ck-subtle" style={{ fontSize: 11, whiteSpace: 'normal', minWidth: 150, textAlign: 'left' }} data-satz-hinweis>{t('zeiten.rate_hint_normal')}</div>}
+    </td>);
 }
 
 export function BuchungDialog({ eintrag, neu, onClose, onDone }) {

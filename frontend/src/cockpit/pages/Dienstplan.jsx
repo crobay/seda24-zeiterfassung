@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, useDraggable, useDroppable, pointerWithin, rectIntersection } from '@dnd-kit/core';
-import { ChevronLeft, ChevronRight, Car, Pencil, Plus, Trash2, AlertTriangle, Palmtree, Thermometer, Copy, CopyPlus, MoveRight, Undo2, X, CalendarRange, Users, Rows3, Hand, CalendarPlus, CircleDashed, UserPlus, Search, CheckCircle2, RotateCcw, Scale, Pin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Car, Pencil, Plus, Trash2, AlertTriangle, Palmtree, Thermometer, Copy, CopyPlus, MoveRight, Undo2, X, CalendarRange, Users, Rows3, Hand, CalendarPlus, CircleDashed, UserPlus, Search, CheckCircle2, RotateCcw, Scale, Pin, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { api, apiError, t, fmtDate, useApi, useApp, SkeletonRows, ErrorBox, Skeleton, Dialog, Zeitfeld, zeitOk, Status, ObjektMarke } from '../core';
 
 const ScheduleTab = lazy(() => import('../../components/ScheduleTab'));
@@ -15,6 +15,9 @@ const istAbw = (s) => s.objekt === 'Urlaub' || s.objekt === 'Krank';
 const wtag = (isoD) => (new Date(isoD + 'T12:00:00').getDay() + 6) % 7;
 const dauer = (b, e) => { if (!b || !e) return 0; const [bh, bm] = b.split(':').map(Number); const [eh, em] = e.split(':').map(Number); return (((eh * 60 + em) - (bh * 60 + bm) + 1440) % 1440 || 1440) / 60; };
 const fmtH = (h) => String(Math.round(h * 100) / 100).replace('.', ',');
+// Objektfarben wie die klassische Wochenansicht (components/ScheduleTab.jsx): Index aus /dienstplan "farben" (alle Objekte nach id)
+const FARBEN = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#e11d48', '#6366f1', '#06b6d4', '#84cc16', '#d946ef', '#0ea5e9', '#7c3aed'];
+const farbeVon = (farben, oid) => { const f = (farben || []).find((x) => x.id === Number(oid)); return FARBEN[(f ? f.i : 0) % FARBEN.length]; };
 
 // Strg/Alt/Cmd waehrend des Ziehens = kopieren (Tastatur und Zeiger liefern den Zustand)
 export function useCopyModifier() {
@@ -34,6 +37,8 @@ export default function Dienstplan() {
   const [start, setStart] = useState(() => params.get('start') || iso(new Date()));
   const [ansicht, setAnsicht] = useState(() => localStorage.getItem('ck_dp_ansicht') || 'tage');
   const [classic, setClassic] = useState(false);
+  const [leiste, setLeiste] = useState(() => localStorage.getItem('ck_dp_leiste') !== 'zu');   // Seitenleiste einklappbar, Zustand gemerkt
+  useEffect(() => { localStorage.setItem('ck_dp_leiste', leiste ? 'auf' : 'zu'); }, [leiste]);
   const [edit, setEdit] = useState(null);
   const [kopie, setKopie] = useState(null);     // offener Kopier-Dialog {modus, ...}
   const [ziel, setZiel] = useState(null);       // "Verschieben/Kopieren nach ..." fuer eine Schicht
@@ -159,7 +164,9 @@ export default function Dienstplan() {
           <button className={ansicht === 'ma' ? 'is-on' : ''} onClick={() => setAnsicht('ma')}><Users size={16} />{t('dnd.view_staff')}</button>
         </div>
         <span className="ck-subtle ck-dp-hint"><Hand size={15} />{t('dnd.hint')}</span>
-        <button className="ck-btn ck-btn-ghost ck-btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setClassic(!classic)}><Pencil size={15} />{t('dienstplan.edit_classic')}</button>
+        <button className="ck-btn ck-btn-ghost ck-btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setLeiste(!leiste)} aria-pressed={!leiste} data-leiste-knopf>
+          {leiste ? <><PanelRightClose size={15} />{t('leiste.hide')}</> : <><PanelRightOpen size={15} />{t('leiste.show')}</>}</button>
+        <button className="ck-btn ck-btn-ghost ck-btn-sm" onClick={() => setClassic(!classic)}><Pencil size={15} />{t('dienstplan.edit_classic')}</button>
       </div>
 
       {data?.plan && !classic && data.start >= addDays(today, -6) && <PlanStatus p={data.plan} onFertig={fertigMelden} onVorlage={() => setVlDialog(true)} onFixumWeg={rueckgaengig} />}
@@ -177,23 +184,24 @@ export default function Dienstplan() {
           <div className="ck-embed"><Suspense fallback={<SkeletonRows n={6} />}><ScheduleTab /></Suspense></div></section>
       ) : error ? <div className="ck-card"><ErrorBox text={error} onRetry={reload} /></div> : (
         <DndContext sensors={sensors} collisionDetection={zielErkennung} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDrag(null)} autoScroll={drag?.typ !== 'ma' || window.innerWidth < 1100}>
-          <div className="ck-dp-layout">
+          <div className={`ck-dp-layout${leiste ? '' : ' is-voll'}`}>
           {/* Leiste bleibt am PC stehen (sticky); dort beim Ziehen aus der Leiste kein automatisches Mitscrollen, sonst verrutscht das Ziel */}
-          <aside className="ck-dp-aside">
+          {leiste && <aside className="ck-dp-aside" data-leiste>
             {(konto.data?.personen || []).map((p) => <KontingentKarte key={p.employee_id} p={p} onDone={(r, text) => { kopiert(r, text); reload(); }} />)}
             <MaLeiste mitarbeiter={aus?.mitarbeiter} tage={data?.tage} vorlage={vorlage} onAdd={einplanen} />
-          </aside>
+          </aside>}
           <div className={`ck-dp-main${busy ? ' ck-dp-busy' : ''}`}>
             {ansicht === 'tage' ? (
-              <div className="ck-week">
+              <><div className="ck-week ck-week-k" data-kompakt>
                 {tage.map((d) => (
                   <TagSpalte key={d.datum} d={d} heute={today} markiert={params.get('tag')} loading={loading}
                     onNeu={() => setEdit({ neu: { datum: d.datum, beginn: '', ende: '', employee_id: '', object_id: '', fahrer: true } })}
                     onTagKopieren={() => setKopie({ modus: 'tag', tag: d.datum })}>
-                    {d.schichten?.map((s) => <SchichtChip key={s.id} s={{ ...s, datum: d.datum }} onOpen={oeffnen} onZiel={setZiel} />)}
+                    {d.schichten?.map((s) => <SchichtChip key={s.id} s={{ ...s, datum: d.datum }} onOpen={oeffnen} onZiel={setZiel} farbe={farbeVon(data?.farben, s.object_id)} />)}
                     {(d.luecken || []).map((l) => <LueckeChip key={`${l.vorlage_id}`} l={l} onOpen={() => setEdit({ neu: { ...vorbelegen('', l.datum, l), employee_id: '' } })} />)}
                   </TagSpalte>))}
               </div>
+              <Legende farben={data?.farben} tage={tage} /></>
             ) : <MatrixAnsicht tage={tage} loading={loading} mitarbeiter={aus?.mitarbeiter} heute={today} onOpen={oeffnen} onZiel={setZiel}
                   onLuecke={(l) => setEdit({ neu: { ...vorbelegen('', l.datum, l), employee_id: '' } })}
                   onNeu={(datum, eid) => setEdit({ neu: vorbelegen(eid, datum) })} />}
@@ -222,7 +230,7 @@ function TagSpalte({ d, heute, markiert, loading, onNeu, onTagKopieren, children
   const { setNodeRef, isOver } = useDroppable({ id: `tag|${d.datum}`, data: { datum: d.datum }, disabled: !d.schichten });
   return (
     <section ref={setNodeRef} data-tag={d.datum} className={`ck-card ck-day${d.datum === heute || d.datum === markiert ? ' is-today' : ''}${isOver ? ' is-over' : ''}`} aria-label={d.tag}>
-      <div className="ck-day-head"><span>{d.tag} {d.schichten && fmtDate(d.datum)}</span>
+      <div className="ck-day-head"><span>{d.tag} {d.schichten && fmtDate(d.datum).slice(0, 6)}</span>
         {d.schichten && <span style={{ display: 'flex', gap: 2 }}>
           <button className="ck-btn ck-btn-ghost ck-btn-sm ck-btn-icon" style={{ width: 28, height: 28 }} title={t('kopie.day_btn')} aria-label={`${t('kopie.day_btn')} ${d.tag}`}
             disabled={!d.schichten.some((s) => !istAbw(s))} onClick={onTagKopieren}><Copy size={15} /></button>
@@ -234,9 +242,10 @@ function TagSpalte({ d, heute, markiert, loading, onNeu, onTagKopieren, children
   );
 }
 
-function SchichtChip({ s, onOpen, onZiel, kompakt }) {
+function SchichtChip({ s, onOpen, onZiel, kompakt, farbe }) {
   const abw = istAbw(s);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `s|${s.id}`, data: s, disabled: abw });
+  if (farbe) return <SchichtKarte s={s} abw={abw} farbe={farbe} onOpen={onOpen} onZiel={onZiel} drag={{ attributes, listeners, setNodeRef, isDragging }} />;
   if (abw) return (
     <div className="ck-shift ck-shift-abw"><b>{kompakt ? '' : s.name}</b>
       <span className="ck-mini m-info">{s.objekt === 'Urlaub' ? <Palmtree size={13} /> : <Thermometer size={13} />}{s.objekt}</span></div>);
@@ -252,6 +261,42 @@ function SchichtChip({ s, onOpen, onZiel, kompakt }) {
         onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onZiel(s); }}><MoveRight size={15} /></button>
     </div>
   );
+}
+
+// Kompakte Karte wie die klassische Wochenansicht: Rand/Hintergrund in Objektfarbe, Name fett einzeilig (…),
+// darunter Objekt + Uhrzeit in einer Zeile, kleine Symbole (Fahrer, Fix), Pfeil = Verschieben/Kopieren nach … (Drazen 28.11.2026)
+function SchichtKarte({ s, abw, farbe, onOpen, onZiel, drag }) {
+  const { attributes, listeners, setNodeRef, isDragging } = drag;
+  const titel = `${s.name} · ${s.objekt} · ${s.beginn}–${s.ende}${s.fahrer ? ` · ${t('dienstplan.driver')}` : ''}`;
+  if (abw) return (
+    <div className="ck-sk ck-sk-abw" title={titel}>
+      <div className="ck-sk-l1"><b>{s.name}</b></div>
+      <div className="ck-sk-l2"><span className="ck-sk-obj">{s.objekt === 'Urlaub' ? <Palmtree size={11} /> : <Thermometer size={11} />} {s.objekt}</span></div>
+    </div>);
+  return (
+    <div className={`ck-sk ck-drag${isDragging ? ' is-dragging' : ''}`} style={{ '--obj': farbe }} data-schicht={s.id} ref={setNodeRef} {...attributes} {...listeners}
+      role="button" tabIndex={0} aria-roledescription={t('dnd.aria')} title={titel} onClick={() => onOpen(s)}
+      onKeyDown={(e) => { if (e.key === 'Enter') onOpen(s); listeners?.onKeyDown?.(e); }}>
+      <div className="ck-sk-l1"><b>{s.name}</b>
+        {s.fahrer && <Car size={11} aria-label={t('dienstplan.driver')} className="ck-sk-ic" />}
+        {s.fix && <Pin size={11} aria-label={t('fix.chip')} className="ck-sk-ic" data-fix />}</div>
+      <div className="ck-sk-l2"><span className="ck-sk-obj">{s.objekt}</span><span className="ck-num">{s.beginn}–{s.ende}</span></div>
+      <button className="ck-shift-more" aria-label={t('dnd.menu')} title={t('dnd.menu')}
+        onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onZiel(s); }}><MoveRight size={13} /></button>
+    </div>);
+}
+
+// Legende der Objektfarben unter der Woche (wie klassisch): aktive Objekte nach Name + in der Woche benutzte
+function Legende({ farben, tage }) {
+  const benutzt = new Set(tage.flatMap((d) => [...(d.schichten || []).filter((s) => !istAbw(s)).map((s) => s.object_id), ...(d.luecken || []).map((l) => l.object_id)]));
+  const liste = (farben || []).filter((f) => (f.aktiv || benutzt.has(f.id)) && !['Urlaub', 'Krank'].includes(f.name)).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  if (!liste.length) return null;
+  return (
+    <div className="ck-legende" data-legende>
+      {liste.map((f) => <span key={f.id} className={benutzt.has(f.id) ? '' : 'is-leer'}><i style={{ background: FARBEN[f.i % FARBEN.length] }} />{f.name}</span>)}
+      <span className="ck-legende-sym"><Car size={12} />{t('dienstplan.driver')}</span>
+      <span><Pin size={12} />{t('fix.kurz')}</span>
+    </div>);
 }
 
 function MatrixZelle({ eid, d, children, onNeu }) {
