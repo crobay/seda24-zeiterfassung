@@ -30,6 +30,7 @@ export default function Abschluss() {
   const { data, loading, error, reload } = useApi(`/abschluss/${monat}`);
   const [schritt, setSchritt] = useState(0);
   const [, setZipTick] = useState(0);
+  const [pinDlg, setPinDlg] = useState(false);   // Super-PIN oben, immer erreichbar (Drazen 28.11.2026 08:43)
   const p = data?.pruefliste;
   const zu = data?.status === 'abgeschlossen';
   const offen = data?.protokoll?.nachtraege?.oeffnungen?.find((o) => o.offen);
@@ -43,13 +44,18 @@ export default function Abschluss() {
     <>
       <div className="ck-page-head">
         <div><h1>{t('ab.title')}</h1><p>{t('ab.subtitle')}</p></div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {data?.superpin?.inhaber && <button className="ck-btn ck-btn-ghost ck-btn-sm" onClick={() => setPinDlg(true)} data-pin-oben>
+            <KeyRound size={14} />{t(data.superpin.eingerichtet ? 'ab.pin_aendern' : 'ab.pin_einrichten')}</button>}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="ck-btn ck-btn-icon" onClick={() => setMonat((k) => schiebe(k, -1))} aria-label={t('abr.prev')}><ChevronLeft size={18} /></button>
           <div className="ck-card" style={{ padding: '7px 18px', fontWeight: 650, minWidth: 170, textAlign: 'center' }} data-monat={monat}>{monatLabel(monat)}</div>
           <button className="ck-btn ck-btn-icon" onClick={() => setMonat((k) => schiebe(k, 1))} aria-label={t('abr.next')}><ChevronRight size={18} /></button>
+          </div>
         </div>
       </div>
 
+      {pinDlg && <SuperPin sp={data?.superpin || {}} onClose={() => setPinDlg(false)} toast={toast} reload={reload} />}
       <div className="ck-callout ab-proto" role="note"><AlertTriangle size={18} style={{ flex: 'none' }} /><span>{t('ab.proto', { von: data?.protokoll?.versandweg?.absender || 'lohn@seda.de' })}</span></div>
       {offen && <div className="ck-callout" role="alert" data-geoeffnet><LockOpen size={18} style={{ flex: 'none' }} />
         <span style={{ flex: 1 }}>{t('ab.offen_hinweis', { am: offen.geoeffnet_am.replace('T', ' ').slice(0, 16), wer: offen.geoeffnet_von, grund: offen.grund })}</span>
