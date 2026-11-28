@@ -29,7 +29,7 @@ import time
 import unicodedata
 import zipfile
 from calendar import monthrange
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import text
 
@@ -228,13 +228,16 @@ def pruefliste(db, y, m):
                       ("neu im Monat: " + ", ".join(r["n"] for r in neu)) if neu else "keine neuen Mitarbeiter im Monat"))
     out.append(_punkt("vorschuss", "Hast du Vorschüsse und Sonderzahlungen erfasst?", None, ""))
 
-    haken = zustand(db, y, m)["haken"]
+    z = zustand(db, y, m)
+    haken = z["haken"]
     for p in out:
         h = haken.get(p["key"])
         p["haken"] = bool(h) and p["auto"] is not False
         p["haken_von"] = h and h.get("von")
         p["gruen"] = p["haken"]
     mas = ma_liste(db, y, m, haken)
+    if z["status"] != "abgeschlossen":
+        haken_automatik(db, y, m, haken, mas)
     ma_ok = sum(1 for x in mas if x["haken_stunden"] and x["haken_km"])
     db.commit()
     prot = haken_protokoll(db, y, m)
@@ -269,6 +272,7 @@ def ma_liste(db, y, m, haken=None):
     ids = [r["employee_id"] for r in rows] or [0]
     haken = zustand(db, y, m)["haken"] if haken is None else haken
     plan = _q(db, """SELECT s.employee_id AS e, s.object_id AS o, s.date AS d, coalesce(o.name, '') AS objekt,
+                            s.start_time AS beginn, s.end_time AS ende,
                             coalesce(s.planned_hours, extract(epoch FROM (s.end_time - s.start_time)) / 3600) AS h
                      FROM schedules s LEFT JOIN objects o ON o.id = s.object_id
                      WHERE s.date BETWEEN :a AND :b AND s.employee_id = ANY(:ids)
@@ -290,11 +294,22 @@ def ma_liste(db, y, m, haken=None):
     fahrer = _q(db, """SELECT DISTINCT a.employee_id AS e, a.object_id AS o, o.name AS objekt FROM employee_object_assignments a
                        JOIN objects o ON o.id = a.object_id WHERE a.is_driver AND coalesce(a.is_active, true)
                        AND a.employee_id = ANY(:ids)""", ids=ids)
+    jetzt = datetime.now()
+
+    def vorbei(p):   # Schichtende in der Vergangenheit (Nachtschicht: Ende am Folgetag) - Drazen 28.11.2026 09:28
+        if not p["ende"]:
+            return p["d"] < heute
+        ende = datetime.combine(p["d"], p["ende"])
+        if p["beginn"] and p["ende"] <= p["beginn"]:
+            ende += timedelta(days=1)
+        return ende < jetzt
+
     out = []
     for r in rows:
         e = r["employee_id"]
-        fehlt = sorted({(p["d"], p["objekt"]) for p in plan if p["e"] == e and (e, p["o"], p["d"]) not in gebucht
-                        and (e, p["d"]) not in abw and p["d"] <= heute})
+        offen_plan = [p for p in plan if p["e"] == e and (e, p["o"], p["d"]) not in gebucht and (e, p["d"]) not in abw]
+        fehlt = sorted({(p["d"], p["objekt"]) for p in offen_plan if vorbei(p)})
+        kommt = sorted({(p["d"], p["objekt"]) for p in offen_plan if not vorbei(p)})
         ohne = sorted({(b["d"], b["objekt"]) for b in arbeit if b["e"] == e and (e, b["o"], b["d"]) not in geplant})
         plan_h = round(sum(float(p["h"] or 0) for p in plan if p["e"] == e and (e, p["d"]) not in abw), 2)
         ist_h = round(sum(float(b["h"]) for b in arbeit if b["e"] == e), 2)
@@ -307,6 +322,9 @@ def ma_liste(db, y, m, haken=None):
         if fehlt:
             hinweise.append({"rot": True, "text": "geplant, nicht gebucht: " + ", ".join(f"{d:%d.%m.} {o or ''}".strip() for d, o in fehlt[:6])
                              + (f" (+{len(fehlt) - 6})" if len(fehlt) > 6 else "")})
+        if kommt:
+            hinweise.append({"rot": False, "kommt": True, "text": f"kommt noch ({len(kommt)}): " + ", ".join(f"{d:%d.%m.} {o or ''}".strip() for d, o in kommt[:6])
+                             + (f" (+{len(kommt) - 6})" if len(kommt) > 6 else "")})
         if ohne:
             hinweise.append({"rot": False, "text": "Buchung ohne Plan: " + ", ".join(f"{d:%d.%m.} {o or 'ohne Objekt'}" for d, o in ohne[:6])
                              + (f" (+{len(ohne) - 6})" if len(ohne) > 6 else "")})
@@ -325,7 +343,7 @@ def ma_liste(db, y, m, haken=None):
               "normal": round(r.get("normal_hours") or 0, 2), "sonder": round(r.get("sonder_hours") or 0, 2),
               "feiertag": round(r.get("feiertag_hours") or 0, 2), "urlaub": round(r.get("urlaub_hours") or 0, 2), "stunden": w["stunden"], "km": w["km"],
               "ohne_km": r["personal_nr"] in OHNE_KM_ANHANG, "plan_h": plan_h, "ist_h": ist_h,
-              "geplant_nicht_gebucht": len(fehlt), "ohne_plan": len(ohne), "hinweise": hinweise}
+              "geplant_nicht_gebucht": len(fehlt), "kommt_noch": len(kommt), "ohne_plan": len(ohne), "hinweise": hinweise}
         for art in ("stunden", "km"):
             h = haken.get(_ma_haken_key(e, art))
             ok = bool(h) and h.get("wert") == w[art]
@@ -334,6 +352,34 @@ def ma_liste(db, y, m, haken=None):
             ma[f"haken_{art}_veraltet"] = bool(h) and not ok
         out.append(ma)
     return out
+
+
+def haken_automatik(db, y, m, haken, mas):
+    """Haken-Automatik (Drazen 28.11.2026 09:28): aendern sich Stunden oder KM eines MA nach dem Haken (neue/geaenderte/
+    geloeschte Buchung im Monat), wird sein Haken entfernt - mit Protokolleintrag "Haken entfernt: Stunden geändert (alt→neu)".
+    Nur fuer Haken ab dieser Version ("v": 2); vorher gesetzte Haken (z. B. November auf LIVE) bleiben unberuehrt und zeigen
+    wie bisher "veraltet". Laeuft bei jedem Berechnen der Pruefliste (auch vor Schritt 2-5)."""
+    from app.services.booking_service import log_audit
+    weg = []
+    for x in mas:
+        for art in ("stunden", "km"):
+            k = _ma_haken_key(x["employee_id"], art)
+            h = haken.get(k)
+            if not h or h.get("v") != 2 or h.get("wert") == x[art]:
+                continue
+            haken.pop(k)
+            was = "Stunden" if art == "stunden" else "KM"
+            alt, neu = _num(h.get("wert") or 0), _num(x[art])
+            log_audit(db, None, x["employee_id"], "abschluss_haken", entity_type="monat", entity_id=y * 100 + m,
+                      old_value={"haken": True, art: h.get("wert"), "von": h.get("von"), "am": h.get("am")}, new_value={"haken": False, art: x[art]},
+                      details=f"Monatsabschluss {m:02d}/{y}: {x['name']} – Haken entfernt: {was} geändert ({alt}→{neu})")
+            x[f"haken_{art}"], x[f"haken_{art}_von"], x[f"haken_{art}_veraltet"] = False, None, False
+            x[f"haken_{art}_entfernt"] = f"{alt}→{neu}"
+            weg.append(k)
+    if weg:
+        db.execute(text("UPDATE monatsabschluss SET haken = :h WHERE monat = :k"), {"h": json.dumps(haken), "k": monat_key(y, m)})
+        db.commit()
+    return weg
 
 
 def _spalte(db, tab, sp):
@@ -352,7 +398,7 @@ def haken_setzen(db, y, m, key, wert: bool, user_id, wer: str):
         if not x:
             raise KeyError(key)
         p = {"frage": f"{x['name']} {'Stunden' if mt.group(2) == 'stunden' else 'KM'} ({_num(x[mt.group(2)])})"}
-        neu = {"von": wer, "am": datetime.now().isoformat(timespec="minutes"), "wert": x[mt.group(2)]}
+        neu = {"von": wer, "am": datetime.now().isoformat(timespec="minutes"), "wert": x[mt.group(2)], "v": 2}
     else:
         p = next((p for p in pruefliste(db, y, m)["punkte"] if p["key"] == key), None)
         if not p:
@@ -395,7 +441,7 @@ def ma_alle_bestaetigen(db, y, m, user_id, wer: str):
         for art in ("stunden", "km"):
             if x[f"haken_{art}"]:
                 continue
-            h[_ma_haken_key(x["employee_id"], art)] = {"von": wer, "am": am, "wert": x[art], "sammel": True}
+            h[_ma_haken_key(x["employee_id"], art)] = {"von": wer, "am": am, "wert": x[art], "sammel": True, "v": 2}
             gesetzt.append(f"{x['name']} {'Stunden' if art == 'stunden' else 'KM'}")
             log_audit(db, user_id, x["employee_id"], "abschluss_haken", entity_type="monat", entity_id=y * 100 + m,
                       details=f"Monatsabschluss {m:02d}/{y}: '{x['name']} {'Stunden' if art == 'stunden' else 'KM'} "

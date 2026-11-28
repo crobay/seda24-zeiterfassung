@@ -187,6 +187,8 @@ export default {
     saved: 'Microsoft-Zugang gespeichert', am: 'Zuletzt eingetragen: {am}.', absender: 'Absender', testmodus: 'Testmodus – alles an {an}', echt: 'ECHTER Versand',
     gruppe: 'Microsoft lässt die App nur aus den Postfächern der Gruppe mailversand-erlaubt@seda.de senden (Application Access Policy).' },
   ab: { title: 'Monatsabschluss', subtitle: 'Prüfen · Lexware · Lohnabrechnungen · Versand – ein Ablauf statt PC-Skript', steps: 'Schritte',
+    vs_echt: 'Echter Versand aktiv', vs_test: 'Testmodus – alles an {an}', vs_hint: 'Kopie jeder Mail in „Gesendete Elemente“ des Absenders, Antworten landen dort.',
+    ma_filter: 'Mitarbeiter anzeigen', ma_f_offen: 'Nur offene', ma_f_alle: 'Alle', ma_info: 'Weitere Hinweise (grau, nur zur Info)', ma_entfernt: 'Haken entfernt: geändert ({w})',
     proto: 'Lohn-Mails gehen aus {von} (Kopie in „Gesendete Elemente“, Antworten der Mitarbeiter landen dort). Im Testmodus geht alles an die Test-Adresse statt an die Mitarbeiter.',
     s_pruef: 'Prüfliste', s_lexware: 'Für Lexware erzeugen', s_upload: 'Lohnabrechnungen', s_vorschau: 'Vorschau je MA', s_versand: 'Versenden & sperren',
     ma_title: 'Mitarbeiter prüfen: Stunden und KM', ma_n: '{n} von {m} Mitarbeitern abgehakt',

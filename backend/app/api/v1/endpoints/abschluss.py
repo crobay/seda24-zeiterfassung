@@ -54,7 +54,18 @@ def uebersicht(monat: str, db: Session = Depends(get_db), user=Depends(nur_admin
     return {"monat": monat, "status": z["status"], "pruefliste": p, "lohnarten": ma.lohnarten(db),
             "erzeugt_am": z["erzeugt_am"] and z["erzeugt_am"].isoformat(timespec="minutes"), **ma.dokumente(db, y, m),
             "protokoll": ma.protokoll(db, y, m), "lohnablage": _ablage(db, monat), "superpin": _superpin(db, user),
-            "upload_pc": _upload_pc(db)}
+            "upload_pc": _upload_pc(db), "versand_status": _versand_status(db)}
+
+
+def _versand_status(db):
+    """Gelber Kasten oben (Drazen 28.11.2026 09:28): echter Status je Absender - Testmodus aus der Einstellung ODER
+    Server ohne Freischaltung (LOHNMAIL_ECHT / MATERIALMAIL_ECHT) = Testmodus."""
+    from app.services import lohnversand as lv, material as mt
+    lohn, mat = lv.einstellungen(db), mt.mail_einstellungen(db)
+    return [{"zweck": "Lohn", "name": lohn["absender_name"], "adresse": lohn["absender"],
+             "test": bool(lohn["testmodus"] or not lv.echt_erlaubt()), "test_an": lohn["test_an"]},
+            {"zweck": "Material", "name": mat["absender_name"], "adresse": mat["absender"],
+             "test": bool(mat["testmodus"] or not mt.echt_erlaubt()), "test_an": mat["test_an"]}]
 
 
 def _upload_pc(db):

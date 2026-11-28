@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, CheckCircle2, ListChecks, FileSpreadsheet, Upload, Eye, Send, Lock, Download,
-  AlertTriangle, FileText, Car, Receipt, Trash2, Mail, LockOpen, ArrowRight, KeyRound, History, ShieldCheck } from 'lucide-react';
+  AlertTriangle, FileText, Car, Receipt, Trash2, Mail, LockOpen, ArrowRight, KeyRound, History, ShieldCheck, Info } from 'lucide-react';
 import { api, apiError, t, fmtNum, useApi, useApp, Status, SkeletonRows, ErrorBox, Dialog } from '../core';
 
 const SCHRITTE = [['pruef', ListChecks], ['lexware', FileSpreadsheet], ['upload', Upload], ['vorschau', Eye], ['versand', Send]];
@@ -56,7 +56,11 @@ export default function Abschluss() {
       </div>
 
       {pinDlg && <SuperPin sp={data?.superpin || {}} onClose={() => setPinDlg(false)} toast={toast} reload={reload} />}
-      <div className="ck-callout ab-proto" role="note"><AlertTriangle size={18} style={{ flex: 'none' }} /><span>{t('ab.proto', { von: data?.protokoll?.versandweg?.absender || 'lohn@seda.de' })}</span></div>
+      {/* echter Status je Absender (Drazen 28.11.2026 09:28) */}
+      <div className="ck-callout ab-proto" role="note" data-versand-status><AlertTriangle size={18} style={{ flex: 'none' }} />
+        <div style={{ display: 'grid', gap: 2 }}>{(data?.versand_status || []).map((a) => (
+          <span key={a.zweck} data-absender={a.adresse}><b>{a.zweck}</b> „{a.name}“ &lt;{a.adresse}&gt;: {a.test ? t('ab.vs_test', { an: a.test_an }) : <b>{t('ab.vs_echt')}</b>}</span>))}
+          <span style={{ fontWeight: 400 }}>{t('ab.vs_hint')}</span></div></div>
       {offen && <div className="ck-callout" role="alert" data-geoeffnet><LockOpen size={18} style={{ flex: 'none' }} />
         <span style={{ flex: 1 }}>{t('ab.offen_hinweis', { am: offen.geoeffnet_am.replace('T', ' ').slice(0, 16), wer: offen.geoeffnet_von, grund: offen.grund })}</span>
         <button className="ck-btn ck-btn-sm" onClick={async () => { try { await api.post(`/abschluss/${monat}/sperren`); reload(); toast(t('ab.locked')); } catch (e) { toast(apiError(e), { tone: 'warn' }); } }}
@@ -148,6 +152,9 @@ function MaListe({ monat, p, zu, haken, sofort, busy, reload, toast }) {
     setAlleBusy(false);
   };
   const prot = p.haken_protokoll || [];
+  const [filter, setFilter] = useState(() => localStorage.getItem('ck_ab_ma_filter') || 'alle');   // "Nur offene" / "Alle", gemerkt
+  useEffect(() => { localStorage.setItem('ck_ab_ma_filter', filter); }, [filter]);
+  const [info, setInfo] = useState({});
   const an = (x, art) => { const k = `ma:${x.employee_id}:${art}`; return k in sofort ? sofort[k] : x[`haken_${art}`]; };
   const box = (x, art) => {
     const k = `ma:${x.employee_id}:${art}`;
@@ -163,27 +170,39 @@ function MaListe({ monat, p, zu, haken, sofort, busy, reload, toast }) {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="ck-btn ck-btn-sm" disabled={zu || alleBusy || !p.ma_unauffaellig_offen} onClick={alle} data-ma-alle>
             <CheckCircle2 size={15} />{t('ab.ma_alle', { n: p.ma_unauffaellig_offen || 0 })}</button>
+          <div className="ck-seg" role="group" aria-label={t('ab.ma_filter')} data-ma-filter>
+            {['offen', 'alle'].map((k) => <button key={k} className={filter === k ? 'is-on' : ''} aria-pressed={filter === k} onClick={() => setFilter(k)} data-ma-filter-k={k}>{t(`ab.ma_f_${k}`)}</button>)}</div>
           <span className={`ck-tag${p.ma_ok === p.ma_gesamt ? ' tone-ok' : ''}`} data-ma-fortschritt>{t('ab.ma_n', { n: p.ma_ok, m: p.ma_gesamt })}</span>
         </div></div>
       <p className="ck-subtle" style={{ margin: '0 16px 10px' }}>{t('ab.ma_hint')}</p>
       <div className="ck-table-wrap"><table className="ck-table ab-ma">
         <thead><tr><th>{t('ab.c_pnr')}</th><th>{t('abr.c_name')}</th><th style={{ textAlign: 'right' }}>{t('ab.ma_c_std')}</th><th></th>
           <th style={{ textAlign: 'right' }}>{t('ab.ma_c_km')}</th><th></th><th style={{ textAlign: 'right' }}>{t('ab.ma_c_plan')}</th><th>{t('ab.ma_c_pruef')}</th></tr></thead>
-        <tbody>{mas.map((x) => {
-          const rot = x.hinweise.some((h) => h.rot);
-          const fertig = an(x, 'stunden') && an(x, 'km');
+        <tbody>{[...mas].map((x, i) => ({ x, i, fertig: an(x, 'stunden') && an(x, 'km') }))
+          .sort((a, b) => (a.fertig - b.fertig) || (a.i - b.i))      // abgehakte MA ans Ende (Drazen 28.11.2026)
+          .filter((z) => filter === 'alle' || !z.fertig).map(({ x, fertig }) => {
+          const rote = x.hinweise.filter((h) => h.rot), graue = x.hinweise.filter((h) => !h.rot);
+          const kommt = x.hinweise.find((h) => h.kommt);
           return (
-            <tr key={x.employee_id} className={fertig ? 'is-ok' : ''} data-ma={x.personal_nr}>
+            <tr key={x.employee_id} className={fertig ? 'is-ok ab-ma-fertig' : ''} data-ma={x.personal_nr} data-ma-fertig={fertig ? '1' : '0'}>
               <td className="ck-num">{x.personal_nr}</td>
               <td><Link className="ck-link" to={`/cockpit/zeiten?von=${monat}-01&bis=${monatsende(monat)}&q=${encodeURIComponent(x.personal_nr)}`} title={t('ab.ma_zeiten')}>{x.name}</Link></td>
               <td className="ck-num" style={{ textAlign: 'right' }} title={t('ab.ma_detail', { n: fmtNum(x.normal, 2), s: fmtNum(x.sonder, 2), f: fmtNum(x.feiertag, 2), u: fmtNum(x.urlaub, 2) })}>{fmtNum(x.stunden, 2)}</td>
-              <td>{box(x, 'stunden')}{x.haken_stunden_veraltet && <div className="ab-ma-alt">{t('ab.ma_veraltet')}</div>}</td>
+              <td>{box(x, 'stunden')}{x.haken_stunden_veraltet && <div className="ab-ma-alt">{t('ab.ma_veraltet')}</div>}
+                {x.haken_stunden_entfernt && <div className="ab-ma-alt" data-haken-entfernt>{t('ab.ma_entfernt', { w: x.haken_stunden_entfernt })}</div>}</td>
               <td className="ck-num" style={{ textAlign: 'right' }}>{x.ohne_km ? <span className="ck-subtle">{t('ab.ma_kein_km')}</span> : `${fmtNum(x.km, 2)} €`}</td>
-              <td>{box(x, 'km')}{x.haken_km_veraltet && <div className="ab-ma-alt">{t('ab.ma_veraltet')}</div>}</td>
+              <td>{box(x, 'km')}{x.haken_km_veraltet && <div className="ab-ma-alt">{t('ab.ma_veraltet')}</div>}
+                {x.haken_km_entfernt && <div className="ab-ma-alt" data-haken-entfernt>{t('ab.ma_entfernt', { w: x.haken_km_entfernt })}</div>}</td>
               <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(x.plan_h, 2)} / {fmtNum(x.ist_h, 2)}</td>
-              <td className="ab-ma-pruef">{x.hinweise.length === 0 ? <Status s="approved" label={t('ab.ma_ok')} />
-                : x.hinweise.map((h, i) => <div key={i} className={h.rot ? 'is-rot' : 'is-info'} data-ma-hinweis={h.rot ? 'rot' : 'info'}>{h.rot ? '● ' : '○ '}{h.text}</div>)}
-                {rot && <span className="ck-subtle"> </span>}</td>
+              <td className="ab-ma-pruef">
+                {rote.map((h, j) => <div key={j} className="is-rot" data-ma-hinweis="rot">● {h.text}</div>)}
+                {!rote.length && <Status s="approved" label={t('ab.ma_ok')} />}
+                {graue.length > 0 && <div className="ab-ma-info">
+                  {kommt && <span className="ck-subtle" data-ma-kommt>{kommt.text.split(':')[0]}</span>}
+                  <button type="button" className="ab-ma-i" aria-expanded={!!info[x.employee_id]} title={t('ab.ma_info')}
+                    onClick={() => setInfo((s) => ({ ...s, [x.employee_id]: !s[x.employee_id] }))} data-ma-info={x.personal_nr}><Info size={14} />{graue.length}</button>
+                  {info[x.employee_id] && <div className="ab-ma-info-liste">{graue.map((h, j) => <div key={j} className="is-info" data-ma-hinweis="info">○ {h.text}</div>)}</div>}
+                </div>}</td>
             </tr>);
         })}</tbody>
       </table></div>

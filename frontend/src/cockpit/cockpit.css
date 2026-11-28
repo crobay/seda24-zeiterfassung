@@ -710,3 +710,12 @@ button.ck-kpi { font: inherit; color: inherit; width: 100%; }
 .ck-art-btn { cursor: pointer; }
 .ck-art-btn.is-sonder { font-weight: 600; color: var(--ck-accent-ink); }
 .ck-art-select { height: 32px; padding: 2px 6px; width: auto; min-width: 150px; }
+
+/* Monatsabschluss Schritt 1 aufgeraeumt (Drazen 28.11.2026) */
+.ab-ma tr.ab-ma-fertig td { opacity: .5; }
+.ab-ma tr.ab-ma-fertig:hover td { opacity: .85; }
+.ab-ma-info { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.ab-ma-i { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 6px; border-radius: 11px; border: 1px solid var(--ck-border);
+  background: var(--ck-surface); color: var(--ck-text-3); font: inherit; font-size: 12px; cursor: pointer; }
+.ab-ma-i:hover, .ab-ma-i[aria-expanded="true"] { color: var(--ck-accent-ink); border-color: var(--ck-accent); }
+.ab-ma-info-liste { flex-basis: 100%; font-size: 12px; color: var(--ck-text-3); }
