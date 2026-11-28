@@ -1,8 +1,7 @@
-"""SEDA24-Mail-Signatur (Lohn-Mail, Material-Mail an Kunden) im Stil von Drazens Outlook-Signatur, ohne Foto und
-ohne Personenname: Tabelle mit schmaler hellblauer Linie, Logo, Titel/Firma, Zeilen mit Icons, Haftungsausschluss.
-Bilder liegen in app/assets/lohnmail und werden als CID eingebettet (kein externer Abruf, kein Tracker).
-Nur Tabellen + Inline-Styles + width/height-Attribute: Outlook (auch Dunkelmodus) und Gmail zeigen es gleich."""
-import os
+"""SEDA24-Mail-Signatur (Lohn-Mail, Material-Mail an Kunden) im Layout von Drazens Outlook-Signatur, ohne Foto und
+ohne Personenname. HTML 1:1 von Drazen (28.11.2026 08:29), nur Titel und Mail-Adresse wechseln je Absender
+(Lohn: "SEDA24 Lohnbuchhaltung" / lohn@seda.de, Material: "SEDA24 Objektbetreuung" / material@seda24.de).
+Bilder (Logo, Icons) werden wie in Outlook vom emailacademy-CDN geladen, nichts mehr eingebettet."""
 from html import escape
 
 FIRMA = "Seda Consulting GmbH"
@@ -15,20 +14,14 @@ DISCLAIMER = ("HAFTUNGSAUSSCHLUSS: Diese E-Mail-Nachricht, einschließlich aller
               "gesetzlich geschützt sind. Jede unbefugte Überprüfung, Verwendung oder Verbreitung ist untersagt. Wenn Sie "
               "nicht der beabsichtigte Empfänger sind, wenden Sie sich bitte per Antwort-E-Mail an den Absender und "
               "vernichten Sie alle Kopien der ursprünglichen Nachricht.")
-BILDER = {"logo": "logo.png", "tel": "tel.png", "mail": "mail.png", "web": "web.png", "pin": "pin.png", "recht": "recht.png"}
-BILD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "lohnmail")
 F = "font-family:Arial,Helvetica,sans-serif;"
 NAVY, HELL, INK, GRAU = "#1E537C", "#8EC1E6", "#1C2B38", "#8A8F98"
 BODY = '<body style="margin:0;padding:16px;">'
 
 
 def bilder():
-    """[(content_id, dateiname, bytes)] fuer die eingebetteten Signatur-Bilder."""
-    out = []
-    for cid, datei in BILDER.items():
-        with open(os.path.join(BILD_DIR, datei), "rb") as f:
-            out.append((f"{cid}@seda24", f"sig_{datei}", f.read()))
-    return out
+    """Eingebettete Signatur-Bilder: keine mehr (Bilder kommen per Link wie in Outlook, Drazen 28.11.2026)."""
+    return []
 
 
 def text(titel, mail):
@@ -37,30 +30,27 @@ def text(titel, mail):
         + "\n\n" + DISCLAIMER
 
 
+# Drazen 28.11.2026 08:29, wortlich; @@TITEL@@ / @@MAIL@@ werden ersetzt (Tel-Link korrigiert auf tel:+4972251804970)
+SIGNATUR_HTML = (
+    '<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;"><tr><td style="background-color:#2d5277;width:3px;padding:0;"></td><td style="padding:0 0 0 10px;">'
+    '<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;">'
+    '<tr><td style="padding:0 0 8px 0;"><img src="@@CDN@@logo2024_10_27_18_20_29.png" width="117" height="36" alt="SEDA24" border="0" style="display:block;"></td></tr>'
+    '<tr><td style="font-size:18px;line-height:20px;font-weight:700;color:#2d5277;">@@TITEL@@</td></tr>'
+    '<tr><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 10px 0;">Seda Consulting GmbH</td></tr></table>'
+    '<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;">'
+    '<tr><td style="padding:0 10px 4px 0;width:24px;vertical-align:middle;"><img src="@@CDN@@p2024_10_27_18_20_29.png" width="24" height="24" alt="" border="0" style="display:block;"></td><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 4px 0;vertical-align:middle;"><a href="tel:+4972251804970" style="color:#000001;text-decoration:none;">+49 (0) 72 25 - 180 49 70</a></td></tr>'
+    '<tr><td style="padding:0 10px 4px 0;width:24px;vertical-align:middle;"><img src="@@CDN@@m2024_10_27_18_20_29.png" width="24" height="24" alt="" border="0" style="display:block;"></td><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 4px 0;vertical-align:middle;"><a href="mailto:@@MAIL@@" style="color:#000001;text-decoration:none;">@@MAIL@@</a></td></tr>'
+    '<tr><td style="padding:0 10px 4px 0;width:24px;vertical-align:middle;"><img src="@@CDN@@w2024_10_27_18_20_29.png" width="24" height="24" alt="" border="0" style="display:block;"></td><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 4px 0;vertical-align:middle;"><a href="https://www.seda24.de" style="color:#000001;text-decoration:none;">www.seda24.de</a></td></tr>'
+    '<tr><td style="padding:0 10px 6px 0;width:24px;vertical-align:middle;"><img src="@@CDN@@gm2024_10_27_18_20_29.png" width="24" height="24" alt="" border="0" style="display:block;"></td><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 6px 0;vertical-align:middle;"><a href="https://maps.app.goo.gl/YCviBt3UEaC8TAQZ8" style="color:#000001;text-decoration:none;">Zeppelinstr. 42<br>76571 Gaggenau</a></td></tr>'
+    '<tr><td style="padding:0 10px 8px 0;width:24px;vertical-align:middle;"><img src="@@CDN@@law2024_10_26_17_53_55.png" width="16" height="16" alt="" border="0" style="display:block;"></td><td style="font-size:14px;line-height:16px;color:#000001;padding:0 0 8px 0;vertical-align:middle;">Amtsgericht Mannheim<br>HRB: 739405</td></tr></table>'
+    '</td></tr><tr><td colspan="2" style="font-size:8px;line-height:10px;color:#afafaf;padding:10px 0 0 0;max-width:440px;">@@DISCLAIMER@@</td></tr></table>'
+).replace("@@CDN@@", "https://cdn.emailacademy.com/user/17187e6d04791d2e5725ca8e4f31900966ab9130d1e80060569bcfb3e1e023d9/")
+
+
 def html(titel, mail):
-    """Signatur-Tabelle + Haftungsausschluss (HTML-Teil)."""
-    a = f'style="{F}color:{NAVY};text-decoration:none;"'
-    zeilen = [("tel", f'<a href="{TEL_URI}" {a}>{escape(TEL_TEXT)}</a>'),
-              ("mail", f'<a href="mailto:{escape(mail)}" {a}>{escape(mail)}</a>'),
-              ("web", f'<a href="https://{WEB}" {a}>{WEB}</a>'),
-              ("pin", "<br>".join(escape(z) for z in ADRESSE)),
-              ("recht", "<br>".join(escape(z) for z in REGISTER))]
-    reihen = "".join(
-        f'<tr><td width="18" valign="top" style="width:18px;padding:0 8px 6px 0;">'
-        f'<img src="cid:{cid}@seda24" width="18" height="18" alt="" style="display:block;width:18px;height:18px;border:0;"></td>'
-        f'<td valign="middle" style="{F}font-size:12px;line-height:16px;color:{INK};padding:1px 0 6px 0;">{inhalt}</td></tr>'
-        for cid, inhalt in zeilen)
-    return (
-        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 16px;">'
-        f'<tr><td width="3" bgcolor="{HELL}" style="width:3px;min-width:3px;background-color:{HELL};font-size:1px;line-height:1px;">&nbsp;</td>'
-        '<td width="14" style="width:14px;font-size:1px;line-height:1px;">&nbsp;</td>'
-        '<td valign="top" style="padding:2px 0;">'
-        '<img src="cid:logo@seda24" width="120" height="40" alt="SEDA24" style="display:block;width:120px;height:40px;border:0;margin:0 0 10px;">'
-        f'<div style="{F}font-size:15px;line-height:19px;font-weight:bold;color:{NAVY};">{escape(titel)}</div>'
-        f'<div style="{F}font-size:13px;line-height:18px;color:{INK};margin:0 0 10px;">{FIRMA}</div>'
-        f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">{reihen}</table>'
-        '</td></tr></table>'
-        f'<p style="{F}font-size:9px;line-height:12px;color:{GRAU};margin:0;max-width:600px;">{escape(DISCLAIMER)}</p>')
+    """Signatur-Tabelle mit Haftungsausschluss (HTML-Teil), Drazens HTML 1:1."""
+    return (SIGNATUR_HTML.replace("@@TITEL@@", escape(titel)).replace("@@MAIL@@", escape(mail))
+            .replace("@@DISCLAIMER@@", DISCLAIMER))
 
 
 def absatz(t, html_inhalt=None):

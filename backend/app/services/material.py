@@ -36,7 +36,7 @@ BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file
 ABLAGE = os.path.join(BACKEND, "data", "material")
 MAIL_KEY = "materialmail"
 MAIL_DEFAULT = {"testmodus": True, "test_an": "dsertic@seda.de", "absender": "info@seda.de",
-                "absender_name": "SEDA24 Objektbetreuung", "antwort_an": "", "signatur_mail": "info@seda.de"}
+                "absender_name": "SEDA24 Objektbetreuung", "antwort_an": "", "signatur_mail": "material@seda24.de"}
 MAIL_RE = re.compile(r"[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}", re.I)
 
 
