@@ -767,11 +767,38 @@ def zeit_satz(entry_id: int, data: dict, db: Session = Depends(get_db), user=Dep
         raise HTTPException(404, "Buchung nicht gefunden")
     if alt[0]["object_id"] in (OBJ_URLAUB, OBJ_KRANK) or (alt[0]["hourly_rate"] is not None and float(alt[0]["hourly_rate"]) < 0):
         raise HTTPException(400, "Bei Urlaub/Krank wird der Satz nicht hier geändert")
+    st = _q(db, "SELECT service_type FROM time_entries WHERE id = :i", i=entry_id)[0]["service_type"]
+    if not buchung_art.ist_sonder(st):   # Drazen 28.11.2026 09:11: Unterhalt grau, Lohn aus Stammblatt (Lexware)
+        raise HTTPException(400, "Unterhaltsreinigung: Lohn aus Stammblatt (Lexware) – Satz nur bei Grund-/Sonder-/Fensterreinigung änderbar")
     try:
         satz = buchung_art.satz_pruefen(data.get("stundensatz"))
     except ValueError as e:
         raise HTTPException(400, str(e))
     update_booking(entry_id, {"hourly_rate": satz}, db=db, admin=user)
+    return zeit(entry_id, db=db, user=user)
+
+
+@router.put("/zeiten/{entry_id}/art")
+def zeit_art(entry_id: int, data: dict, db: Session = Depends(get_db), user=Depends(verify_admin_or_objektleiter)):
+    """Nur die Art einer Buchung aendern (Cockpit > Zeiten, Spalte "Art", Drazen 28.11.2026 09:11). Satz wird neu
+    vorbelegt: Grund/Sonder/Fenster = Sondersatz des MA (sonst 20 €), Unterhalt = Lohn aus Stammblatt/Zuweisung.
+    Lohnart folgt der Art (normal/sonder). Protokoll alt/neu ueber update_booking; gesperrter Monat -> 423."""
+    from app.api.v1.endpoints.admin import update_booking
+    art = data.get("art")
+    if art not in buchung_art.ARTEN:
+        raise HTTPException(400, buchung_art.ART_FEHLER)
+    alt = _q(db, "SELECT employee_id, object_id, hourly_rate, service_type FROM time_entries WHERE id = :i", i=entry_id)
+    if not alt:
+        raise HTTPException(404, "Buchung nicht gefunden")
+    alt = alt[0]
+    if alt["object_id"] in (OBJ_URLAUB, OBJ_KRANK) or (alt["hourly_rate"] is not None and float(alt["hourly_rate"]) < 0):
+        raise HTTPException(400, "Bei Urlaub/Krank wird die Art nicht geändert")
+    if art != (alt["service_type"] or buchung_art.UNTERHALT):
+        try:
+            satz = buchung_art.satz(db, alt["employee_id"], alt["object_id"], art)
+        except LookupError as e:
+            raise HTTPException(404, str(e))
+        update_booking(entry_id, {"service_type": art, "hourly_rate": satz}, db=db, admin=user)
     return zeit(entry_id, db=db, user=user)
 
 

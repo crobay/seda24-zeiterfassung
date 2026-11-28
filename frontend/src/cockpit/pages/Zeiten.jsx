@@ -14,7 +14,7 @@ const VerspKurz = ({ r, art }) => {
 // Art wie alte Ansicht/App (gleiche gespeicherte Werte); Grund/Sonder/Fenster = Lohnart Sonder
 const ARTEN = ['Unterhaltsreinigung', 'Grundreinigung', 'Sonderreinigung', 'Fensterreinigung'];
 const LINK = { background: 'none', border: 0, padding: 0, font: 'inherit', color: 'var(--ck-accent-ink)', textDecoration: 'underline', textUnderlineOffset: 3, cursor: 'pointer' };
-const COLS = [['datum', 'zeiten.date'], ['name', 'zeiten.name'], ['objekt', 'zeiten.object'], ['kommen', 'zeiten.in'], ['gehen', 'zeiten.out'], ['stunden', 'zeiten.hours'], ['hourly_rate', 'zeiten.rate'], ['weg', 'zeiten.way'], ['hinweis', 'zeiten.hint']];
+const COLS = [['datum', 'zeiten.date'], ['name', 'zeiten.name'], ['objekt', 'zeiten.object'], ['kommen', 'zeiten.in'], ['gehen', 'zeiten.out'], ['stunden', 'zeiten.hours'], ['service_type', 'zeiten.art_col'], ['hourly_rate', 'zeiten.rate'], ['weg', 'zeiten.way'], ['hinweis', 'zeiten.hint']];
 
 export default function Zeiten() {
   const { me, toast } = useApp();
@@ -45,6 +45,7 @@ export default function Zeiten() {
   const [onlyHint, setOnlyHint] = useState(false);
   const [sort, setSort] = useState({ k: 'datum', dir: -1 });
   const [edit, setEdit] = useState(null); // {eintrag} | {neu: {...}}
+  const [satzAuf, setSatzAuf] = useState(null);   // nach Wechsel auf Grund/Sonder/Fenster: Satz sofort editierbar
   const setParam = (k, v) => { const n = new URLSearchParams(params); if (v == null) n.delete(k); else n.set(k, v); setParams(n, { replace: true }); };
 
   // Deep-Links aus der Leitstelle: ?eintrag=ID (bearbeiten), ?neu=SCHICHT (für Schicht nachtragen)
@@ -113,7 +114,8 @@ export default function Zeiten() {
                     <td className="ck-num">{r.kommen}<VerspKurz r={r} art="kommen" /></td>
                     <td className="ck-num">{r.gehen ? <>{r.gehen}{r.gehen_datum && r.gehen_datum !== r.datum && <span className="ck-subtle"> ({fmtDate(r.gehen_datum)})</span>}<VerspKurz r={r} art="gehen" /></> : <Status s="da" label={t('status.da')} />}</td>
                     <td className="ck-num" style={{ textAlign: 'right' }}>{fmtNum(r.stunden, 2)}</td>
-                    <SatzZelle r={r} onDone={reload} />
+                    <ArtZelle r={r} onDone={(id) => { setSatzAuf(id); reload(); }} />
+                    <SatzZelle r={r} onDone={reload} auf={satzAuf === r.id} onAuf={() => setSatzAuf(null)} />
                     <td className="ck-subtle">{r.weg}</td>
                     <td>{r.hinweis && <Status s="fehlt" label={r.hinweis} />}</td>
                     <td>{r.fehlt ? <Plus size={15} className="ck-muted" aria-hidden="true" /> : r.gesperrt ? <Lock size={15} className="ck-muted" aria-label={t('zeiten.locked_short')} /> : <Pencil size={15} className="ck-muted" aria-hidden="true" />}</td>
@@ -128,16 +130,50 @@ export default function Zeiten() {
   );
 }
 
-// Spalte "Satz" (Drazen 28.11.2026 08:46): Klick -> direkt aendern, Enter speichert, Esc/Verlassen bricht ab.
-// Protokoll alt/neu (Server). Gesperrter Monat: nur nach Oeffnen mit Super-PIN im Monatsabschluss (Server 423).
-// Lohn: Grund/Sonder/Fenster rechnen mit dem Satz der Buchung, Unterhalt mit dem Stundenlohn aus dem Stammblatt.
+// Spalte "Satz" (Drazen 28.11.2026 08:46/09:11): bei Grund/Sonder/Fenster Klick -> direkt aendern, Enter speichert,
+// Esc/Verlassen bricht ab. Unterhalt grau, nicht editierbar (Lohn aus Stammblatt/Lexware). Protokoll alt/neu (Server).
+// Gesperrter Monat: nur nach Oeffnen mit Super-PIN im Monatsabschluss (Server 423). Urlaub/Krank nie.
 const SONDER = ['Grundreinigung', 'Sonderreinigung', 'Fensterreinigung'];
-function SatzZelle({ r, onDone }) {
+const ART_KURZ = { Unterhaltsreinigung: 'Unterhalt', Grundreinigung: 'Grund', Sonderreinigung: 'Sonder', Fensterreinigung: 'Fenster' };
+const istFest = (r) => r.fehlt || r.object_id === 999 || r.object_id === 19 || (r.hourly_rate != null && r.hourly_rate < 0);
+
+function ArtZelle({ r, onDone }) {
+  const { toast } = useApp();
+  const [auf, setAuf] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const art = r.service_type && ARTEN.includes(r.service_type) ? r.service_type : 'Unterhaltsreinigung';
+  const stop = (e) => e.stopPropagation();
+  if (istFest(r)) return <td className="ck-subtle" data-art={r.id}>{r.fehlt ? '' : r.object_id === 999 ? t('zeiten.art_urlaub') : r.object_id === 19 ? t('zeiten.art_krank') : '–'}</td>;
+  const wechseln = async (neu) => {
+    setAuf(false);
+    if (neu === art) return;
+    setBusy(true);
+    try {
+      const n = (await api.put(`/zeiten/${r.id}/art`, { art: neu })).data;
+      toast(t('zeiten.art_saved', { name: r.name, alt: ART_KURZ[art], neu: ART_KURZ[neu], satz: fmtNum(n.hourly_rate, 2) }),
+        { undo: async () => { await api.put(`/zeiten/${r.id}/art`, { art }); if (SONDER.includes(art) && r.hourly_rate != null) await api.put(`/zeiten/${r.id}/satz`, { stundensatz: r.hourly_rate }); onDone(null); } });
+      onDone(SONDER.includes(neu) ? r.id : null);
+    } catch (e) { toast(apiError(e), { tone: 'warn' }); }
+    setBusy(false);
+  };
+  if (!auf) return (
+    <td data-art={r.id}><button type="button" className={`ck-satz-btn ck-art-btn${SONDER.includes(art) ? ' is-sonder' : ''}`} disabled={busy} title={art}
+      onClick={(e) => { stop(e); if (r.gesperrt) { toast(t('zeiten.rate_locked'), { tone: 'warn' }); return; } setAuf(true); }} onKeyDown={stop} data-art-knopf>
+      {r.gesperrt && <Lock size={12} style={{ marginRight: 3, verticalAlign: '-1px' }} />}{ART_KURZ[art]}</button></td>);
+  return (
+    <td onClick={stop} data-art={r.id}>
+      <select className="ck-input ck-art-select" autoFocus value={art} aria-label={t('zeiten.art')} data-art-auswahl
+        onChange={(e) => wechseln(e.target.value)} onBlur={() => setAuf(false)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') setAuf(false); }}>
+        {ARTEN.map((a) => <option key={a} value={a}>{a}</option>)}</select></td>);
+}
+
+function SatzZelle({ r, onDone, auf, onAuf }) {
   const { toast } = useApp();
   const [wert, setWert] = useState(null);
   const [busy, setBusy] = useState(false);
-  const fest = r.fehlt || r.object_id === 999 || r.object_id === 19 || (r.hourly_rate != null && r.hourly_rate < 0);
+  const fest = istFest(r);
   const unterhalt = !SONDER.includes(r.service_type);
+  useEffect(() => { if (auf && !fest && !unterhalt && !r.gesperrt) { setWert(r.hourly_rate != null ? fmtNum(r.hourly_rate, 2) : ''); onAuf(); } }, [auf, r.service_type, r.hourly_rate]); // eslint-disable-line
   const ok = wert != null && /^\d{1,3}([.,]\d{1,2})?$/.test(wert.trim());
   const stop = (e) => e.stopPropagation();
   const speichern = async () => {
@@ -154,18 +190,19 @@ function SatzZelle({ r, onDone }) {
     setBusy(false);
   };
   const anzeige = r.hourly_rate != null && r.hourly_rate >= 0 ? `${fmtNum(r.hourly_rate, 2)} €` : '–';
-  if (fest) return <td className="ck-num ck-subtle" style={{ textAlign: 'right' }} data-satz={r.id}>{r.fehlt ? '' : anzeige}</td>;
+  if (fest || unterhalt) return (
+    <td className="ck-num ck-subtle" style={{ textAlign: 'right', whiteSpace: 'nowrap' }} data-satz={r.id} data-satz-grau={unterhalt && !fest ? '' : undefined}
+      title={unterhalt && !fest ? t('zeiten.rate_hint_normal') : undefined} onClick={stop}>{r.fehlt ? '' : anzeige}</td>);
   if (wert == null) return (
     <td className="ck-num" style={{ textAlign: 'right', whiteSpace: 'nowrap' }} data-satz={r.id}>
       <button type="button" className="ck-satz-btn" onClick={(e) => { stop(e); if (r.gesperrt) { toast(t('zeiten.rate_locked'), { tone: 'warn' }); return; } setWert(r.hourly_rate != null ? fmtNum(r.hourly_rate, 2) : ''); }}
-        onKeyDown={stop} title={r.gesperrt ? t('zeiten.rate_locked') : unterhalt ? t('zeiten.rate_hint_normal') : t('zeiten.rate_hint')} aria-label={`${t('zeiten.rate')} ${anzeige}`} data-satz-knopf>
+        onKeyDown={stop} title={r.gesperrt ? t('zeiten.rate_locked') : t('zeiten.rate_hint')} aria-label={`${t('zeiten.rate')} ${anzeige}`} data-satz-knopf>
         {r.gesperrt && <Lock size={12} style={{ marginRight: 3, verticalAlign: '-1px' }} />}{anzeige}</button></td>);
   return (
     <td className="ck-num" style={{ textAlign: 'right' }} onClick={stop} data-satz={r.id}>
       <input className="ck-input ck-satz-input" value={wert} inputMode="decimal" autoFocus disabled={busy} aria-label={t('zeiten.rate_label')} data-satz-eingabe
         aria-invalid={!ok} onChange={(e) => setWert(e.target.value)} onBlur={() => !busy && setWert(null)}
         onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') speichern(); if (e.key === 'Escape') setWert(null); }} />
-      {unterhalt && <div className="ck-subtle" style={{ fontSize: 11, whiteSpace: 'normal', minWidth: 150, textAlign: 'left' }} data-satz-hinweis>{t('zeiten.rate_hint_normal')}</div>}
     </td>);
 }
 

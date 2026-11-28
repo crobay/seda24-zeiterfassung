@@ -707,3 +707,6 @@ button.ck-kpi { font: inherit; color: inherit; width: 100%; }
 .ck-satz-btn:hover, .ck-satz-btn:focus-visible { border-color: var(--ck-border-strong); background: var(--ck-surface-2); }
 .ck-satz-input { width: 76px; height: 32px; padding: 2px 6px; text-align: right; }
 .ck-satz-input[aria-invalid="true"] { border-color: var(--ck-warn); }
+.ck-art-btn { cursor: pointer; }
+.ck-art-btn.is-sonder { font-weight: 600; color: var(--ck-accent-ink); }
+.ck-art-select { height: 32px; padding: 2px 6px; width: auto; min-width: 150px; }

@@ -10,7 +10,7 @@ const H = { Authorization: `Bearer ${process.env.CK_TOKEN}`, 'Content-Type': 'ap
 let fehler = 0;
 const ok = (n, c, i = '') => { console.log(`  [${c ? 'OK ' : 'XX '}] ${n}${i ? ' - ' + i : ''}`); if (!c) fehler++; };
 const get = async (id) => (await (await fetch(`${API}/zeiten/${id}`, { headers: H })).json());
-const alt = { [SONDER]: (await get(SONDER)).hourly_rate, [UNTER]: (await get(UNTER)).hourly_rate };
+const alt = { [SONDER]: (await get(SONDER)).hourly_rate };
 const b = await chromium.launch();
 const js = [];
 try {
@@ -24,7 +24,7 @@ try {
     const zelle = (id) => p.locator(`[data-satz="${id}"]`);
     await zelle(SONDER).waitFor({ timeout: 20000 });
     const kopf = await p.$$eval('.ck-table thead th', (a) => a.map((x) => x.textContent.trim()));
-    ok('Spalte "Satz" direkt neben "Std."', kopf.indexOf('Satz') === kopf.findIndex((x) => /^Std/.test(x)) + 1, kopf.join(' | '));
+    ok('Spalten Std. -> Art -> Satz', kopf.indexOf('Satz') === kopf.findIndex((x) => /^Std/.test(x)) + 2 && kopf.indexOf('Art') + 1 === kopf.indexOf('Satz'), kopf.join(' | '));
     ok('Satz angezeigt', (await zelle(SONDER).textContent()).includes('€'), (await zelle(SONDER).textContent()).trim());
     await zelle(SONDER).scrollIntoViewIfNeeded();
     // Esc bricht ab
@@ -44,18 +44,10 @@ try {
       ok('Zelle zeigt neuen Satz', (await zelle(SONDER).textContent()).includes('22,50'));
       ok('Hinweis mit alt -> neu', /20,00 € → 22,50 €/.test(await p.locator('.ck-toast').first().textContent()));
       await p.screenshot({ path: path.join(OUT, `gespeichert_${name}.png`) });
-      // Unterhalt: Hinweis im Feld
+      // Unterhalt: grau, nicht editierbar (Drazen 28.11.2026 09:11)
       await zelle(UNTER).scrollIntoViewIfNeeded();
-      await zelle(UNTER).locator('[data-satz-knopf]').click();
-      ok('Unterhalt: Hinweis "Lohn rechnet mit Stundenlohn aus dem Stammblatt"', await zelle(UNTER).locator('[data-satz-hinweis]').isVisible());
-      await p.screenshot({ path: path.join(OUT, `unterhalt_hinweis_${name}.png`) });
-      await zelle(UNTER).locator('[data-satz-eingabe]').fill('18'); await zelle(UNTER).locator('[data-satz-eingabe]').press('Enter'); await p.waitForTimeout(900);
-      ok('Unterhalt gespeichert (-> 18,00)', (await get(UNTER)).hourly_rate === 18);
-      // ungueltig
-      await zelle(UNTER).locator('[data-satz-knopf]').click();
-      await zelle(UNTER).locator('[data-satz-eingabe]').fill('abc'); await zelle(UNTER).locator('[data-satz-eingabe]').press('Enter'); await p.waitForTimeout(500);
-      ok('Ungueltige Eingabe wird nicht gespeichert', (await get(UNTER)).hourly_rate === 18);
-      await zelle(UNTER).locator('[data-satz-eingabe]').press('Escape');
+      ok('Unterhalt: Satz grau, kein Eingabefeld, Tooltip "Lohn aus Stammblatt (Lexware)"', await zelle(UNTER).locator('button, input').count() === 0
+        && await zelle(UNTER).getAttribute('title') === 'Lohn aus Stammblatt (Lexware)');
       // gesperrter Monat (Oktober)
       await p.goto(`${BASE}/cockpit/zeiten?monat=2026-10&range=month`);
       await zelle(ZU).waitFor({ timeout: 20000 }); await zelle(ZU).scrollIntoViewIfNeeded();
